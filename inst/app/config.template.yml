@@ -1,0 +1,34 @@
+# ===========================================================================
+# NDSU Cross Design Workbench - local configuration
+# ===========================================================================
+# Edit this file to point the app at YOUR local R installation, then restart.
+# Any key can be overridden by an env var NGCD_<UPPERCASE_KEY>.
+# ===========================================================================
+
+default:
+
+  # Rscript that runs the BACKEND (separate from the R running the UI).
+  #   Windows: "C:/Program Files/R/R-4.4.1/bin/x64/Rscript.exe"
+  #   macOS:   "/usr/local/bin/Rscript"  or  "/opt/homebrew/bin/Rscript"
+  #   Linux:   "/usr/bin/Rscript"
+  # "Rscript" uses whatever is first on your PATH.
+  rscript_path: "Rscript"
+
+  # Library where nextgenCrossDesign is installed. Blank = R's default library.
+  package_library: ""
+
+  required_backend_version: "0.4.0"
+
+  # Optional: path to an external AlphaMate executable, used only when a run
+  # picks allocation_method = alphamate_executable. Leave blank if you don't
+  # have it; the app falls back to the native alphamate_style allocator.
+  alphamate_executable: ""
+
+  run_timeout_seconds: 1800
+  max_upload_mb: 200
+
+  # Developer mode. When false (the default), the app hides the Setup screen and
+  # the Save / Load-settings profile tools (including their .json import/export)
+  # so end users see only the analysis workflow. Set to true while configuring
+  # or developing - or append ?dev=1 to the app URL to enable it for one visit.
+  developer_mode: false

@@ -1,0 +1,240 @@
+---
+title: "nextgenCrossWorkbench: a guided workbench for genomic cross prediction and mate allocation"
+author: "Mario Morales (front-end) and Sikiru Atanda (backend)"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{nextgenCrossWorkbench}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Introduction
+
+**nextgenCrossWorkbench** is a point-and-click [`shiny`](https://shiny.posit.co/)
+front-end for **genomic cross prediction** and **mate allocation** in plant and
+animal breeding programs. It turns a genomic-selection cross-design pipeline into
+a guided, ten-step web application over plain CSV inputs.
+
+The workbench predicts the genetic merit of every possible cross between a set of
+genotyped, phenotyped parents, then builds a mating plan that trades off
+**genetic gain** against **diversity** (group coancestry / inbreeding). The
+breeding-genetics computations are performed by the companion
+**`nextgenCrossDesign`** engine (authored by Dr. Sikiru Atanda), which the
+workbench drives as a *separate, user-configured R process*. The front-end
+installs and launches independently of the backend.
+
+This vignette explains the input files, how to configure and launch the app, and
+the analysis workflow — the standard diploid workflow, robust (posterior)
+allocation, and the dosage-aware polyploid design workflow.
+
+```{r}
+library(nextgenCrossWorkbench)
+```
+
+## Installation and one-time setup
+
+The front-end and the backend are installed independently:
+
+```{r eval = FALSE}
+# 1. the backend engine (performs the computations; a separate R process)
+R CMD INSTALL nextgenCrossDesign_0.4.0.tar.gz
+
+# 2. this front-end (pulls its dependencies from CRAN)
+install.packages("nextgenCrossWorkbench", dependencies = TRUE)
+```
+
+The first time you use the workbench on a machine, create a working folder. This
+writes a `config.yml` template and a `runs/` folder for per-run outputs:
+
+```{r eval = FALSE}
+init_workbench_dir("~/cross-workbench")
+```
+
+Edit `~/cross-workbench/config.yml` so `rscript_path` points at the R
+installation that has `nextgenCrossDesign` installed, and (optionally)
+`package_library` to the library where it lives. The backend can be a *different*
+R installation than the one running the user interface. Every key can also be set
+with an environment variable, e.g. `NGCD_RSCRIPT_PATH`.
+
+## Input files
+
+The **standard** (diploid) workflow uses up to four CSV files. Genotype and
+phenotype are required; the marker map and trait-direction files are optional.
+The package bundles a small demo dataset (10 inbred parents, 12 markers, two
+traits) that you can inspect directly:
+
+```{r}
+demo_dir <- system.file("app", "data", "demo", package = "nextgenCrossWorkbench")
+```
+
+**1. Genotype matrix** — parents in rows, markers in columns, coded 0/1/2 (number
+of copies of the alternate allele). The first column holds the parent ID.
+
+```{r}
+geno <- read.csv(file.path(demo_dir, "genotype.csv"), check.names = FALSE)
+geno[1:5, 1:5]
+```
+
+**2. Phenotype table** — one row per parent, one column per trait (matched to the
+genotype by ID).
+
+```{r}
+pheno <- read.csv(file.path(demo_dir, "phenotype.csv"))
+head(pheno)
+```
+
+**3. Marker map** (optional) — marker name, chromosome, and position, used to
+model recombination when predicting progeny variance.
+
+```{r}
+map <- read.csv(file.path(demo_dir, "marker_map.csv"))
+head(map)
+```
+
+**4. Trait directions** (optional) — the selection direction for each trait, so
+that risk traits can be selected *downward*.
+
+```{r}
+read.csv(file.path(demo_dir, "trait_direction.csv"))
+```
+
+You can upload your own CSVs in the app (comma, semicolon, or tab separated; a
+UTF-8 byte-order mark from Excel is handled automatically) or start from this
+bundled demo. Every input table is **editable in place** — double-click a cell to
+change a value and re-run.
+
+## Launching the workbench
+
+```{r eval = FALSE}
+run_workbench("~/cross-workbench")
+```
+
+`run_workbench()` opens the app in your browser. (It is wrapped in `\dontrun` in
+the help examples because it starts an interactive Shiny session.) You can also
+obtain the Shiny app object without launching it — useful for deploying to a
+Shiny server:
+
+```{r eval = FALSE}
+app <- workbench_app("~/cross-workbench")
+```
+
+## The analysis workflow
+
+The app is organized as a ten-step navigation bar; each screen has a collapsible
+"how to use this step" guide.
+
+1. **Setup** — confirm the app can reach your R installation and the backend
+   engine (green status badges).
+2. **Data** — load or upload inputs, map columns (auto-guessed), review
+   ID/marker alignment checks, and edit tables.
+3. **Objective** — trait-by-trait or index-as-trait prediction; pick which traits
+   to include and how to combine them (auto, weighted, economic index, desired
+   gain).
+4. **Scoring** — the trait-value metric (default `var_complex`, the usefulness
+   criterion), the breeding system (DH or RIL), recombination and GRM methods,
+   and the selection proportion.
+5. **QC** — duplicate-parent detection, missingness/MAF filters, optional LD
+   pruning, and a residual-heterozygosity audit with a one-click exclusion.
+6. **Allocation** — the number of crosses (fixed, or an automatic optimizer that
+   sweeps K), the gain-versus-diversity balance, the optimizer, and constraints
+   on parent use, kinship, quotas, and progeny inbreeding.
+7. **Advanced** — marker-target steering, lethal-allele handling, cost/logistic
+   penalties, budgets, and posterior (MCMC) prediction options.
+8. **Output** — whether to write an Excel crossing-plan workbook and PNG figures,
+   and the random seed for reproducibility.
+9. **Run** — one click assembles a JSON configuration, materializes any edited
+   tables, and drives the backend. Errors are surfaced with plain-language hints.
+10. **Results** — a KPI row (crosses, mean gain, group coancestry, unique
+    parents, maximum parent use, mean progeny inbreeding) above sub-tabs for the
+    ranked plan, candidate scores, parent use, the gain–diversity frontier, QC
+    audit, input matching, marker effects, and method/settings provenance, plus a
+    self-contained **interactive HTML report** downloadable as HTML or PDF.
+
+### The merit metric: the usefulness criterion
+
+By default a cross is valued by the **usefulness criterion** — the expected mean
+of the selected fraction of its progeny, i.e. the progeny mean plus the selection
+intensity times the progeny standard deviation. Predicting the progeny *variance*
+(which depends on parental complementarity and recombination) is what separates
+usefulness from a simple mid-parent value, and is why the marker map matters.
+See Lehermeier et al. (2017) and Wolfe et al. (2021) in the references.
+
+### Optimal mate allocation
+
+Given per-cross merit and a relationship matrix, the allocation step selects a
+mating plan that maximizes mean merit while constraining group coancestry — an
+optimum-contribution-selection philosophy (Meuwissen 1997; Akdemir & Sánchez
+2016). Constraints mirror those used in practice: the number of crosses, maximum
+and minimum uses per parent, and a maximum pairwise-kinship (culling) threshold.
+The **gain–diversity frontier** on the Results screen shows the whole trade-off
+curve with your chosen plan marked.
+
+### Automatic cross-number optimization
+
+Rather than fixing the number of crosses, the Allocation screen can **sweep the
+number of crosses K** and recommend a value using a diminishing-returns (elbow /
+kneedle) rule, an effective-population-size floor, or a coancestry budget. When
+the sweep runs, the report adds a diminishing-returns curve and states the chosen
+K and rule.
+
+### Robust (posterior) allocation
+
+Because predicted merits carry uncertainty, the workbench can re-optimize on
+**posterior quantiles** or **top-N probabilities** instead of point estimates, so
+the recommended plan is stable under prediction uncertainty. The robust plan
+appears alongside the standard plan on the Results screen.
+
+## Polyploid and clonal design
+
+Switching the **analysis type** to *Polyploid* on the Data screen exposes a
+dosage-aware design path for autopolyploids and clonal crops. It takes a dosage
+matrix (coded 0..ploidy) and a single-trait phenotype; a marker map and
+trait-direction file are not required. The bundled demo is a tetraploid clone
+panel:
+
+```{r}
+poly_dir <- system.file("app", "data", "demo_poly", package = "nextgenCrossWorkbench")
+dosage <- read.csv(file.path(poly_dir, "dosage.csv"), check.names = FALSE)
+dosage[1:5, 1:6]
+```
+
+Set the ploidy to match your coding (tetraploid data uses 0..4, so Ploidy = 4).
+Options include modeling dominance/heterosis (for selecting clones on genotypic
+value), double reduction (autopolyploids, ploidy ≥ 4), a ploidy-aware genomic
+relationship matrix, and ploidy-aware QC. The resulting plan reports each cross's
+predicted mean, variance, dominance-aware usefulness, parent genomic estimated
+breeding values, and pairwise kinship.
+
+## Reproducibility and provenance
+
+Set a random **seed** on the Output screen for reproducible optimization.
+Every run records its full settings, which are shown on the Results
+"Method & settings" tab and embedded in the downloadable report, so a plan can
+always be traced back to the exact configuration that produced it.
+
+## References
+
+- Meuwissen, T.H.E., Hayes, B.J., & Goddard, M.E. (2001). Prediction of total
+  genetic value using genome-wide dense marker maps. *Genetics* 157(4):1819–1829.
+- VanRaden, P.M. (2008). Efficient methods to compute genomic predictions.
+  *Journal of Dairy Science* 91(11):4414–4423.
+- Meuwissen, T.H.E. (1997). Maximizing the response of selection with a
+  predefined rate of inbreeding. *Journal of Animal Science* 75(4):934–940.
+- Lehermeier, C., Teyssèdre, S., & Schön, C.-C. (2017). Genetic gain increases by
+  applying the usefulness criterion with improved variance prediction in
+  selection of crosses. *Genetics* 207(4):1651–1661.
+- Akdemir, D. & Sánchez, J.I. (2016). Efficient breeding by genomic mating.
+  *Frontiers in Genetics* 7:210.
+- Wolfe, M.D., Chan, A.W., Kulakow, P., Rabbi, I., & Jannink, J.-L. (2021).
+  Genomic mating in outbred species: predicting cross usefulness with additive
+  and total genetic covariance matrices. *Genetics* 219(3):iyab122.
+- Amadeu, R.R., et al. (2016). AGHmatrix: R package to construct relationship
+  matrices for autotetraploid and diploid species. *The Plant Genome* 9(3).

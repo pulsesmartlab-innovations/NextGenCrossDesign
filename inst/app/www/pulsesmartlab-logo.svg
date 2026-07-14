@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 300" role="img" aria-label="PulseSmartLab - Pulse Breeding, Genetics and Innovation">
+  <defs>
+    <linearGradient id="pslLeafA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4CAF3F"/>
+      <stop offset="1" stop-color="#2E7D22"/>
+    </linearGradient>
+    <linearGradient id="pslLeafB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7FD267"/>
+      <stop offset="1" stop-color="#3E9E30"/>
+    </linearGradient>
+  </defs>
+
+  <!-- sprout: stem + two leaves, growing above the P -->
+  <g>
+    <path d="M188 150 C176 120 174 96 182 66" fill="none" stroke="#2E7D22" stroke-width="6" stroke-linecap="round"/>
+    <path d="M182 96 C156 92 134 100 122 120 C146 128 172 122 184 104 Z" fill="url(#pslLeafB)"/>
+    <path d="M184 84 C188 56 208 38 236 34 C236 62 220 84 192 92 Z" fill="url(#pslLeafA)"/>
+    <path d="M182 100 C164 104 148 110 132 118" fill="none" stroke="#1f6b18" stroke-width="1.6" opacity="0.6"/>
+    <path d="M190 86 C202 68 216 54 232 44" fill="none" stroke="#1f6b18" stroke-width="1.6" opacity="0.6"/>
+  </g>
+
+  <!-- wordmark (textLength keeps it fitting regardless of installed serif) -->
+  <text x="175" y="188" textLength="700" lengthAdjust="spacingAndGlyphs"
+        font-family="Georgia, 'Times New Roman', serif" font-size="118" font-weight="700" fill="#16315B">PulseSmartLab</text>
+
+  <!-- divider rule with centered node (centered on wordmark) -->
+  <line x1="175" y1="226" x2="505" y2="226" stroke="#2E7D22" stroke-width="3"/>
+  <circle cx="525" cy="226" r="7" fill="#16315B"/>
+  <line x1="545" y1="226" x2="875" y2="226" stroke="#2E7D22" stroke-width="3"/>
+
+  <!-- tagline -->
+  <text x="525" y="270" text-anchor="middle" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="37" font-weight="600" fill="#2E8B2E">Pulse Breeding, Genetics &amp; Innovation</text>
+</svg>

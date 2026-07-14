@@ -1,0 +1,27 @@
+# R build artifacts
+*.Rcheck/
+*.tar.gz
+*.Rproj
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.Renviron
+
+# Vignette / knitr intermediates
+inst/doc/
+/doc/
+/Meta/
+*_cache/
+*_files/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*~
+.vscode/
+
+# Workbench runtime output (created by init_workbench_dir / run_workbench)
+runs/
+_report/
+config.yml

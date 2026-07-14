@@ -1,0 +1,230 @@
+/* =========================================================================
+   NDSU Cross Design Workbench  -  brand theme
+   Official NDSU palette (NDSU Brand Basics):
+     NDSU Green   #00583d   (PMS 343 C)   - primary
+     NDSU Yellow  #FFC425   (PMS 123 C)   - accent
+     Dark Green   #003524   (PMS 5605 C)  - deep surfaces
+   Typefaces: Antonio (headlines), a Gotham-like grotesque for body.
+   Antonio + Montserrat (Gotham fallback) are loaded from Google Fonts; if the
+   machine is offline the stacks fall back to system sans-serifs.
+   ========================================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Antonio:wght@500;600;700&family=Montserrat:wght@400;500;600;700&display=swap');
+
+:root {
+  --ndsu-green:      #00583d;
+  --ndsu-green-dark: #003524;
+  --ndsu-yellow:     #FFC425;
+  --ndsu-yellow-dk:  #e0a800;
+  --ndsu-ink:        #1c211f;
+  --ndsu-bg:         #f4f6f5;
+  --ndsu-surface:    #ffffff;
+  --ndsu-border:     #d7ded9;
+  --ndsu-muted:      #5c6b64;
+
+  /* status colors (never rely on color alone - icons/labels accompany) */
+  --st-ok:      #1f7a4d;
+  --st-warn:    #b8860b;
+  --st-error:   #b3261e;
+  --st-exp:     #5b5bd6;   /* experimental - violet */
+  --st-guard:   #8a6d00;
+
+  --font-head: 'Antonio', 'Oswald', 'Arial Narrow', sans-serif;
+  --font-body: 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
+  --radius: 8px;
+}
+
+/* ---- base ------------------------------------------------------------- */
+body, .bslib-page-fill {
+  background: var(--ndsu-bg);
+  color: var(--ndsu-ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+h1, h2, h3, h4, h5, .ndsu-head {
+  font-family: var(--font-head);
+  letter-spacing: 0.01em;
+  color: var(--ndsu-green-dark);
+}
+
+/* ---- top brand bar ---------------------------------------------------- */
+.ndsu-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--ndsu-green);
+  color: #fff;
+  padding: 10px 20px;
+  border-bottom: 4px solid var(--ndsu-yellow);
+}
+.ndsu-wordmark {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1;
+  color: #fff;
+  letter-spacing: 0.04em;
+}
+.ndsu-wordmark .accent { color: var(--ndsu-yellow); }
+.ndsu-app-title {
+  font-family: var(--font-head);
+  font-weight: 500;
+  font-size: 18px;
+  color: #eafff5;
+  border-left: 1px solid rgba(255,255,255,0.35);
+  padding-left: 16px;
+  line-height: 1.15;
+}
+.ndsu-app-title small {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.8);
+}
+/* optional official-logo slot: drop www/ndsu-logo.png and it shows here */
+.ndsu-logo-slot img { height: 44px; width: auto; display: block; }
+/* developing-lab logo (PulseSmartLab, Dr. Sikiru Atanda) - white chip so the
+   navy wordmark reads on the green bar */
+.ndsu-lab-logo { background: #fff; border-radius: 8px; padding: 5px 12px;
+  display: flex; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
+.ndsu-lab-logo img { height: 34px; width: auto; display: block; }
+.ndsu-topbar-spacer { flex: 1 1 auto; }
+.ndsu-topbar-meta {
+  font-size: 12px; color: rgba(255,255,255,0.85); text-align: right; line-height: 1.4;
+}
+
+/* ---- status strip ----------------------------------------------------- */
+.ndsu-statusbar {
+  display: flex; gap: 24px; flex-wrap: wrap;
+  background: var(--ndsu-green-dark);
+  color: #dcefe6;
+  padding: 6px 20px;
+  font-size: 12.5px;
+}
+.ndsu-statusbar b { color: #fff; }
+
+/* ---- nav (pills) ------------------------------------------------------ */
+.nav-pills .nav-link {
+  color: var(--ndsu-green-dark);
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 13px;
+}
+.nav-pills .nav-link.active {
+  background: var(--ndsu-green);
+  color: #fff;
+}
+.nav-tabs .nav-link.active {
+  color: var(--ndsu-green-dark);
+  border-top: 3px solid var(--ndsu-yellow);
+  font-weight: 600;
+}
+
+/* ---- cards / panels --------------------------------------------------- */
+.card, .bslib-card {
+  border: 1px solid var(--ndsu-border);
+  border-radius: var(--radius);
+  background: var(--ndsu-surface);
+}
+.card-header, .bslib-card > .card-header {
+  background: #eef3f0;
+  border-bottom: 1px solid var(--ndsu-border);
+  font-family: var(--font-head);
+  font-weight: 600;
+  color: var(--ndsu-green-dark);
+}
+.ndsu-section-title {
+  font-family: var(--font-head);
+  font-size: 20px;
+  color: var(--ndsu-green-dark);
+  margin: 0 0 4px 0;
+}
+.ndsu-section-sub { color: var(--ndsu-muted); font-size: 12.5px; margin-bottom: 14px; }
+
+/* ---- buttons ---------------------------------------------------------- */
+.btn-primary, .btn-ndsu {
+  background: var(--ndsu-green);
+  border-color: var(--ndsu-green);
+  color: #fff;
+  font-weight: 600;
+}
+.btn-primary:hover, .btn-ndsu:hover { background: var(--ndsu-green-dark); border-color: var(--ndsu-green-dark); }
+.btn-run {
+  background: var(--ndsu-yellow);
+  border-color: var(--ndsu-yellow-dk);
+  color: var(--ndsu-green-dark);
+  font-weight: 700;
+  font-family: var(--font-head);
+  letter-spacing: 0.03em;
+}
+.btn-run:hover { background: var(--ndsu-yellow-dk); color: var(--ndsu-green-dark); }
+.btn-outline-secondary { border-color: var(--ndsu-border); color: var(--ndsu-green-dark); }
+
+/* ---- badges / status chips ------------------------------------------- */
+.ndsu-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  border: 1px solid transparent;
+}
+.ndsu-badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; }
+.b-ok     { background: #e5f3ec; color: var(--st-ok); }     .b-ok::before     { background: var(--st-ok); }
+.b-warn   { background: #fbf3e0; color: var(--st-warn); }   .b-warn::before   { background: var(--st-warn); }
+.b-error  { background: #fbe7e6; color: var(--st-error); }  .b-error::before  { background: var(--st-error); }
+.b-exp    { background: #ecebfb; color: var(--st-exp); }    .b-exp::before    { background: var(--st-exp); }
+.b-guard  { background: #f6efdb; color: var(--st-guard); }  .b-guard::before  { background: var(--st-guard); }
+.b-info   { background: #e8eef2; color: #35566b; }          .b-info::before   { background: #35566b; }
+
+/* ---- tables ----------------------------------------------------------- */
+table.dataTable thead th {
+  background: #eef3f0; color: var(--ndsu-green-dark);
+  font-family: var(--font-head); font-weight: 600;
+  border-bottom: 2px solid var(--ndsu-yellow) !important;
+}
+table.dataTable tbody tr.priority-highly_priority td:first-child { border-left: 4px solid var(--ndsu-green); }
+table.dataTable tbody tr.priority-priority td:first-child        { border-left: 4px solid #4a9c78; }
+table.dataTable tbody tr.priority-medium_priority td:first-child { border-left: 4px solid var(--ndsu-yellow); }
+table.dataTable tbody tr.priority-low_priority td:first-child    { border-left: 4px solid #c9d2cc; }
+
+/* ---- callouts --------------------------------------------------------- */
+.ndsu-callout {
+  border-left: 4px solid var(--ndsu-green);
+  background: #eef4f1;
+  padding: 10px 14px; border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 13px; margin: 10px 0;
+}
+.ndsu-callout.warn  { border-left-color: var(--st-warn);  background: #fbf3e0; }
+.ndsu-callout.error { border-left-color: var(--st-error); background: #fbe7e6; }
+
+/* ---- misc ------------------------------------------------------------- */
+.ndsu-kpi { text-align: center; padding: 12px 8px; }
+.ndsu-kpi .val { font-family: var(--font-head); font-size: 26px; color: var(--ndsu-green-dark); line-height: 1; }
+.ndsu-kpi .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ndsu-muted); margin-top: 4px; }
+.help-hint { font-size: 12px; color: var(--ndsu-muted); font-style: italic; }
+.ndsu-footer { color: var(--ndsu-muted); font-size: 11.5px; padding: 14px 20px; border-top: 1px solid var(--ndsu-border); }
+hr { border-top: 1px solid var(--ndsu-border); }
+.form-label { font-weight: 600; color: var(--ndsu-green-dark); font-size: 13px; }
+
+/* ---- per-step guidance panel ---- */
+.ndsu-guide { border: 1px solid var(--ndsu-border); border-left: 4px solid var(--ndsu-yellow-dk);
+  background: #fffdf3; border-radius: 6px; margin: 0 0 16px 0; }
+.ndsu-guide > summary { cursor: pointer; padding: 9px 14px; font-family: var(--font-head);
+  font-weight: 600; color: var(--ndsu-green-dark); list-style: none; user-select: none; }
+.ndsu-guide > summary::-webkit-details-marker { display: none; }
+.ndsu-guide > summary::after { content: "  \25BC"; font-size: 10px; color: var(--ndsu-muted); }
+.ndsu-guide[open] > summary::after { content: "  \25B2"; }
+.ndsu-guide .g-step { display: inline-block; background: var(--ndsu-green); color: #fff;
+  font-family: var(--font-body); font-size: 11px; font-weight: 700; padding: 1px 9px;
+  border-radius: 999px; margin-right: 9px; letter-spacing: 0.02em; }
+.ndsu-guide .g-body { padding: 2px 16px 12px 16px; font-size: 13px; color: var(--ndsu-ink); line-height: 1.55; }
+.ndsu-guide .g-body ul { margin: 6px 0; padding-left: 20px; }
+.ndsu-guide .g-body li { margin: 3px 0; }
+.ndsu-guide .g-next { color: var(--ndsu-green-dark); font-size: 12.5px; margin-top: 8px;
+  border-top: 1px dashed var(--ndsu-border); padding-top: 6px; }
+
+/* ---- report exec summary ---- */
+.ndsu-report h2 { font-family: var(--font-head); color: var(--ndsu-green-dark);
+  border-bottom: 2px solid var(--ndsu-yellow); padding-bottom: 5px; font-size: 18px; }
+.ndsu-report p { line-height: 1.55; font-size: 13.5px; }
+.ndsu-report .cap { color: var(--ndsu-muted); font-size: 12.5px; }

@@ -1,0 +1,40 @@
+Package: nextgenCrossWorkbench
+Type: Package
+Title: A Shiny Workbench for Genomic Cross Prediction and Mate Allocation
+Version: 0.10.0
+Authors@R: c(
+    person("Mario", "Morales", role = c("aut", "cre"),
+           email = "mario.morales.44@gmail.com"),
+    person("Sikiru", "Atanda", role = "aut",
+           comment = "Author of the 'nextgenCrossDesign' backend engine"),
+    person("North Dakota State University", role = "cph"))
+Description: A point-and-click 'shiny' front-end for genomic cross prediction
+    and mate allocation in plant and animal breeding programs. It guides the
+    user through genomic prediction of cross performance (progeny mean,
+    variance and the usefulness criterion), multi-trait objectives, and
+    optimum-contribution-style mate allocation that balances genetic gain
+    against diversity, over plain 'CSV' inputs. Additional features include an
+    automatic cross-number optimizer, robust (posterior) allocation, a
+    dosage-aware polyploid design workflow, and a self-contained interactive
+    'HTML' report. The breeding-genetics computations are performed by the
+    companion 'nextgenCrossDesign' engine, which is driven as a separate,
+    user-configured R process (see 'SystemRequirements'); the front-end itself
+    installs and runs independently. Methods build on the usefulness criterion
+    of Lehermeier, Teyssedre and Schoen (2017) <doi:10.1534/genetics.117.300403>
+    and genomic mating of Akdemir and Sanchez (2016)
+    <doi:10.3389/fgene.2016.00210>.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports: shiny, bslib, DT, jsonlite, yaml, utils, grDevices, graphics,
+    base64enc, stats, plotly, parallel
+Suggests: ggplot2, openxlsx, testthat (>= 3.0.0), withr, knitr, rmarkdown
+VignetteBuilder: knitr
+URL: https://github.com/PulseSmartLab/nextgenCrossWorkbench
+BugReports: https://github.com/PulseSmartLab/nextgenCrossWorkbench/issues
+Config/testthat/edition: 3
+SystemRequirements: To run analyses, a local R installation with the
+    'nextgenCrossDesign' backend package installed and reachable via a
+    configured 'Rscript' (set in the app's config.yml). The front-end can be
+    installed and its user interface launched without the backend.
+RoxygenNote: 7.2.3

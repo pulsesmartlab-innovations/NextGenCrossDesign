@@ -1,0 +1,9 @@
+^cran-comments\.md$
+^\.Rproj\.user$
+^.*\.Rproj$
+^LICENSE\.md$
+^\.github$
+^doc$
+^Meta$
+^capture$
+^\.DS_Store$

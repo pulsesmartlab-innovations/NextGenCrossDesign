@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 64" role="img" aria-label="North Dakota State University">
+  <style>
+    .ndsu  { font-family: Georgia, 'Times New Roman', 'Liberation Serif', serif; font-weight: 700; }
+    .univ  { font-family: 'Arial Narrow', Arial, 'Helvetica Neue', sans-serif; font-weight: 400; letter-spacing: 1.2px; }
+  </style>
+  <text x="0" y="47" class="ndsu" font-size="50" fill="#FFC425">NDSU</text>
+  <line x1="164" y1="8" x2="164" y2="56" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1.5"/>
+  <text x="180" y="29" class="univ" font-size="21" fill="#ffffff">NORTH DAKOTA</text>
+  <text x="180" y="52" class="univ" font-size="21" fill="#ffffff">STATE UNIVERSITY</text>
+</svg>
