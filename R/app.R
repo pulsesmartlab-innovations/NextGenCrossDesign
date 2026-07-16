@@ -25,7 +25,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
         shiny::tags$img(src = "ngcd_www/pulsesmartlab-logo.svg", alt = "PulseSmartLab - Dr. Sikiru Atanda"))
     else NULL
     shiny::div(class = "ndsu-topbar", logo,
-      shiny::div(class = "ndsu-app-title", "Cross Design Workbench",
+      shiny::div(class = "ndsu-app-title", "NextGenCrossDesign",
         shiny::tags$small("Genomic cross prediction & mate allocation")),
       shiny::div(class = "ndsu-topbar-spacer"),
       lab_logo,
@@ -487,7 +487,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
       bslib::nav_item(shiny::tags$span(class = "help-hint", "nextgenCrossWorkbench"))),
 
     shiny::div(class = "ndsu-footer",
-      "NDSU Cross Design Workbench. ",
+      "NextGenCrossDesign. ",
       shiny::tags$b("Backend (nextgenCrossDesign): Dr. Sikiru Atanda."), " ",
       shiny::tags$b("Front-end (workbench): Mario Morales."))
   )

@@ -1,6 +1,6 @@
 # nextgenCrossWorkbench
 
-**NDSU Cross Design Workbench** — a point-and-click Shiny front-end for the
+**NextGenCrossDesign** — a point-and-click Shiny front-end for the
 [`nextgenCrossDesign`](#the-backend) genomic cross-prediction and mate-allocation
 engine. It turns a genomic-selection cross-design pipeline into a guided,
 ten-step web app over plain CSV inputs, with NDSU branding, editable input
@@ -421,11 +421,11 @@ If you use this workbench in published work, please cite both components:
 > Atanda, S. *nextgenCrossDesign: genomic cross prediction and mate allocation*
 > (R package). North Dakota State University.
 >
-> Morales, M. *nextgenCrossWorkbench: Cross Design Workbench — a Shiny
+> Morales, M. *nextgenCrossWorkbench: NextGenCrossDesign — a Shiny
 > front-end for nextgenCrossDesign* (R package, v0.10.0). North Dakota State
 > University, PulseSmartLab - PI: Dr. Sikiru Atanda.
 
 ---
 
-*NDSU Cross Design Workbench. Backend (nextgenCrossDesign): Dr. Sikiru Atanda.
+*NextGenCrossDesign. Backend (nextgenCrossDesign): Dr. Sikiru Atanda.
 Front-end (workbench): Mario Morales.*

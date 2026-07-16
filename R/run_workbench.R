@@ -53,7 +53,7 @@ workbench_app <- function(dir = getwd()) {
   shiny::shinyApp(ui = ui, server = workbench_server(cfg))
 }
 
-#' Launch the NDSU Cross Design Workbench
+#' Launch the NextGenCrossDesign app
 #'
 #' Starts the Shiny front-end. The backend (\pkg{nextgenCrossDesign}) is run in
 #' a separate R process configured via \code{config.yml} in \code{dir}; if no

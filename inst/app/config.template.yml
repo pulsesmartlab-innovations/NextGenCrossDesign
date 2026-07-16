@@ -1,5 +1,5 @@
 # ===========================================================================
-# NDSU Cross Design Workbench - local configuration
+# NextGenCrossDesign - local configuration
 # ===========================================================================
 # Edit this file to point the app at YOUR local R installation, then restart.
 # Any key can be overridden by an env var NGCD_<UPPERCASE_KEY>.

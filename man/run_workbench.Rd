@@ -1,6 +1,6 @@
 \name{run_workbench}
 \alias{run_workbench}
-\title{Launch the NDSU Cross Design Workbench}
+\title{Launch the NextGenCrossDesign app}
 \usage{
 run_workbench(dir = getwd(), launch.browser = interactive(),
   port = getOption("shiny.port"), host = "127.0.0.1")

@@ -55,7 +55,7 @@ test_that("developer_mode defaults off and gates Setup + settings tools", {
   expect_true(grepl("Save / load settings", h_dev))
   expect_true(grepl("download_settings", h_dev))
   # the analysis workflow is present in both
-  expect_true(grepl("Cross Design Workbench", h_user))
+  expect_true(grepl("NextGenCrossDesign", h_user))
 })
 
 test_that("developer_mode coerces a truthy env-var string", {
