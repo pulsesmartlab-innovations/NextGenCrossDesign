@@ -90,6 +90,10 @@ backend in the same R library.
 
 ```r
 # 1. the backend (compiles native code — needs Rtools/Xcode/build-essential)
+#    Requires nextgenCrossDesign >= 0.4.0 (see required_backend_version in config.yml).
+remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.4.0")
+
+#    …or from a local source tarball:
 R CMD INSTALL nextgenCrossDesign_0.4.0.tar.gz
 
 # 2. this front-end — from CRAN once published:

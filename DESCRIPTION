@@ -30,11 +30,15 @@ Imports: shiny, bslib, DT, jsonlite, yaml, utils, grDevices, graphics,
     base64enc, stats, plotly, parallel
 Suggests: ggplot2, openxlsx, testthat (>= 3.0.0), withr, knitr, rmarkdown
 VignetteBuilder: knitr
-URL: https://github.com/PulseSmartLab/nextgenCrossWorkbench
-BugReports: https://github.com/PulseSmartLab/nextgenCrossWorkbench/issues
+URL: https://github.com/pulsesmartlab-innovations/NextGenCrossDesign
+BugReports: https://github.com/pulsesmartlab-innovations/NextGenCrossDesign/issues
 Config/testthat/edition: 3
 SystemRequirements: To run analyses, a local R installation with the
     'nextgenCrossDesign' backend package installed and reachable via a
-    configured 'Rscript' (set in the app's config.yml). The front-end can be
-    installed and its user interface launched without the backend.
+    configured 'Rscript' (set in the app's config.yml). The backend is
+    distributed separately at
+    <https://github.com/pulsesmartlab-innovations/nextgenCrossDesignR> and
+    compiles native code, so it needs Rtools (Windows), the Xcode command line
+    tools (macOS), or build-essential (Linux). The front-end can be installed
+    and its user interface launched without the backend.
 RoxygenNote: 7.2.3

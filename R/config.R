@@ -113,10 +113,15 @@ ngcd_check_backend <- function(cfg) {
       error = function(e) FALSE)
     if (!out$version_ok) out$messages <- c(out$messages, paste0(
       "Backend version ", out$backend_version, " is older than required ",
-      cfg$required_backend_version, "."))
+      cfg$required_backend_version, ". Upgrade with ",
+      'remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v',
+      cfg$required_backend_version, '").'))
   }
   if (!out$backend_installed) out$messages <- c(out$messages,
-    "nextgenCrossDesign is not installed for the configured R. Install the backend, or set package_library in config.yml.")
+    paste0("nextgenCrossDesign is not installed for the configured R. Install it with ",
+           'remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v',
+           cfg$required_backend_version, '"), or set package_library in config.yml ',
+           "to an R library that already has it."))
 
   # optional package availability
   opt_names <- regmatches(txt, gregexpr("OPT:[A-Za-z0-9]+=(TRUE|FALSE)", txt))[[1]]
