@@ -119,6 +119,36 @@ figure export are optional and live in `Suggests` (`openxlsx`, `ggplot2`),
 because they run in the backend process; the app degrades gracefully without
 them.
 
+### Updating the backend
+
+The workbench runs the backend out-of-process (see `SystemRequirements`), so the
+backend is a **separately installed R package**, not an automatic dependency —
+reinstalling the workbench does not refresh it. When the backend publishes a new
+tagged release, refresh it with:
+
+```r
+Rscript tools/update-backend.R          # installs the version this workbench requires
+Rscript tools/update-backend.R 0.4.1    # or a specific version
+```
+
+The script reads `required_backend_version` from `config.template.yml`, installs
+the matching `vX.Y.Z` tag from
+`pulsesmartlab-innovations/nextgenCrossDesignR`, and verifies the result. The
+backend repo is private, so `install_github` needs a GitHub token with repo read
+scope (`Sys.setenv(GITHUB_PAT = "ghp_…")`); to skip the token, install from a
+built tarball instead:
+
+```r
+NGCD_BACKEND_TARBALL=/path/nextgenCrossDesign_0.4.1.tar.gz Rscript tools/update-backend.R
+```
+
+You rarely need to touch the app for a backend update: the workbench calls the
+backend by name and filters run parameters against the installed backend's live
+formals, so new or changed backend parameters are picked up on the next run once
+the package is reinstalled. Bump `required_backend_version` (in `config.yml` /
+`config.template.yml`) only when the workbench needs to *require* a newer backend
+— the app then warns at startup if an older one is installed.
+
 ---
 
 ## Run
