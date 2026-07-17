@@ -122,6 +122,12 @@ run_polyploid_design <- function(raw, result_path) {
     extra$committed_crosses <- cc
   }
 
+  # Reproducibility: map the config seed onto the backend's ridge_seed so the
+  # Seed input actually affects a polyploid run (it drives ridge effect
+  # estimation). Falls back to 1L when absent, blank, or non-integer.
+  ridge_seed <- suppressWarnings(as.integer(raw$seed %||% 1L))
+  if (length(ridge_seed) != 1L || is.na(ridge_seed)) ridge_seed <- 1L
+
   design_args <- c(list(
     dosage = dosage, n_crosses = as.integer(raw$n_crosses %||% 10L), ploidy = ploidy,
     phenotype = phenotype,
@@ -131,7 +137,8 @@ run_polyploid_design <- function(raw, result_path) {
     gain = raw$gain %||% "mean",
     selection_prop = as.numeric(raw$selection_prop %||% 0.1),
     double_reduction = as.numeric(raw$double_reduction %||% 0),
-    grm_method = raw$grm_method %||% "vanraden"), extra)
+    grm_method = raw$grm_method %||% "vanraden",
+    ridge_seed = ridge_seed), extra)
 
   plan <- do.call(nextgenCrossDesign::ng_design_crosses_poly, design_args)
 
