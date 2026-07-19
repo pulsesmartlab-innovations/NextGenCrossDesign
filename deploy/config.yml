@@ -13,6 +13,10 @@ default:
   # Must match the backend version installed in the image.
   required_backend_version: "0.4.0"
 
+  # This is a hosted, multi-user deployment: ephemeral per-session data_dir and
+  # the within-session "download before you leave" note.
+  deployment_mode: "server"
+
   # Blank => per-session temp dir, cleared when the container ends. Correct for
   # a hosted, one-container-per-user deployment: no cross-user paths, nothing to
   # clean up. Override NGCD_DATA_DIR only if you deliberately mount persistent

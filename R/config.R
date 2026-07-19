@@ -49,8 +49,13 @@ ngcd_load_config <- function(dir = getwd()) {
     max_upload_mb            = 200,
     # Writable base for all mutable areas (runs, reports, presets). Seeded here,
     # before the NGCD_* override loop, so NGCD_DATA_DIR / a config.yml data_dir:
-    # actually take effect instead of being overwritten later.
-    data_dir                 = file.path(tempdir(), "ngcd"),
+    # actually take effect instead of being overwritten later. Blank => the
+    # deployment-mode default is used (see below).
+    data_dir                 = "",
+    # Deployment mode: 'local' (an individual on their own machine; no Docker) or
+    # 'server' (hosted for many users, e.g. Docker/ShinyProxy). Individual users
+    # need set nothing; the container image sets NGCD_DEPLOYMENT_MODE=server.
+    deployment_mode          = "local",
     # Max run directories kept during a session (0 = unlimited). Container disk
     # is bounded because artifacts are within-session only.
     keep_runs                = 20,
@@ -78,10 +83,24 @@ ngcd_load_config <- function(dir = getwd()) {
   cfg$demo_data_dir <- ngcd_res("data", "demo")
   cfg$www_dir       <- ngcd_res("www")
 
-  # Resolve the writable data base (data_dir came from defaults / config / env).
-  # If it is not writable, fall back to a tempdir base and record a warning that
-  # the app surfaces in its status messages rather than failing at first run.
-  cfg$data_dir <- cfg$data_dir %||% file.path(tempdir(), "ngcd")
+  # Normalise the deployment mode. Anything server-ish counts as 'server';
+  # everything else (including unset/unknown) is the individual 'local' default.
+  mode <- tolower(trimws(cfg$deployment_mode %||% "local"))
+  cfg$deployment_mode <- if (mode %in% c("server", "hosted", "docker", "container"))
+    "server" else "local"
+
+  # Resolve the writable data base. An explicit value (env/config) always wins;
+  # otherwise the default depends on the mode. Server = ephemeral per-session
+  # tempdir (within-session artifacts, cleared when the container ends). Local =
+  # a persistent folder beside the working directory, so a solo user's runs
+  # survive closing the app. If the chosen base is not writable, fall back to a
+  # tempdir base and record a warning the app surfaces in its status messages.
+  if (is.null(cfg$data_dir) || !nzchar(cfg$data_dir)) {
+    cfg$data_dir <- if (identical(cfg$deployment_mode, "server"))
+      file.path(tempdir(), "ngcd")
+    else
+      file.path(dir, "ngcd-data")
+  }
   cfg$data_dir_warning <- NULL
   if (!ngcd_dir_writable(cfg$data_dir)) {
     fallback <- file.path(tempdir(), "ngcd")

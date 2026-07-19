@@ -66,6 +66,10 @@ RUN R CMD INSTALL backend.tar.gz \
 RUN mkdir -p /srv/workbench
 COPY deploy/config.yml /srv/workbench/config.yml
 
+# This is a hosted, multi-user deployment: force server mode (ephemeral
+# per-session storage) even if config.yml is replaced with a mounted one.
+ENV NGCD_DEPLOYMENT_MODE=server
+
 # Serve on all interfaces so ShinyProxy can reach the app; 3838 is ShinyProxy's
 # default app port. run_workbench() is the package's launch entrypoint and calls
 # shiny::runApp() itself with the given host/port.

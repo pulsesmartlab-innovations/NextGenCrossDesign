@@ -91,7 +91,8 @@ rebuilding:
 
 | Key / env | Default | Notes |
 | --- | --- | --- |
-| `data_dir` / `NGCD_DATA_DIR` | per-session temp dir | Writable base for runs, reports, presets. Blank = ephemeral. |
+| `deployment_mode` / `NGCD_DEPLOYMENT_MODE` | `server` (in this image) | `server` = ephemeral per-session storage + the within-session download note. `local` (the package default off-server) keeps a persistent `ngcd-data` folder. |
+| `data_dir` / `NGCD_DATA_DIR` | per-session temp dir (server mode) | Writable base for runs, reports, presets. Blank = the mode default. |
 | `keep_runs` / `NGCD_KEEP_RUNS` | `20` | Max run dirs kept per session (`0` = unlimited). |
 | `rscript_path` / `NGCD_RSCRIPT_PATH` | `Rscript` | Backend interpreter; on PATH inside the container. |
 | `required_backend_version` | `0.4.0` | Must match the backend installed in the image. |

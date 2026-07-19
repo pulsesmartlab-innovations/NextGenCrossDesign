@@ -1374,9 +1374,10 @@ workbench_server <- function(cfg) {
             class = "btn btn-ndsu", "Open full report "),
           shiny::downloadButton("dl_report_pdf", "Download PDF", class = "btn-outline-secondary"),
           shiny::downloadButton("dl_report_html", "Download HTML", class = "btn-outline-secondary")),
-        shiny::tags$p(class = "help-hint",
-          "Downloads are saved to your computer. Run files kept on the server ",
-          "are cleared when you close the app — download anything you want to keep."),
+        if (identical(cfg$deployment_mode, "server"))
+          shiny::tags$p(class = "help-hint",
+            "Downloads are saved to your computer. Run files kept on the server ",
+            "are cleared when you close the app — download anything you want to keep."),
         shiny::div(class = "ndsu-report", shiny::HTML(ngcd_exec_summary_html(r, figs))),
         if (!have_plotly) ngcd_callout(kind = "info", "Install ", shiny::tags$code("plotly"),
           " for interactive charts; the Open-full-report link and PDF still include every figure."),

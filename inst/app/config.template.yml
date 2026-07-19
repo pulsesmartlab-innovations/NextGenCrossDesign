@@ -27,10 +27,17 @@ default:
   run_timeout_seconds: 1800
   max_upload_mb: 200
 
-  # Writable base for run files, reports, and saved settings. Blank = a
-  # per-session temp dir (cleared when the app closes) — right for a hosted,
-  # multi-user deployment. Set to a real folder to keep artifacts between
-  # sessions. Overridable via the NGCD_DATA_DIR env var.
+  # Deployment mode: "local" for an individual on their own machine (no Docker),
+  # or "server" for a hosted multi-user deployment (Docker/ShinyProxy). Leave as
+  # "local" for personal use; the container image sets this to "server".
+  # Overridable via the NGCD_DEPLOYMENT_MODE env var.
+  deployment_mode: "local"
+
+  # Writable base for run files, reports, and saved settings. Blank = the
+  # deployment-mode default: local keeps a persistent "ngcd-data" folder beside
+  # the working directory (runs survive closing the app); server uses a
+  # per-session temp dir cleared when the container ends. Set to a real folder to
+  # force a location. Overridable via the NGCD_DATA_DIR env var.
   data_dir: ""
 
   # Max run directories kept during a session (0 = keep all). Bounds disk on a

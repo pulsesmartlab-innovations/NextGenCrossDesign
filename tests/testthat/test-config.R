@@ -109,15 +109,24 @@ test_that("ngcd_dir_writable probes with a real file", {
   expect_false(nextgenCrossWorkbench:::ngcd_dir_writable(file.path(blocker, "x")))
 })
 
-test_that("report_dir and presets_dir live under data_dir, not work_dir", {
+test_that("report_dir and presets_dir always derive from data_dir", {
   wd <- tempfile("wb"); dir.create(wd)
   cfg <- nextgenCrossWorkbench:::ngcd_load_config(wd)
-  expect_false(startsWith(normalizePath(cfg$report_dir, mustWork = FALSE),
-                          normalizePath(wd, mustWork = FALSE)))
-  expect_false(startsWith(normalizePath(cfg$presets_dir, mustWork = FALSE),
-                          normalizePath(wd, mustWork = FALSE)))
-  expect_true(startsWith(normalizePath(cfg$report_dir, mustWork = FALSE),
-                         normalizePath(cfg$data_dir, mustWork = FALSE)))
+  expect_equal(cfg$report_dir,  file.path(cfg$data_dir, "_report"))
+  expect_equal(cfg$presets_dir, file.path(cfg$data_dir, "presets"))
+})
+
+test_that("server mode keeps the writable areas off the (read-only) work_dir", {
+  # The container case: work_dir may be read-only, so data_dir and its derived
+  # areas must live elsewhere (the ephemeral tempdir base).
+  wd <- tempfile("wb"); dir.create(wd)
+  withr::with_envvar(c(NGCD_DEPLOYMENT_MODE = "server", NGCD_DATA_DIR = NA), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(wd)
+    expect_false(startsWith(normalizePath(cfg$report_dir, mustWork = FALSE),
+                            normalizePath(wd, mustWork = FALSE)))
+    expect_false(startsWith(normalizePath(cfg$presets_dir, mustWork = FALSE),
+                            normalizePath(wd, mustWork = FALSE)))
+  })
 })
 
 test_that("check_backend surfaces the data_dir fallback warning", {
@@ -138,4 +147,46 @@ test_that("an empty data_dir (from the config template) resolves to the default"
   expect_true(startsWith(normalizePath(cfg$data_dir, mustWork = FALSE),
                          normalizePath(tempdir(), mustWork = FALSE)))
   expect_null(cfg$data_dir_warning)
+})
+
+test_that("deployment_mode defaults to local", {
+  withr::with_envvar(c(NGCD_DEPLOYMENT_MODE = NA), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+    expect_equal(cfg$deployment_mode, "local")
+  })
+})
+
+test_that("local mode keeps a persistent data_dir beside the working dir", {
+  wd <- tempfile("wbwork"); dir.create(wd)
+  withr::with_envvar(c(NGCD_DEPLOYMENT_MODE = "local", NGCD_DATA_DIR = NA), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(wd)
+    expect_equal(cfg$deployment_mode, "local")
+    expect_equal(normalizePath(cfg$data_dir, mustWork = FALSE),
+                 normalizePath(file.path(wd, "ngcd-data"), mustWork = FALSE))
+  })
+})
+
+test_that("server mode uses an ephemeral tempdir data_dir", {
+  withr::with_envvar(c(NGCD_DEPLOYMENT_MODE = "server", NGCD_DATA_DIR = NA), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+    expect_equal(cfg$deployment_mode, "server")
+    expect_true(startsWith(normalizePath(cfg$data_dir, mustWork = FALSE),
+                           normalizePath(tempdir(), mustWork = FALSE)))
+  })
+})
+
+test_that("explicit NGCD_DATA_DIR overrides the mode default", {
+  d <- tempfile("explicit")
+  withr::with_envvar(c(NGCD_DEPLOYMENT_MODE = "local", NGCD_DATA_DIR = d), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+    expect_equal(normalizePath(cfg$data_dir, mustWork = FALSE),
+                 normalizePath(d, mustWork = FALSE))
+  })
+})
+
+test_that("an unrecognized deployment_mode falls back to local", {
+  withr::with_envvar(c(NGCD_DEPLOYMENT_MODE = "banana", NGCD_DATA_DIR = NA), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+    expect_equal(cfg$deployment_mode, "local")
+  })
 })
