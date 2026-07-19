@@ -51,7 +51,7 @@ emit_error <- function(message, path) {
 }
 
 # ===========================================================================
-# Polyploid mate design (ng_design_crosses_poly): dosage matrix (0..ploidy) +
+# Polyploid mate design (ng_polyploid_design_crosses): dosage matrix (0..ploidy) +
 # a single-trait phenotype -> QC -> additive[/dominance] effects -> scoring ->
 # native allocation. Writes the same ng_run_result.v1 shape with poly_design=TRUE.
 # ===========================================================================
@@ -59,8 +59,8 @@ run_polyploid_design <- function(raw, result_path) {
   if (!requireNamespace("nextgenCrossDesign", quietly = TRUE))
     stop("The 'nextgenCrossDesign' package is not installed / not on the library path.", call. = FALSE)
   suppressWarnings(suppressMessages(library(nextgenCrossDesign)))
-  if (!exists("ng_design_crosses_poly", where = asNamespace("nextgenCrossDesign")))
-    stop("This backend build does not provide ng_design_crosses_poly(). Reinstall a newer nextgenCrossDesign.", call. = FALSE)
+  if (!exists("ng_polyploid_design_crosses", where = asNamespace("nextgenCrossDesign")))
+    stop("This backend build does not provide ng_polyploid_design_crosses(). Reinstall a newer nextgenCrossDesign.", call. = FALSE)
 
   read_tab <- function(p) utils::read.csv(p, check.names = FALSE, stringsAsFactors = FALSE)
   # dosage matrix from the genotype file (first column = parent ID)
@@ -140,7 +140,7 @@ run_polyploid_design <- function(raw, result_path) {
     grm_method = raw$grm_method %||% "vanraden",
     ridge_seed = ridge_seed), extra)
 
-  plan <- do.call(nextgenCrossDesign::ng_design_crosses_poly, design_args)
+  plan <- do.call(nextgenCrossDesign::ng_polyploid_design_crosses, design_args)
 
   sm <- attr(plan, "summary"); qcr <- attr(plan, "qc")
   plan_df <- as.data.frame(plan, stringsAsFactors = FALSE)
@@ -195,7 +195,7 @@ run <- function() {
                             simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
   if (!is.list(raw)) stop("Config JSON must be a single object of parameters.", call. = FALSE)
 
-  # Polyploid design is a separate entry point (ng_design_crosses_poly): any
+  # Polyploid design is a separate entry point (ng_polyploid_design_crosses): any
   # ploidy, dosage 0..ploidy, optional additive+dominance scoring, no map.
   if (identical(raw$workflow %||% "cross_prediction", "polyploid_design")) {
     run_polyploid_design(raw, result_path)

@@ -11,7 +11,7 @@ default:
   package_library: ""
 
   # Must match the backend version installed in the image.
-  required_backend_version: "0.4.0"
+  required_backend_version: "0.5.0"
 
   # This is a hosted, multi-user deployment: ephemeral per-session data_dir and
   # the within-session "download before you leave" note.
