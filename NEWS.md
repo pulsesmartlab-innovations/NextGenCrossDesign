@@ -4,6 +4,12 @@ Release focused on robustness, documentation, and CRAN readiness.
 
 ## New features
 
+* Added a **Diagnostics & tuning** tab (and a matching report section) that
+  explains why each procedure produced its result and which parameter to change
+  to steer it: automatic cross-number recommendations that hit the edge of the
+  swept range, binding pairwise-kinship / parent-use / unique-parent
+  constraints, low trait reliability, robust-vs-point-estimate disagreement, and
+  QC blockers. Each item is graded CHECK / NOTE / OK.
 * All runtime dependencies are now declared in `Imports` (including `plotly`
   and `parallel`), so the interactive report and figures work out of the box.
 * Added a package vignette walking through the standard, robust, and polyploid

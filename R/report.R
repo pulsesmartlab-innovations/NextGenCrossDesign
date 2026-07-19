@@ -416,6 +416,7 @@ ngcd_report_html <- function(res, path) {
   toc <- paste0(
     "<nav class='toc'><b>Contents</b><ol>",
     "<li><a href='#summary'>Executive summary</a></li>",
+    "<li><a href='#diagnostics'>Diagnostics &amp; tuning</a></li>",
     paste(vapply(figs, function(f) sprintf("<li><a href='#fig-%s'>%s</a></li>", f$id, f$title), character(1)),
           collapse = ""),
     "</ol></nav>")
@@ -476,6 +477,9 @@ ngcd_report_html <- function(res, path) {
     "<div class='rpt'>Cross Design Run Report<small>Genomic cross prediction &amp; mate allocation</small></div></header>",
     "<div class='body'>",
     ngcd_exec_summary_html(res, figs), toc,
+    "<h2 id='diagnostics'>Diagnostics &amp; tuning</h2>",
+    "<p class='cap'>Why each procedure produced this result, and which parameter to change to steer it.</p>",
+    ngcd_diagnostics_html(res),
     "<h2>Figures</h2>",
     if (!interactive) "<p class='cap'>Static figures shown (install the R package <b>plotly</b> for interactive, zoomable charts).</p>" else
       "<p class='cap'>Charts are interactive: hover for values, drag to zoom, double-click to reset.</p>",
