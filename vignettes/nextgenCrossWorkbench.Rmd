@@ -156,7 +156,21 @@ The app is organized as a ten-step navigation bar; each screen has a collapsible
     parents, maximum parent use, mean progeny inbreeding) above sub-tabs for the
     ranked plan, candidate scores, parent use, the gain–diversity frontier, QC
     audit, input matching, marker effects, and method/settings provenance, plus a
-    self-contained **interactive HTML report** downloadable as HTML or PDF.
+    self-contained **interactive HTML report** downloadable as HTML or PDF, and a
+    **Diagnostics & tuning** tab (below).
+
+### Diagnostics & tuning
+
+When a result looks off, the **Diagnostics & tuning** tab explains *why* each
+procedure produced what it did and *which parameter to change* to steer it. Each
+item is graded CHECK (act on it), NOTE (worth knowing), or OK (stable). The most
+common example: an automatic cross-number recommendation that lands at the edge
+of the swept range means the diminishing-returns elbow was never reached — the
+number is capped by your range, not the data — so the diagnostic tells you to
+widen "K max" and re-run. Other diagnostics flag a binding pairwise-kinship or
+parent-use cap, a trait whose low marker-effect reliability is distorting the
+score, disagreement between the robust and point-estimate plans, and blocking QC
+issues. The same diagnostics appear in the downloadable report.
 
 ### The merit metric: the usefulness criterion
 

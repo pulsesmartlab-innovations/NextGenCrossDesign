@@ -471,6 +471,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
         shiny::uiOutput("results_kpis"),
         bslib::navset_tab(
           bslib::nav_panel("Report", shiny::uiOutput("res_report")),
+          bslib::nav_panel("Diagnostics & tuning", shiny::uiOutput("res_diagnostics")),
           bslib::nav_panel("Selected crosses", DT::DTOutput("res_selected")),
           bslib::nav_panel("Candidate scores", DT::DTOutput("res_candidate")),
           bslib::nav_panel("Parent use", DT::DTOutput("res_parentuse")),
@@ -1320,6 +1321,24 @@ workbench_server <- function(cfg) {
           bslib::card(ngcd_kpi(ngcd_num(ps$unique_parents, 0), "Unique parents")),
           bslib::card(ngcd_kpi(ngcd_num(ps$max_parent_use, 0), "Max parent use")),
           bslib::card(ngcd_kpi(ngcd_num(ps$mean_progeny_inbreeding), "Mean progeny F"))))
+    })
+    # ---- Diagnostics & tuning: why each procedure produced this, what to change
+    output$res_diagnostics <- shiny::renderUI({
+      r <- res(); if (is.null(r)) return(ngcd_callout("Run an analysis to see tuning diagnostics."))
+      items <- ngcd_diagnostics(r)
+      n_warn <- sum(vapply(items, function(x) identical(x$severity, "warn"), logical(1)))
+      head <- if (!length(items))
+        ngcd_callout(kind = "info", shiny::tags$b("No tuning flags. "),
+          "Every procedure ran within normal ranges for this run.")
+      else ngcd_callout(kind = if (n_warn > 0) "warn" else "info",
+        shiny::tags$b(sprintf("%d diagnostic%s (%d to check).", length(items),
+                              if (length(items) == 1) "" else "s", n_warn)),
+        " Each item explains why a procedure produced this result and which parameter to change to steer it.")
+      shiny::tagList(
+        ngcd_section("Diagnostics & tuning",
+          "Automatic cross-number, allocation constraints, robustness, reliability, and QC - explained."),
+        head,
+        shiny::div(class = "ndsu-report", shiny::HTML(ngcd_diagnostics_html(r))))
     })
     output$res_selected <- DT::renderDT({
       r <- res(); shiny::req(r); df <- r$selected_crosses

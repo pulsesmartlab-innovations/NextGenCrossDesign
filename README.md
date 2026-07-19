@@ -26,6 +26,7 @@ Developed at North Dakota State University (PulseSmartLab).
 - [Install](#install)
 - [Run](#run)
 - [Guided walkthrough (with screenshots)](#guided-walkthrough)
+- [Diagnostics & tuning](#diagnostics--tuning)
 - [The interactive report](#the-interactive-report)
 - [Polyploid / clonal design workflow](#polyploid--clonal-design-workflow)
 - [Feature coverage](#feature-coverage)
@@ -283,6 +284,32 @@ Marker-effect reliability per trait:
 ![Marker effects](man/figures/screen-17-marker-effects.png)
 
 ---
+
+## Diagnostics & tuning
+
+Every procedure — the automatic cross-number optimizer, mate allocation, robust
+posterior re-optimization, trait reliability, and QC — can leave a plan looking
+"off". The **Diagnostics & tuning** tab (and a matching section in the report)
+explains *why* each procedure produced its result and *which parameter to
+change* to steer it. Each item is graded **CHECK** (act on it), **NOTE** (worth
+knowing), or **OK** (stable).
+
+For example, the single most common reason an automatic cross-number
+recommendation looks wrong is that it hit the edge of the swept range — the
+elbow was never actually reached, so the number is capped by your range, not by
+the data. The workbench detects this and tells you exactly what to do:
+
+![Diagnostics and tuning](man/figures/screen-21-diagnostics.png)
+
+Typical diagnostics include: the cross-number recommendation sitting at the top
+or bottom of the swept range (widen it), a binding pairwise-kinship or
+parent-use cap (loosen or tighten it), a trait with very low marker-effect
+reliability dominating the score (down-weight or drop it), robust and
+point-estimate plans disagreeing (move the robustness quantile or gather more
+training data), and blocking QC issues (resolve them and re-run).
+
+---
+
 
 ## The interactive report
 
