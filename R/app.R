@@ -94,7 +94,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               selected = "standard"),
             shiny::conditionalPanel("input.workflow == 'polyploid'",
               ngcd_callout(kind = "info",
-                "Polyploid mode uses ", shiny::tags$b("ng_design_crosses_poly"),
+                "Polyploid mode uses ", shiny::tags$b("ng_polyploid_design_crosses"),
                 ": upload a dosage matrix (0..ploidy) and a single-trait phenotype. A marker map and trait-direction file are not needed. ",
                 shiny::tags$b("The bundled demo is tetraploid - set Ploidy = 4."))),
             shiny::radioButtons("data_source", NULL,
