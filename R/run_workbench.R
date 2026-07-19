@@ -39,7 +39,7 @@ init_workbench_dir <- function(dir = getwd()) {
 workbench_app <- function(dir = getwd()) {
   cfg <- ngcd_load_config(dir)
   shiny::addResourcePath("ngcd_www", cfg$www_dir)
-  report_dir <- file.path(cfg$work_dir, "_report")
+  report_dir <- cfg$report_dir
   if (!dir.exists(report_dir)) dir.create(report_dir, recursive = TRUE, showWarnings = FALSE)
   shiny::addResourcePath("ngcd_report", report_dir)
   options(shiny.maxRequestSize = (cfg$max_upload_mb %||% 200) * 1024^2)

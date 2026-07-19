@@ -1126,7 +1126,7 @@ workbench_server <- function(cfg) {
     })
 
     # ---- save / load settings profiles ----
-    presets_dir <- file.path(cfg$work_dir, "presets")
+    presets_dir <- cfg$presets_dir
     if (!dir.exists(presets_dir)) dir.create(presets_dir, recursive = TRUE, showWarnings = FALSE)
     presets_refresh <- shiny::reactiveVal(0)
     preset_files <- shiny::reactive({
@@ -1252,7 +1252,7 @@ workbench_server <- function(cfg) {
         rv$result <- out$result; rv$error <- NULL
         rv$last <- format(Sys.time(), "%H:%M:%S")
         # Generate the run report (HTML + PDF) for the Report tab / link.
-        rdir <- file.path(cfg$work_dir, "_report")
+        rdir <- cfg$report_dir
         if (!dir.exists(rdir)) dir.create(rdir, recursive = TRUE, showWarnings = FALSE)
         rv$report_ts <- as.integer(Sys.time())
         rv$report_error <- NULL

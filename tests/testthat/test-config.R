@@ -108,3 +108,14 @@ test_that("ngcd_dir_writable probes with a real file", {
   blocker <- tempfile("blk"); file.create(blocker)
   expect_false(nextgenCrossWorkbench:::ngcd_dir_writable(file.path(blocker, "x")))
 })
+
+test_that("report_dir and presets_dir live under data_dir, not work_dir", {
+  wd <- tempfile("wb"); dir.create(wd)
+  cfg <- nextgenCrossWorkbench:::ngcd_load_config(wd)
+  expect_false(startsWith(normalizePath(cfg$report_dir, mustWork = FALSE),
+                          normalizePath(wd, mustWork = FALSE)))
+  expect_false(startsWith(normalizePath(cfg$presets_dir, mustWork = FALSE),
+                          normalizePath(wd, mustWork = FALSE)))
+  expect_true(startsWith(normalizePath(cfg$report_dir, mustWork = FALSE),
+                         normalizePath(cfg$data_dir, mustWork = FALSE)))
+})
