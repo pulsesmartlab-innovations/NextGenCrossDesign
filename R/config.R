@@ -56,7 +56,10 @@ ngcd_load_config <- function(dir = getwd()) {
     # 'server' (hosted for many users, e.g. Docker/ShinyProxy). Individual users
     # need set nothing; the container image sets NGCD_DEPLOYMENT_MODE=server.
     deployment_mode          = "local",
-    # Max run directories kept during a session (0 = unlimited). Container disk
+    # Max run directories retained (0 = keep all). In server mode this bounds a
+    # single session's container disk; in local mode data_dir is persistent, so
+    # this caps the cumulative run history kept beside the working dir across
+    # sessions (older runs are pruned). Set 0 to keep every run. Container disk
     # is bounded because artifacts are within-session only.
     keep_runs                = 20,
     # Developer mode exposes the Setup screen and the Save/Load-settings
@@ -105,8 +108,14 @@ ngcd_load_config <- function(dir = getwd()) {
   if (!ngcd_dir_writable(cfg$data_dir)) {
     fallback <- file.path(tempdir(), "ngcd")
     dir.create(fallback, recursive = TRUE, showWarnings = FALSE)
-    cfg$data_dir_warning <- paste0("Configured data_dir '", cfg$data_dir,
-                                   "' is not writable; using '", fallback, "' instead.")
+    # In local mode a non-writable base means runs will NOT persist (they land in
+    # a temp dir cleared on exit) — say so, and do not call an auto-derived path
+    # "configured".
+    ephemeral_note <- if (identical(cfg$deployment_mode, "local"))
+      " Runs will not persist between sessions; set data_dir / NGCD_DATA_DIR to a writable folder." else ""
+    cfg$data_dir_warning <- paste0("data_dir '", cfg$data_dir,
+                                   "' is not writable; using '", fallback, "' instead.",
+                                   ephemeral_note)
     cfg$data_dir <- fallback
   }
 

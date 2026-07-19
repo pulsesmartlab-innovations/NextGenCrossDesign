@@ -89,8 +89,9 @@ whether the backend is connected.
 - **Individual, on your own machine — no Docker.** Install the two R packages and
   call `run_workbench()`. That's it. The app runs in `local` mode by default:
   your runs are kept in an `ngcd-data` folder beside your working directory and
-  survive closing the app. Docker is **not** involved and **not** needed. Follow
-  **Install** and **Run** below.
+  persist across sessions (the most recent `keep_runs` are retained — default 20;
+  set `keep_runs: 0` to keep every run). Docker is **not** involved and **not**
+  needed. Follow **Install** and **Run** below.
 - **Hosted for many users on a server — Docker.** Deploy the containerised app
   under ShinyProxy (one container per user). This is the only scenario that uses
   Docker. It runs in `server` mode: per-session, ephemeral run storage. See

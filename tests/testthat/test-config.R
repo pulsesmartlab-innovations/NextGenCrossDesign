@@ -66,17 +66,22 @@ test_that("developer_mode coerces a truthy env-var string", {
   })
 })
 
-test_that("data_dir defaults under tempdir and derives the mutable areas", {
-  cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
-  expect_true(startsWith(normalizePath(cfg$data_dir, mustWork = FALSE),
-                         normalizePath(tempdir(), mustWork = FALSE)))
-  expect_equal(cfg$runs_dir,    file.path(cfg$data_dir, "runs"))
-  expect_equal(cfg$report_dir,  file.path(cfg$data_dir, "_report"))
-  expect_equal(cfg$presets_dir, file.path(cfg$data_dir, "presets"))
-  expect_true(dir.exists(cfg$runs_dir))
-  expect_true(dir.exists(cfg$report_dir))
-  expect_true(dir.exists(cfg$presets_dir))
-  expect_null(cfg$data_dir_warning)
+test_that("default (local) data_dir is 'ngcd-data' beside the work dir and derives the areas", {
+  wd <- tempfile("wbwork"); dir.create(wd)
+  withr::with_envvar(c(NGCD_DEPLOYMENT_MODE = NA, NGCD_DATA_DIR = NA), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(wd)
+    # Explicit local-path assertion (not "under tempdir", which only held
+    # because the work dir was itself a tempfile).
+    expect_equal(normalizePath(cfg$data_dir, mustWork = FALSE),
+                 normalizePath(file.path(wd, "ngcd-data"), mustWork = FALSE))
+    expect_equal(cfg$runs_dir,    file.path(cfg$data_dir, "runs"))
+    expect_equal(cfg$report_dir,  file.path(cfg$data_dir, "_report"))
+    expect_equal(cfg$presets_dir, file.path(cfg$data_dir, "presets"))
+    expect_true(dir.exists(cfg$runs_dir))
+    expect_true(dir.exists(cfg$report_dir))
+    expect_true(dir.exists(cfg$presets_dir))
+    expect_null(cfg$data_dir_warning)
+  })
 })
 
 test_that("NGCD_DATA_DIR override is honored (not clobbered after the loop)", {
@@ -139,14 +144,17 @@ test_that("check_backend surfaces the data_dir fallback warning", {
   })
 })
 
-test_that("an empty data_dir (from the config template) resolves to the default", {
-  # config.template.yml ships data_dir: ""; the package %||% treats "" as unset.
+test_that("an empty data_dir (from the config template) resolves to the mode default", {
+  # config.template.yml ships data_dir: ""; the package %||% treats "" as unset,
+  # so the deployment-mode default applies (here: local -> <work>/ngcd-data).
   d <- tempfile("wbtmpl"); dir.create(d)
   writeLines(c("default:", '  data_dir: ""'), file.path(d, "config.yml"))
-  cfg <- nextgenCrossWorkbench:::ngcd_load_config(d)
-  expect_true(startsWith(normalizePath(cfg$data_dir, mustWork = FALSE),
-                         normalizePath(tempdir(), mustWork = FALSE)))
-  expect_null(cfg$data_dir_warning)
+  withr::with_envvar(c(NGCD_DEPLOYMENT_MODE = NA, NGCD_DATA_DIR = NA), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(d)
+    expect_equal(normalizePath(cfg$data_dir, mustWork = FALSE),
+                 normalizePath(file.path(d, "ngcd-data"), mustWork = FALSE))
+    expect_null(cfg$data_dir_warning)
+  })
 })
 
 test_that("deployment_mode defaults to local", {

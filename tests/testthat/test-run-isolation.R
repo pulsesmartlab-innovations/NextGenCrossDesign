@@ -58,3 +58,21 @@ test_that("NGCD_KEEP_RUNS is an integer config override", {
     expect_equal(suppressWarnings(as.integer(cfg$keep_runs)), 5L)
   })
 })
+
+test_that("retention cap prunes even a persistent (local-mode) data_dir", {
+  # Documents the truthful claim: local runs persist across sessions, but only
+  # the newest keep_runs are retained (older ones are pruned on a new run).
+  wd <- tempfile("localwork"); dir.create(wd)
+  withr::with_envvar(c(NGCD_DEPLOYMENT_MODE = "local", NGCD_DATA_DIR = NA,
+                       NGCD_KEEP_RUNS = "2"), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(wd)
+    expect_equal(cfg$deployment_mode, "local")
+    # seed 3 old runs, then a new run -> pruned to keep_runs (2)
+    for (i in 1:3) {
+      d <- file.path(cfg$runs_dir, sprintf("old_%02d", i)); dir.create(d)
+      Sys.setFileTime(d, Sys.time() - 100 + i)
+    }
+    nextgenCrossWorkbench:::ngcd_new_run_dir(cfg, label = "new")
+    expect_length(list.dirs(cfg$runs_dir, recursive = FALSE), 2L)
+  })
+})

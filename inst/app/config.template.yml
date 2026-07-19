@@ -35,13 +35,15 @@ default:
 
   # Writable base for run files, reports, and saved settings. Blank = the
   # deployment-mode default: local keeps a persistent "ngcd-data" folder beside
-  # the working directory (runs survive closing the app); server uses a
-  # per-session temp dir cleared when the container ends. Set to a real folder to
-  # force a location. Overridable via the NGCD_DATA_DIR env var.
+  # the working directory (runs persist across sessions, subject to keep_runs
+  # below); server uses a per-session temp dir cleared when the container ends.
+  # Set to a real folder to force a location. Overridable via NGCD_DATA_DIR.
   data_dir: ""
 
-  # Max run directories kept during a session (0 = keep all). Bounds disk on a
-  # long-running server. Overridable via the NGCD_KEEP_RUNS env var.
+  # Max run directories retained (0 = keep all). On a server this bounds one
+  # session's disk; in local mode data_dir is persistent, so this caps the
+  # cumulative run history kept across sessions — set 0 to keep every run.
+  # Overridable via the NGCD_KEEP_RUNS env var.
   keep_runs: 20
 
   # Developer mode. When false (the default), the app hides the Setup screen and
