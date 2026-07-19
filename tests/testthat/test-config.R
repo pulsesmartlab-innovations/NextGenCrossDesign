@@ -65,3 +65,46 @@ test_that("developer_mode coerces a truthy env-var string", {
     expect_true(isTRUE(cfg$developer_mode))
   })
 })
+
+test_that("data_dir defaults under tempdir and derives the mutable areas", {
+  cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+  expect_true(startsWith(normalizePath(cfg$data_dir, mustWork = FALSE),
+                         normalizePath(tempdir(), mustWork = FALSE)))
+  expect_equal(cfg$runs_dir,    file.path(cfg$data_dir, "runs"))
+  expect_equal(cfg$report_dir,  file.path(cfg$data_dir, "_report"))
+  expect_equal(cfg$presets_dir, file.path(cfg$data_dir, "presets"))
+  expect_true(dir.exists(cfg$runs_dir))
+  expect_true(dir.exists(cfg$report_dir))
+  expect_true(dir.exists(cfg$presets_dir))
+  expect_null(cfg$data_dir_warning)
+})
+
+test_that("NGCD_DATA_DIR override is honored (not clobbered after the loop)", {
+  base <- tempfile("ngcd-data")
+  withr::with_envvar(c(NGCD_DATA_DIR = base), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+    expect_equal(normalizePath(cfg$data_dir, mustWork = FALSE),
+                 normalizePath(base, mustWork = FALSE))
+    expect_equal(cfg$runs_dir, file.path(cfg$data_dir, "runs"))
+  })
+})
+
+test_that("an unwritable data_dir falls back to tempdir with a warning", {
+  blocker <- tempfile("blocker"); file.create(blocker)
+  bad <- file.path(blocker, "cannot", "exist")   # parent is a file, not a dir
+  withr::with_envvar(c(NGCD_DATA_DIR = bad), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+    expect_false(is.null(cfg$data_dir_warning))
+    expect_true(dir.exists(cfg$data_dir))
+    expect_true(startsWith(normalizePath(cfg$data_dir, mustWork = FALSE),
+                           normalizePath(tempdir(), mustWork = FALSE)))
+  })
+})
+
+test_that("ngcd_dir_writable probes with a real file", {
+  d <- tempfile("wtest"); dir.create(d)
+  expect_true(nextgenCrossWorkbench:::ngcd_dir_writable(d))
+  # A path whose parent is a regular file cannot be created -> not writable.
+  blocker <- tempfile("blk"); file.create(blocker)
+  expect_false(nextgenCrossWorkbench:::ngcd_dir_writable(file.path(blocker, "x")))
+})

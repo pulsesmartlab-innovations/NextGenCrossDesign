@@ -17,6 +17,21 @@ ngcd_res <- function(...) system.file("app", ..., package = PKG)
 # Load user config from <dir>/config.yml, applying NGCD_* env overrides and
 # resolving package resource paths. `dir` is a writable folder for config +
 # runs (defaults to the working directory).
+# TRUE if directory `d` exists (or can be created) and a probe file can be
+# written there. Probe-file check is used instead of file.access(mode = 2)
+# because file.access write-mode is unreliable on Windows.
+ngcd_dir_writable <- function(d) {
+  if (!dir.exists(d)) {
+    ok <- tryCatch({ dir.create(d, recursive = TRUE, showWarnings = FALSE); dir.exists(d) },
+                   error = function(e) FALSE)
+    if (!isTRUE(ok)) return(FALSE)
+  }
+  probe <- file.path(d, paste0(".ngcd_write_test_", Sys.getpid()))
+  ok <- tryCatch(isTRUE(file.create(probe)) && file.exists(probe), error = function(e) FALSE)
+  if (ok) unlink(probe)
+  isTRUE(ok)
+}
+
 ngcd_load_config <- function(dir = getwd()) {
   cfg_path <- file.path(dir, "config.yml")
   cfg <- list()
@@ -32,6 +47,10 @@ ngcd_load_config <- function(dir = getwd()) {
     alphamate_executable     = "",
     run_timeout_seconds      = 1800,
     max_upload_mb            = 200,
+    # Writable base for all mutable areas (runs, reports, presets). Seeded here,
+    # before the NGCD_* override loop, so NGCD_DATA_DIR / a config.yml data_dir:
+    # actually take effect instead of being overwritten later.
+    data_dir                 = file.path(tempdir(), "ngcd"),
     # Developer mode exposes the Setup screen and the Save/Load-settings
     # profile tools (and their .json import/export). Off by default so a
     # deployed app hides configuration and developer plumbing from end users.
@@ -55,8 +74,25 @@ ngcd_load_config <- function(dir = getwd()) {
   cfg$runner_script <- ngcd_res("tools", "run_cross_prediction_json.R")
   cfg$demo_data_dir <- ngcd_res("data", "demo")
   cfg$www_dir       <- ngcd_res("www")
-  cfg$runs_dir      <- file.path(dir, "runs")
-  if (!dir.exists(cfg$runs_dir)) dir.create(cfg$runs_dir, recursive = TRUE, showWarnings = FALSE)
+
+  # Resolve the writable data base (data_dir came from defaults / config / env).
+  # If it is not writable, fall back to a tempdir base and record a warning that
+  # the app surfaces in its status messages rather than failing at first run.
+  cfg$data_dir <- cfg$data_dir %||% file.path(tempdir(), "ngcd")
+  cfg$data_dir_warning <- NULL
+  if (!ngcd_dir_writable(cfg$data_dir)) {
+    fallback <- file.path(tempdir(), "ngcd")
+    dir.create(fallback, recursive = TRUE, showWarnings = FALSE)
+    cfg$data_dir_warning <- paste0("Configured data_dir '", cfg$data_dir,
+                                   "' is not writable; using '", fallback, "' instead.")
+    cfg$data_dir <- fallback
+  }
+
+  cfg$runs_dir    <- file.path(cfg$data_dir, "runs")
+  cfg$report_dir  <- file.path(cfg$data_dir, "_report")
+  cfg$presets_dir <- file.path(cfg$data_dir, "presets")
+  for (d in c(cfg$runs_dir, cfg$report_dir, cfg$presets_dir))
+    if (!dir.exists(d)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
   cfg
 }
 
