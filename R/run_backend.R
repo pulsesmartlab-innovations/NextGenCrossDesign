@@ -5,7 +5,10 @@
 ngcd_new_run_dir <- function(cfg, label = NULL) {
   stamp <- format(Sys.time(), "%Y%m%d-%H%M%S")
   slug  <- if (!is.null(label) && nzchar(label)) gsub("[^A-Za-z0-9_-]+", "_", label) else "run"
-  dir <- file.path(cfg$runs_dir, paste0(stamp, "_", slug))
+  # tempfile() guarantees a unique name within the session (counter + PID), so
+  # two runs in the same second do not collide. Keep the stamp+slug as a
+  # human-readable prefix.
+  dir <- tempfile(pattern = paste0(stamp, "_", slug, "_"), tmpdir = cfg$runs_dir)
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   dir
 }
