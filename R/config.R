@@ -51,6 +51,9 @@ ngcd_load_config <- function(dir = getwd()) {
     # before the NGCD_* override loop, so NGCD_DATA_DIR / a config.yml data_dir:
     # actually take effect instead of being overwritten later.
     data_dir                 = file.path(tempdir(), "ngcd"),
+    # Max run directories kept during a session (0 = unlimited). Container disk
+    # is bounded because artifacts are within-session only.
+    keep_runs                = 20,
     # Developer mode exposes the Setup screen and the Save/Load-settings
     # profile tools (and their .json import/export). Off by default so a
     # deployed app hides configuration and developer plumbing from end users.

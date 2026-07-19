@@ -2,6 +2,21 @@
 # run_backend.R  -  assemble a run config and invoke the backend runner
 # ===========================================================================
 
+# Keep only the newest cfg$keep_runs run directories under cfg$runs_dir; delete
+# older ones (by mtime). keep_runs = 0 (or NA/negative) disables pruning. Env
+# overrides arrive as strings, so coerce. Returns the number removed.
+ngcd_prune_runs <- function(cfg) {
+  keep <- suppressWarnings(as.integer(cfg$keep_runs %||% 20L))
+  if (is.na(keep) || keep <= 0L) return(invisible(0L))
+  dirs <- list.dirs(cfg$runs_dir, recursive = FALSE)
+  if (length(dirs) <= keep) return(invisible(0L))
+  mt <- file.info(dirs)$mtime
+  ordered <- dirs[order(mt, decreasing = TRUE)]   # newest first
+  to_remove <- ordered[-seq_len(keep)]
+  unlink(to_remove, recursive = TRUE, force = TRUE)
+  invisible(length(to_remove))
+}
+
 ngcd_new_run_dir <- function(cfg, label = NULL) {
   stamp <- format(Sys.time(), "%Y%m%d-%H%M%S")
   slug  <- if (!is.null(label) && nzchar(label)) gsub("[^A-Za-z0-9_-]+", "_", label) else "run"
@@ -10,6 +25,7 @@ ngcd_new_run_dir <- function(cfg, label = NULL) {
   # human-readable prefix.
   dir <- tempfile(pattern = paste0(stamp, "_", slug, "_"), tmpdir = cfg$runs_dir)
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  ngcd_prune_runs(cfg)   # bound disk; the just-created dir is newest, never pruned
   dir
 }
 
