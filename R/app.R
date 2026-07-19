@@ -138,6 +138,11 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             ngcd_callout(kind = "info", shiny::tags$b("Editing: "),
               "double-click a cell to change it. ",
               shiny::actionLink("reset_data", "Reset edits"), "."),
+            shiny::div(style = "margin-top:8px",
+              shiny::actionButton("reset_all", "Reset all parameters",
+                class = "btn-outline-secondary btn-sm"),
+              shiny::div(class = "help-hint", style = "margin-top:4px",
+                "Restores every setting to its default and re-guesses the column mappings and traits for the currently loaded data. Your data source and uploaded files are kept. Use this when switching datasets so old column selections don't carry over.")),
             shiny::uiOutput("edit_flag")),
           bslib::card(bslib::card_header("Column mapping"), shiny::uiOutput("colmap_ui"))),
         bslib::card(bslib::card_header("Data checks (marker & ID alignment)"),
@@ -478,7 +483,6 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
         shiny::uiOutput("results_kpis"),
         bslib::navset_tab(
           bslib::nav_panel("Report", shiny::uiOutput("res_report")),
-          bslib::nav_panel("Diagnostics & tuning", shiny::uiOutput("res_diagnostics")),
           bslib::nav_panel("Selected crosses", DT::DTOutput("res_selected")),
           bslib::nav_panel("Candidate scores", DT::DTOutput("res_candidate")),
           bslib::nav_panel("Parent use", DT::DTOutput("res_parentuse")),
@@ -618,6 +622,41 @@ workbench_server <- function(cfg) {
     }
     shiny::observeEvent(src_files(), load_data(), ignoreNULL = FALSE)
     shiny::observeEvent(input$reset_data, load_data())
+
+    # ---- Reset all parameters -------------------------------------------------
+    # Record each registered input's INITIAL value the first time it appears, and
+    # never overwrite it. Inputs register at different times (tabs, dynamic UI),
+    # so a one-shot snapshot misses late ones; capturing per-input first-seen
+    # values gives a complete, timing-robust default set without a hand table.
+    shiny::observe({
+      reg <- names(ngcd_settings_registry())
+      have <- names(rv$defaults)
+      missing <- setdiff(reg, have)
+      if (!length(missing)) return()                 # captured everything - stop
+      shiny::invalidateLater(400)
+      cur <- ngcd_collect_settings(input)
+      add <- cur[intersect(missing, names(cur))]
+      if (length(add)) rv$defaults <- c(as.list(rv$defaults), add)
+    })
+    # Data-specific inputs: excluded from the defaults restore and blanked so the
+    # column-mapping / trait pickers re-guess for the currently loaded data. The
+    # user's data source, workflow and uploaded files are deliberately preserved.
+    ngcd_data_specific <- c(
+      "genotype_id_col","phenotype_id_col","map_marker_col","map_chr_col",
+      "map_pos_bp_col","map_pos_cm_col","direction_trait_col","direction_column_col",
+      "direction_direction_col","index_col","cost_col","logistic_col","poly_trait_col")
+    shiny::observeEvent(input$reset_all, {
+      if (!is.null(rv$defaults)) {
+        keep <- c("data_source", "workflow", "traits_to_use", ngcd_data_specific)
+        ngcd_apply_settings(session, rv$defaults[setdiff(names(rv$defaults), keep)])
+      }
+      for (id in ngcd_data_specific) shiny::updateSelectInput(session, id, selected = "")
+      rv$result <- NULL; rv$error <- NULL           # drop stale results
+      load_data()                                    # reload -> pickers re-guess
+      shiny::showNotification(
+        "All parameters reset to defaults; column mappings and traits re-guessed for the current data.",
+        type = "message", duration = 5)
+    })
 
     # Visible per-file load feedback (upload mode) so a bad file is never a
     # silent empty table - shows rows x cols on success, or why it failed.
@@ -1328,24 +1367,6 @@ workbench_server <- function(cfg) {
           bslib::card(ngcd_kpi(ngcd_num(ps$unique_parents, 0), "Unique parents")),
           bslib::card(ngcd_kpi(ngcd_num(ps$max_parent_use, 0), "Max parent use")),
           bslib::card(ngcd_kpi(ngcd_num(ps$mean_progeny_inbreeding), "Mean progeny F"))))
-    })
-    # ---- Diagnostics & tuning: why each procedure produced this, what to change
-    output$res_diagnostics <- shiny::renderUI({
-      r <- res(); if (is.null(r)) return(ngcd_callout("Run an analysis to see tuning diagnostics."))
-      items <- ngcd_diagnostics(r)
-      n_warn <- sum(vapply(items, function(x) identical(x$severity, "warn"), logical(1)))
-      head <- if (!length(items))
-        ngcd_callout(kind = "info", shiny::tags$b("No tuning flags. "),
-          "Every procedure ran within normal ranges for this run.")
-      else ngcd_callout(kind = if (n_warn > 0) "warn" else "info",
-        shiny::tags$b(sprintf("%d diagnostic%s (%d to check).", length(items),
-                              if (length(items) == 1) "" else "s", n_warn)),
-        " Each item explains why a procedure produced this result and which parameter to change to steer it.")
-      shiny::tagList(
-        ngcd_section("Diagnostics & tuning",
-          "Automatic cross-number, allocation constraints, robustness, reliability, and QC - explained."),
-        head,
-        shiny::div(class = "ndsu-report", shiny::HTML(ngcd_diagnostics_html(r))))
     })
     output$res_selected <- DT::renderDT({
       r <- res(); shiny::req(r); df <- r$selected_crosses
