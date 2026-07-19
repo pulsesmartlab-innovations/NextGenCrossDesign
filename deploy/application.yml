@@ -15,10 +15,16 @@ proxy:
   docker:
     # Path/URL to the Docker daemon ShinyProxy launches containers on.
     url: unix:///var/run/docker.sock
-    # Pull the app image only if not already present locally.
+    # The version tag is immutable, so pulling only when absent is safe. Use
+    # Always if you ever re-push the same tag (e.g. :latest).
     image-pull-policy: IfNotPresent
     # Give each user container its own internal network.
     internal-networking: true
+    # The image lives in a PRIVATE GitHub Container Registry package. The Docker
+    # daemon that runs the containers must be able to pull it, so either make the
+    # ghcr package public (Org -> Packages -> ngcd-workbench -> visibility), or
+    # log the host daemon in once:
+    #   echo <PAT-with-read:packages> | docker login ghcr.io -u <user> --password-stdin
 
   # --- Authentication (choose one; 'none' shown for a private/internal pilot) --
   # For a public "scientists worldwide" deployment, use ldap / openid / saml /
@@ -29,7 +35,9 @@ proxy:
     - id: ngcd
       display-name: NextGenCrossDesign — cross prediction & mate allocation
       description: Genomic cross prediction and mate allocation workbench.
-      container-image: ngcd-workbench:0.10.0
+      # Fully-qualified multi-arch image on ghcr (linux/amd64 + linux/arm64).
+      # The daemon pulls the arch matching the host automatically.
+      container-image: ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.10.0
       # The app listens on 3838 inside the container (see Dockerfile EXPOSE/CMD).
       port: 3838
       # Per-deployment tuning without rebuilding the image: override any NGCD_*

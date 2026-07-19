@@ -31,7 +31,28 @@ reachable via `Rscript` in the same container. So the image installs:
   toolchain, which the Dockerfile installs).
 - `nextgenCrossWorkbench` — this Shiny front-end.
 
-## Build
+## Published image (skip the build)
+
+A pre-built, **multi-arch** image (`linux/amd64` + `linux/arm64`) is published to
+GitHub Container Registry:
+
+```
+ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.10.0   # (also :latest)
+```
+
+`application.yml` already points at this path, so on most hosts you do **not**
+need to build anything — the daemon pulls the arch matching the host. The package
+is **private**: either make it public (Org → Packages → ngcd-workbench →
+visibility) or log the ShinyProxy host's Docker daemon in once with a token that
+has `read:packages`:
+
+```bash
+echo <PAT-with-read:packages> | docker login ghcr.io -u <user> --password-stdin
+```
+
+Rebuild from source (below) only when you change the front-end or backend.
+
+## Build from source
 
 The backend repo is private, so the image installs both packages from **source
 tarballs** copied into the build context (no GitHub token ends up in the image).
@@ -54,6 +75,32 @@ docker build -t ngcd-workbench:0.10.0 \
 
 Pin the image tag to the front-end version and keep `required_backend_version`
 in `config.yml` in step with the backend tarball you install.
+
+### Publish a new multi-arch image to ghcr
+
+The single-arch `docker build` above is fine for local testing. To publish the
+`amd64` + `arm64` image consumed by `application.yml`, use `buildx` with both
+tarballs already at the context root:
+
+```bash
+# One-time on the build host: a container-driver builder + QEMU for the arch
+# your host does NOT run natively.
+docker run --privileged --rm tonistiigi/binfmt --install all
+docker buildx create --name ngcd-builder --driver docker-container --use
+
+echo <PAT-with-write:packages> | docker login ghcr.io -u <user> --password-stdin
+docker buildx build --builder ngcd-builder \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.10.0 \
+  -t ghcr.io/pulsesmartlab-innovations/ngcd-workbench:latest \
+  --push \
+  --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.4.0.tar.gz \
+  --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.10.0.tar.gz \
+  -f deploy/Dockerfile .
+```
+
+The leg for the non-native arch runs under emulation and compiles the full
+R/Shiny/C++ stack from source, so it is slow — expect a long build.
 
 ## Run under ShinyProxy
 
