@@ -1,0 +1,11 @@
+# Keep the build context small; only the tarballs + deploy/ files are needed.
+.git
+.Rproj.user
+*.Rproj
+tests
+docs
+man
+vignettes
+capture
+*.md
+!deploy/README.md
