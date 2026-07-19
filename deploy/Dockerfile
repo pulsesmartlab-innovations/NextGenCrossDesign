@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libssl-dev \
       libxml2-dev \
       libgit2-dev \
+      libuv1-dev \
       pandoc \
       zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -37,11 +38,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # CRAN dependencies. The frontend Imports + Suggests it needs at runtime, and the
 # backend's hard dependencies (Rcpp, lpSolve). AlphaSimR etc. are backend
 # Suggests used only for benchmarking and are NOT needed to serve the app.
-RUN R -q -e "install.packages(c( \
+#
+# install.packages() does NOT set a non-zero exit status when a package fails to
+# build, so verify every package is actually installed and stop the build if not
+# — otherwise a failed dependency only surfaces later as a confusing
+# "R CMD INSTALL" error.
+RUN R -q -e "pkgs <- c( \
       'shiny','bslib','DT','jsonlite','yaml','base64enc','plotly', \
       'knitr','rmarkdown','openxlsx', \
-      'Rcpp','lpSolve' \
-    ), repos='https://cloud.r-project.org')"
+      'Rcpp','lpSolve'); \
+    install.packages(pkgs, repos='https://cloud.r-project.org'); \
+    missing <- pkgs[!pkgs %in% rownames(installed.packages())]; \
+    if (length(missing)) stop('failed to install: ', paste(missing, collapse=', '))"
 
 # Install the two packages from the tarballs copied into the build context.
 # Backend first (frontend's SystemRequirements needs it reachable).
