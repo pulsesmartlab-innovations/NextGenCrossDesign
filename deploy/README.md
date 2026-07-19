@@ -41,14 +41,25 @@ ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.10.0   # (also :latest)
 ```
 
 `application.yml` already points at this path, so on most hosts you do **not**
-need to build anything — the daemon pulls the arch matching the host. The package
-is **private**: either make it public (Org → Packages → ngcd-workbench →
-visibility) or log the ShinyProxy host's Docker daemon in once with a token that
-has `read:packages`:
+need to build anything — the daemon pulls the arch matching the host. What the
+ShinyProxy host needs to pull depends on the package's visibility:
 
-```bash
-echo <PAT-with-read:packages> | docker login ghcr.io -u <user> --password-stdin
-```
+- **If the package is public** — no auth needed. The host's Docker daemon pulls
+  it directly; nothing else to configure.
+
+- **If the package is private** (the default for a freshly pushed package) — the
+  host's Docker daemon must authenticate once with a token that has
+  `read:packages`:
+
+  ```bash
+  echo <PAT-with-read:packages> | docker login ghcr.io -u <user> --password-stdin
+  ```
+
+To change visibility: **Packages → ngcd-workbench → Package settings → Change
+visibility**. The package's visibility is independent of the source repositories'
+visibility — making the package public does not expose the repos. (`ngcd-workbench`
+is owned by the `pulsesmartlab-innovations` **user** account, so it lives under
+that account's Packages, not an organization's.)
 
 Rebuild from source (below) only when you change the front-end or backend.
 

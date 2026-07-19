@@ -20,11 +20,12 @@ proxy:
     image-pull-policy: IfNotPresent
     # Give each user container its own internal network.
     internal-networking: true
-    # The image lives in a PRIVATE GitHub Container Registry package. The Docker
-    # daemon that runs the containers must be able to pull it, so either make the
-    # ghcr package public (Org -> Packages -> ngcd-workbench -> visibility), or
-    # log the host daemon in once:
-    #   echo <PAT-with-read:packages> | docker login ghcr.io -u <user> --password-stdin
+    # The image is a GitHub Container Registry package. The Docker daemon that
+    # runs the containers must be able to pull it:
+    #   - public package  -> no auth needed, pulls directly.
+    #   - private package -> log the host daemon in once with a read:packages PAT:
+    #       echo <PAT-with-read:packages> | docker login ghcr.io -u <user> --password-stdin
+    # Visibility: Packages -> ngcd-workbench -> Package settings -> Change visibility.
 
   # --- Authentication (choose one; 'none' shown for a private/internal pilot) --
   # For a public "scientists worldwide" deployment, use ldap / openid / saml /
