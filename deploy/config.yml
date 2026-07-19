@@ -1,0 +1,29 @@
+# Workbench config baked into the container image (one container per user).
+# Any key here is overridable at runtime by an env var NGCD_<UPPERCASE_KEY>,
+# which is the preferred way to tune a deployment from ShinyProxy (see
+# application.yml container-env) without rebuilding the image.
+
+default:
+
+  # The backend runs as a subprocess in THIS container, so Rscript is on PATH
+  # and the backend package is in the default R library.
+  rscript_path: "Rscript"
+  package_library: ""
+
+  # Must match the backend version installed in the image.
+  required_backend_version: "0.4.0"
+
+  # Blank => per-session temp dir, cleared when the container ends. Correct for
+  # a hosted, one-container-per-user deployment: no cross-user paths, nothing to
+  # clean up. Override NGCD_DATA_DIR only if you deliberately mount persistent
+  # per-user storage.
+  data_dir: ""
+
+  # Bound disk for a long single-user session.
+  keep_runs: 20
+
+  # End users must not see the Setup / developer plumbing on a hosted server.
+  developer_mode: false
+
+  run_timeout_seconds: 1800
+  max_upload_mb: 200

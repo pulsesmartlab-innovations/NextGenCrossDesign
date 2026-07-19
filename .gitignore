@@ -25,3 +25,5 @@ Thumbs.db
 runs/
 _report/
 config.yml
+# ...but the deploy template config.yml IS committed (baked into the image).
+!deploy/config.yml
