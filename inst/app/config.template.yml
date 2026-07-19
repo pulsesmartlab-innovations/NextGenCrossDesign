@@ -27,6 +27,16 @@ default:
   run_timeout_seconds: 1800
   max_upload_mb: 200
 
+  # Writable base for run files, reports, and saved settings. Blank = a
+  # per-session temp dir (cleared when the app closes) — right for a hosted,
+  # multi-user deployment. Set to a real folder to keep artifacts between
+  # sessions. Overridable via the NGCD_DATA_DIR env var.
+  data_dir: ""
+
+  # Max run directories kept during a session (0 = keep all). Bounds disk on a
+  # long-running server. Overridable via the NGCD_KEEP_RUNS env var.
+  keep_runs: 20
+
   # Developer mode. When false (the default), the app hides the Setup screen and
   # the Save / Load-settings profile tools (including their .json import/export)
   # so end users see only the analysis workflow. Set to true while configuring

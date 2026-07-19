@@ -129,3 +129,13 @@ test_that("check_backend surfaces the data_dir fallback warning", {
     expect_true(any(grepl("not writable", b$messages, fixed = TRUE)))
   })
 })
+
+test_that("an empty data_dir (from the config template) resolves to the default", {
+  # config.template.yml ships data_dir: ""; the package %||% treats "" as unset.
+  d <- tempfile("wbtmpl"); dir.create(d)
+  writeLines(c("default:", '  data_dir: ""'), file.path(d, "config.yml"))
+  cfg <- nextgenCrossWorkbench:::ngcd_load_config(d)
+  expect_true(startsWith(normalizePath(cfg$data_dir, mustWork = FALSE),
+                         normalizePath(tempdir(), mustWork = FALSE)))
+  expect_null(cfg$data_dir_warning)
+})
