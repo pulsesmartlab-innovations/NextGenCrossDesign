@@ -175,5 +175,7 @@ ngcd_check_backend <- function(cfg) {
   if (nzchar(out$alphamate_executable))
     out$alphamate_ok <- file.exists(out$alphamate_executable) ||
       nzchar(Sys.which(out$alphamate_executable))
+  if (!is.null(cfg$data_dir_warning) && nzchar(cfg$data_dir_warning))
+    out$messages <- c(out$messages, cfg$data_dir_warning)
   out
 }

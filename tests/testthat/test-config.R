@@ -119,3 +119,13 @@ test_that("report_dir and presets_dir live under data_dir, not work_dir", {
   expect_true(startsWith(normalizePath(cfg$report_dir, mustWork = FALSE),
                          normalizePath(cfg$data_dir, mustWork = FALSE)))
 })
+
+test_that("check_backend surfaces the data_dir fallback warning", {
+  blocker <- tempfile("blocker"); file.create(blocker)
+  bad <- file.path(blocker, "nope")
+  withr::with_envvar(c(NGCD_DATA_DIR = bad), {
+    cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+    b <- nextgenCrossWorkbench:::ngcd_check_backend(cfg)
+    expect_true(any(grepl("not writable", b$messages, fixed = TRUE)))
+  })
+})

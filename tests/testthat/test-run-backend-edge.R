@@ -9,7 +9,8 @@ test_that("run-dir slug is filesystem-safe and unique-ish", {
   expect_true(dir.exists(d1))
   expect_false(grepl("[^A-Za-z0-9_./-]", basename(d1)))  # sanitised slug
   d2 <- ng("ngcd_new_run_dir")(cfg, label = NULL)
-  expect_match(basename(d2), "_run$")
+  expect_match(basename(d2), "_run_")   # 'run' slug + tempfile unique suffix
+  expect_false(identical(d1, d2))        # distinct dirs
 })
 
 test_that("config writer drops NULL/empty but preserves 0, FALSE and numeric precision", {
