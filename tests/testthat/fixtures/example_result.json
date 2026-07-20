@@ -109,7 +109,7 @@
       "marker_effect_training_n": 10,
       "ridge_lambda": 0.01,
       "method_varPMV": "fast",
-      "pmv_column_used": "dh_pmv_var",
+      "pmv_column_used": "pmv",
       "posterior_prediction": false,
       "posterior_method": null,
       "posterior_draws": null
@@ -123,7 +123,7 @@
       "marker_effect_training_n": 10,
       "ridge_lambda": 100000,
       "method_varPMV": "fast",
-      "pmv_column_used": "dh_pmv_var",
+      "pmv_column_used": "pmv",
       "posterior_prediction": false,
       "posterior_method": null,
       "posterior_draws": null
