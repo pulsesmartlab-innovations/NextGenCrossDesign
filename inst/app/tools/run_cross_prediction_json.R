@@ -131,7 +131,7 @@ run_polyploid_design <- function(raw, result_path) {
   design_args <- c(list(
     dosage = dosage, n_crosses = as.integer(raw$n_crosses %||% 10L), ploidy = ploidy,
     phenotype = phenotype,
-    max_crosses_per_parent = as.integer(raw$max_uses_per_parent %||% 4L),
+    max_crosses_per_parent = as.integer(raw$max_crosses_per_parent %||% 4L),
     run_qc = isTRUE(as.logical(raw$run_qc %||% TRUE)), qc = qc,
     dominance = isTRUE(as.logical(raw$dominance %||% FALSE)),
     gain = raw$gain %||% "mean",
@@ -315,14 +315,14 @@ run <- function() {
     run_full  <- do.call(nextgenCrossDesign::ng_run_cross_prediction, args_full)
 
     # 2. Sweep the mating-plan portfolio over K and locate the elbow.
-    parent_K <- tryCatch(nextgenCrossDesign::ng_parent_kinship(run_full$cleaned_data$genotype),
+    parent_kinship <- tryCatch(nextgenCrossDesign::ng_parent_kinship(run_full$cleaned_data$genotype),
                          error = function(e) NULL)
     curve <- tryCatch(nextgenCrossDesign::ng_optimize_mating_plan_curve(
       scores                 = run_full$candidate_crosses,
       K_range                = K_range,
       gain_col               = "multi_trait_score",
-      parent_K               = parent_K,
-      max_crosses_per_parent = args_in$max_uses_per_parent %||% NULL,
+      parent_kinship               = parent_kinship,
+      max_crosses_per_parent = args_in$max_crosses_per_parent %||% NULL,
       max_pair_kinship       = args_in$max_pair_kinship %||% Inf,
       lambda_group           = args_in$lambda_group %||% 0.05,
       lambda_mating          = args_in$lambda_mating %||% 0.02,
@@ -385,14 +385,14 @@ run <- function() {
       opt <- args_in$optimizer %||% "greedy_local"
       rmethod <- if (opt %in% c("auto","greedy_local","repair_local","mip_linear","mip_contribution")) opt else "greedy_local"
       tnt <- if (identical(objective, "posterior_topn_prob")) as.integer(raw$robust_top_n_target %||% nK) else NULL
-      parent_K <- tryCatch(nextgenCrossDesign::ng_parent_kinship(result$cleaned_data$genotype),
+      parent_kinship <- tryCatch(nextgenCrossDesign::ng_parent_kinship(result$cleaned_data$genotype),
                            error = function(e) NULL)
       rob <- tryCatch(nextgenCrossDesign::ng_optimize_robust_mating_plan(
-        posterior_scores       = ps, n_crosses = nK, parent_K = parent_K,
+        posterior_scores       = ps, n_crosses = nK, parent_kinship = parent_kinship,
         gain_col               = gain_col,
         robustness_quantile    = as.numeric(raw$robustness_quantile %||% 0.25),
         objective              = objective, top_n_target = tnt,
-        max_crosses_per_parent = args_in$max_uses_per_parent %||% NULL,
+        max_crosses_per_parent = args_in$max_crosses_per_parent %||% NULL,
         min_unique_parents     = args_in$min_unique_parents %||% NULL,
         max_pair_kinship       = args_in$max_pair_kinship %||% Inf,
         lambda_group           = args_in$lambda_group %||% 0.05,

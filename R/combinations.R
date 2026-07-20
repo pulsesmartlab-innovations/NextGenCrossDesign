@@ -20,9 +20,9 @@ ngcd_combo_base <- function(cfg, prediction_mode = "trait_by_trait", work_dir = 
     direction_direction_col = "Selection_direction",
     prediction_mode = prediction_mode,
     trait_value_metric = "var_complex", uc_variance_source = "pmv", method_varPMV = "fast",
-    multi_trait_method = "auto", progeny = "DH", recombination_model = "haldane",
+    multi_trait_method = "auto", progeny = "DH", recomb_model = "haldane",
     grm_method = "vanraden", selection_prop = 0.2, assume_inbred = TRUE,
-    duplicate_action = "none", n_crosses = 10, max_uses_per_parent = 4,
+    duplicate_action = "none", n_crosses = 10, max_crosses_per_parent = 4,
     optimizer = "greedy_local", allocation_method = "ocs", use_ocs = TRUE,
     write_outputs = FALSE, write_figures = FALSE, seed = 20260706)
   if (identical(prediction_mode, "index_as_trait")) {
@@ -98,7 +98,7 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
   for (v in ucsrc)   add("uc_variance_source", v, list(trait_value_metric = "usefulness", uc_variance_source = v))
   for (v in methods) add("multi_trait_method", v, method_ov(v))
   for (v in c("DH", "RIL"))            add("progeny", v, list(progeny = v))
-  for (v in c("haldane", "kosambi"))   add("recombination_model", v, list(recombination_model = v))
+  for (v in c("haldane", "kosambi"))   add("recomb_model", v, list(recomb_model = v))
   for (v in c("vanraden", "yang"))     add("grm_method", v, list(grm_method = v))
   for (v in c("fast", "full_posterior")) add("method_varPMV", v, list(method_varPMV = v))
   for (v in optims)  add("optimizer", v, list(optimizer = v))
@@ -176,7 +176,7 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
       method_varPMV = if (stats::runif(1) < 0.15) "full_posterior" else "fast",
       multi_trait_method = method,
       progeny = pick(c("DH", "RIL")),
-      recombination_model = pick(c("haldane", "kosambi")),
+      recomb_model = pick(c("haldane", "kosambi")),
       grm_method = pick(c("vanraden", "yang")),
       optimizer = opt,
       allocation_method = pick(c("ocs", "alphamate_style")),
@@ -184,7 +184,7 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
       threshold_policy = pick(c("soft", "strict")),
       selection_prop = round(stats::runif(1, 0.02, 0.5), 3),
       n_crosses = sample(3:30, 1L),
-      max_uses_per_parent = sample(1:8, 1L),
+      max_crosses_per_parent = sample(1:8, 1L),
       lambda_group = round(stats::runif(1, 0, 0.2), 3),
       lambda_mating = round(stats::runif(1, 0, 0.1), 3),
       lambda_parent_use = round(stats::runif(1, 0, 0.1), 3),
@@ -201,7 +201,7 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
     if (stats::runif(1) < 0.3) ov$min_unique_parents <- sample(2:10, 1L)
     if (stats::runif(1) < 0.3) ov$max_pair_kinship <- round(stats::runif(1, 0, 1), 2)
     if (opt == "evolution") { ov$evol_solutions <- 15L; ov$evol_iterations <- 20L; ov$evol_stop <- 8L; ov$evol_seed <- 42L }
-    if (stats::runif(1) < 0.1) { ov$run_posterior_prediction <- TRUE; ov$posterior_method <- "closed_form"; ov$nIter <- 300L; ov$burnIn <- 50L }
+    if (stats::runif(1) < 0.1) { ov$run_posterior_prediction <- TRUE; ov$posterior_method <- "closed_form"; ov$n_iter <- 300L; ov$burn_in <- 50L }
     ov$grm <- NULL
     combos[[i]] <- list(varied = "random", value = as.character(i), overrides = ov)
   }

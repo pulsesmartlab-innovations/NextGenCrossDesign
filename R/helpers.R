@@ -153,7 +153,7 @@ ngcd_settings_registry <- function() {
     drop_noninbred_parents = "checkbox", alphamate_keep_files = "checkbox",
     pos_unit = "select", trait_value_metric = "select", uc_variance_source = "select",
     method_varPMV = "select", multi_trait_method = "select", threshold_policy = "select",
-    progeny = "select", ril_mode = "select", recombination_model = "select", grm_method = "select",
+    progeny = "select", ril_mode = "select", recomb_model = "select", grm_method = "select",
     duplicate_action = "select", ld_backend = "select", optimizer = "select",
     allocation_method = "select", lambda_parent_use_mode = "select", strategy = "select",
     alphamate_mode = "select", posterior_method = "select", ploidy = "select",
@@ -164,7 +164,7 @@ ngcd_settings_registry <- function() {
     bp_per_cm = "num", map_pos_cm_divisor = "num", threshold_penalty_weight = "num",
     min_effect_reliability = "num", duplicate_threshold = "num", duplicate_maf_min = "num",
     duplicate_max_missing_prop = "num", duplicate_min_compared_markers = "num", ld_window = "num",
-    ld_r2_threshold = "num", ld_maf_threshold = "num", n_crosses = "num", max_uses_per_parent = "num",
+    ld_r2_threshold = "num", ld_maf_threshold = "num", n_crosses = "num", max_crosses_per_parent = "num",
     min_unique_parents = "num", max_pair_kinship = "num", lambda_group = "num", lambda_mating = "num",
     lambda_parent_use = "num", local_iter = "num", ocs_iter = "num", evol_solutions = "num",
     evol_iterations = "num", evol_stop = "num", evol_seed = "num", target_coancestry = "num",
@@ -182,7 +182,7 @@ ngcd_settings_registry <- function() {
     poly_grm_method = "select", poly_dominance = "checkbox", poly_run_qc = "checkbox",
     poly_double_reduction = "num",
     min_crosses_per_parent = "num", lambda_marker = "num", budget = "num", lambda_cost = "num",
-    lambda_logistic = "num", nIter = "num", burnIn = "num", parallel_cores = "num",
+    lambda_logistic = "num", n_iter = "num", burn_in = "num", n_threads = "num",
     priority_score_weight = "num", priority_kinship_weight = "num", priority_threshold_weight = "num",
     seed = "num")
 }

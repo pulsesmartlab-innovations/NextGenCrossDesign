@@ -14,7 +14,7 @@ test_that("advanced controls take effect through the backend", {
 
   # committed matings: the locked pair must appear in the plan
   r <- runc(list(committed_crosses = list(parent1 = "P09", parent2 = "P10"),
-                 n_crosses = 8, max_uses_per_parent = 4))
+                 n_crosses = 8, max_crosses_per_parent = 4))
   expect_true(r$ok, info = r$message)
   sc <- read_res(r$run_dir)$selected_crosses
   expect_true(any((sc$parent1 == "P09" & sc$parent2 == "P10") |

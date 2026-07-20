@@ -10,16 +10,16 @@
     "multi_trait_method": "auto",
     "progeny": "DH",
     "ril_mode": "infinite",
-    "recombination_model": "haldane",
+    "recomb_model": "haldane",
     "selection_prop": 0.2,
     "run_posterior_prediction": false,
     "posterior_method": "mcmc",
-    "nIter": 5000,
-    "burnIn": 500,
+    "n_iter": 5000,
+    "burn_in": 500,
     "posterior_n_draws": 0,
     "use_parallel": false,
     "parallel_backend": "serial",
-    "parallel_cores": 1,
+    "n_threads": 1,
     "optimizer": "evolution",
     "optimizer_method": "evolution",
     "allocation_method": "ocs",
@@ -28,7 +28,7 @@
     "alphamate_max_contributions": 4,
     "use_ocs": true,
     "n_crosses": 10,
-    "max_uses_per_parent": 4
+    "max_crosses_per_parent": 4
   },
   "input_match_audit": {
     "phenotype_id_col": "NAME",
@@ -91,7 +91,7 @@
         "columns": 4
       },
       {
-        "table": "parent_K",
+        "table": "parent_kinship",
         "present": false,
         "rows": 0,
         "columns": 0

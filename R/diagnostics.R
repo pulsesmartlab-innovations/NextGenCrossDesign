@@ -121,7 +121,7 @@ ngcd_diag_allocation <- function(res) {
   }
 
   # parent-use cap binding?
-  mu  <- suppressWarnings(as.integer(st$max_uses_per_parent %||% NA))
+  mu  <- suppressWarnings(as.integer(st$max_crosses_per_parent %||% NA))
   mpu <- suppressWarnings(as.integer(ps$max_parent_use %||% NA))
   if (is.finite(mu) && is.finite(mpu) && mpu >= mu && mu > 0)
     out <- c(out, list(ngcd_diag_item("allocation", "note",
@@ -147,7 +147,7 @@ ngcd_diag_robust <- function(res) {
   if (!is.null(rp$error))
     return(list(ngcd_diag_item("robust", "warn",
       "Robust posterior allocation could not be computed", rp$error,
-      "Enable 'Robust posterior allocation' on Allocation (it turns on posterior prediction). If scores were empty, raise the posterior draws (nIter) on the Advanced screen.")))
+      "Enable 'Robust posterior allocation' on Allocation (it turns on posterior prediction). If scores were empty, raise the posterior draws (n_iter) on the Advanced screen.")))
   nch <- suppressWarnings(as.integer(rp$n_changed %||% NA))
   nk  <- suppressWarnings(as.integer(rp$n_crosses %||% NA))
   sm  <- rp$summary %||% list()

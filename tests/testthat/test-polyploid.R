@@ -18,7 +18,7 @@ test_that("polyploid design runner returns a plan, summary and QC", {
   cfgj <- list(schema = "ng_run_config.v1", workflow = "polyploid_design",
     genotype_file = pd$genotype, phenotype_file = pd$phenotype,
     genotype_id_col = "NAME", phenotype_id_col = "NAME", poly_trait_col = "yield",
-    ploidy = 4, n_crosses = 8, max_uses_per_parent = 4,
+    ploidy = 4, n_crosses = 8, max_crosses_per_parent = 4,
     dominance = TRUE, gain = "usefulness", double_reduction = 0.08,
     grm_method = "vanraden", selection_prop = 0.1, run_qc = TRUE,
     method = "greedy_local", strategy = "balanced", seed = 1)
