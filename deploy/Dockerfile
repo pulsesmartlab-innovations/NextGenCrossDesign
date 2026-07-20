@@ -36,8 +36,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # CRAN dependencies. The frontend Imports + Suggests it needs at runtime, and the
-# backend's hard dependencies (Rcpp, lpSolve). AlphaSimR etc. are backend
-# Suggests used only for benchmarking and are NOT needed to serve the app.
+# backend's hard dependencies. AlphaSimR etc. are backend Suggests used only for
+# benchmarking and are NOT needed to serve the app.
+#
+# The backend Imports block MUST stay in sync with nextgenCrossDesign's
+# DESCRIPTION: as of backend 0.7.0 that is Rcpp, lpSolve, jsonlite, Matrix,
+# mvtnorm, ggplot2, openxlsx (plus base/recommended parallel + Matrix that ship
+# with R). mvtnorm/ggplot2/Matrix were promoted from Suggests to Imports in
+# 0.7.0, so they are now required at `R CMD INSTALL` time, not just at runtime.
 #
 # install.packages() does NOT set a non-zero exit status when a package fails to
 # build, so verify every package is actually installed and stop the build if not
@@ -46,7 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN R -q -e "pkgs <- c( \
       'shiny','bslib','DT','jsonlite','yaml','base64enc','plotly', \
       'knitr','rmarkdown','openxlsx', \
-      'Rcpp','lpSolve'); \
+      'Rcpp','lpSolve','Matrix','mvtnorm','ggplot2'); \
     install.packages(pkgs, repos='https://cloud.r-project.org'); \
     missing <- pkgs[!pkgs %in% rownames(installed.packages())]; \
     if (length(missing)) stop('failed to install: ', paste(missing, collapse=', '))"
