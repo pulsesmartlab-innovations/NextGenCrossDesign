@@ -1,5 +1,5 @@
 # Polyploid design workflow: the runner's polyploid_design path drives
-# ng_design_crosses_poly() on a dosage matrix + single-trait phenotype and
+# ng_polyploid_design_crosses() on a dosage matrix + single-trait phenotype and
 # returns a poly plan + summary + QC. Backend-gated.
 
 test_that("polyploid design runner returns a plan, summary and QC", {
@@ -7,8 +7,8 @@ test_that("polyploid design runner returns a plan, summary and QC", {
   skip_if(Sys.getenv("NGCD_RUN_COMBINATIONS") != "1",
           "Set NGCD_RUN_COMBINATIONS=1 to run the backend polyploid check.")
   skip_if(!backend_available(), "Backend not available.")
-  skip_if_not(exists("ng_design_crosses_poly", where = asNamespace("nextgenCrossDesign")),
-              "Backend lacks ng_design_crosses_poly.")
+  skip_if_not(exists("ng_polyploid_design_crosses", where = asNamespace("nextgenCrossDesign")),
+              "Backend lacks ng_polyploid_design_crosses.")
 
   cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wbpoly"))
   pd  <- nextgenCrossWorkbench:::ngcd_poly_demo_files(cfg)
