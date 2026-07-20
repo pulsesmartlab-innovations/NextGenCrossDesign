@@ -17,7 +17,7 @@ default:
   # Library where nextgenCrossDesign is installed. Blank = R's default library.
   package_library: ""
 
-  required_backend_version: "0.5.0"
+  required_backend_version: "0.6.0"
 
   # Optional: path to an external AlphaMate executable, used only when a run
   # picks allocation_method = alphamate_executable. Leave blank if you don't
