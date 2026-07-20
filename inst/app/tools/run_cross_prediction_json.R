@@ -374,11 +374,11 @@ run <- function() {
       objective <- raw$robust_objective %||% "posterior_quantile"
       # gain column must carry posterior draws (has *_post_mean); prefer the
       # DH-GEBV usefulness, then fall back to any posterior column.
-      cand    <- c("uc_dh_gebv", "uc_dh", "dh_pmv_var", "cross_mean")
+      cand    <- c("usefulness_pmv_gebv", "usefulness_pmv", "pmv", "cross_mean")
       hit     <- cand[paste0(cand, "_post_mean") %in% names(ps)]
       gain_col <- if (length(hit)) hit[1L] else {
         pm <- grep("_post_mean$", names(ps), value = TRUE)
-        if (length(pm)) sub("_post_mean$", "", pm[1L]) else "uc_dh_gebv"
+        if (length(pm)) sub("_post_mean$", "", pm[1L]) else "usefulness_pmv_gebv"
       }
       nK  <- if (is.data.frame(result$selected_crosses)) nrow(result$selected_crosses)
              else as.integer(args_in$n_crosses %||% 10L)

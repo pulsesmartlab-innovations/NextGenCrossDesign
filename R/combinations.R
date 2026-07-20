@@ -78,10 +78,10 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
   add <- function(varied, value, ov) combos[[length(combos) + 1L]] <<-
     list(varied = varied, value = value, overrides = ov)
 
-  metrics  <- c("var_complex", "uc", "pmv", "vpm", "mean", "var_simple")
+  metrics  <- c("var_complex", "usefulness", "pmv", "vpm", "mean", "le")
   optims   <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
   methods  <- c("auto", "weighted", "economic_index", "desired_gain")
-  ucsrc    <- c("pmv", "vpm", "var_simple")
+  ucsrc    <- c("pmv", "vpm", "le")
   divspecs <- list(c("strategy", "high_gain"), c("strategy", "balanced"), c("strategy", "diversity"),
                    c("emphasis", "15"), c("emphasis", "50"), c("emphasis", "85"), c("target", "0.05"))
 
@@ -95,7 +95,7 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
 
   # ---- one-at-a-time sweeps ----
   for (v in metrics) add("trait_value_metric", v, list(trait_value_metric = v))
-  for (v in ucsrc)   add("uc_variance_source", v, list(trait_value_metric = "uc", uc_variance_source = v))
+  for (v in ucsrc)   add("uc_variance_source", v, list(trait_value_metric = "usefulness", uc_variance_source = v))
   for (v in methods) add("multi_trait_method", v, method_ov(v))
   for (v in c("DH", "RIL"))            add("progeny", v, list(progeny = v))
   for (v in c("haldane", "kosambi"))   add("recombination_model", v, list(recombination_model = v))
@@ -157,10 +157,10 @@ ngcd_expected_fail <- function(message) {
 # exercise code paths and detect errors, not to tune optimization quality.
 ngcd_combo_random <- function(n = 1000, seed = 1) {
   set.seed(seed)
-  metrics <- c("var_complex", "uc", "pmv", "vpm", "mean", "var_simple")
+  metrics <- c("var_complex", "usefulness", "pmv", "vpm", "mean", "le")
   optims  <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
   methods <- c("auto", "weighted", "economic_index", "desired_gain")
-  ucsrc   <- c("pmv", "vpm", "var_simple")
+  ucsrc   <- c("pmv", "vpm", "le")
   pick <- function(x) x[sample.int(length(x), 1L)]
   combos <- vector("list", n)
   for (i in seq_len(n)) {
