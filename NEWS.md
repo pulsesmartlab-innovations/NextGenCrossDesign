@@ -1,3 +1,18 @@
+# nextgenCrossWorkbench 0.10.1
+
+Lockstep release for the backend API-naming program (nextgenCrossDesign 0.7.0).
+
+## Changes
+
+* Raised `required_backend_version` to **0.7.0**. The workbench now calls the
+  renamed backend API (e.g. `parent_kinship`, the `pmv` / `vpm` /
+  `parent_distance` score columns, and the `ng_polyploid_*` functions), none of
+  which exist before 0.7.0, so the runtime version gate must require it. This
+  fixes a too-loose pin that would let a separately-installed 0.4.0 backend pass
+  the gate and then fail at call time.
+* Deployment: the ShinyProxy container image now bundles backend 0.7.0
+  (`ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.10.1`).
+
 # nextgenCrossWorkbench 0.10.0
 
 Release focused on robustness, documentation, and CRAN readiness.
