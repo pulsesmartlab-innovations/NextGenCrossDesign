@@ -28,7 +28,7 @@ Encoding: UTF-8
 Depends: R (>= 4.1.0)
 Imports: shiny, bslib, DT, jsonlite, yaml, utils, grDevices, graphics,
     base64enc, stats, plotly, parallel
-Suggests: ggplot2, openxlsx, testthat (>= 3.0.0), withr, knitr, rmarkdown
+Suggests: ggplot2, openxlsx, remotes, testthat (>= 3.0.0), withr, knitr, rmarkdown
 VignetteBuilder: knitr
 URL: https://github.com/pulsesmartlab-innovations/NextGenCrossDesign
 BugReports: https://github.com/pulsesmartlab-innovations/NextGenCrossDesign/issues
