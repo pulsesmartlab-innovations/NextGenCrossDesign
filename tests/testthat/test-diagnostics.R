@@ -72,7 +72,7 @@ test_that("ne_target criterion reports Ne and how to steer it", {
 test_that("binding allocation constraints are detected (kinship, parent-use, unique-parents)", {
   r <- list(
     plan_summary = list(max_parent_use = 3, unique_parents = 4),
-    settings = list(max_pair_kinship = 0.2, max_uses_per_parent = 3, min_unique_parents = 4),
+    settings = list(max_pair_kinship = 0.2, max_crosses_per_parent = 3, min_unique_parents = 4),
     selected_crosses = data.frame(parent1 = "A", parent2 = "B", pair_kinship = 0.199))
   d <- ng("ngcd_diag_allocation")(r)
   a <- areas(d)

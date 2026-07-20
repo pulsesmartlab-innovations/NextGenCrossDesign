@@ -216,7 +216,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::conditionalPanel("input.ril_mode == 'finite'",
                 shiny::numericInput("nselfing", "Number of selfing generations", 8, min = 1, step = 1)),
               shiny::uiOutput("ril_note")),
-            shiny::selectInput("recombination_model", "Recombination model", c("haldane","kosambi")),
+            shiny::selectInput("recomb_model", "Recombination model", c("haldane","kosambi")),
             shiny::selectInput("grm_method", "GRM method", c("vanraden","yang")),
             shiny::checkboxInput("assume_inbred", "Assume inbred parents", TRUE),
             shiny::numericInput("min_effect_reliability", "Min marker-effect reliability", 0.35, min = 0, max = 1, step = 0.05)))),
@@ -289,7 +289,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                 shiny::numericInput("cross_sweep_ne_min", "Minimum effective population size (Ne)", 30, min = 1, step = 1)),
               shiny::conditionalPanel("input.cross_sweep_criterion == 'coancestry_budget'",
                 shiny::numericInput("cross_sweep_coancestry_max", "Maximum group coancestry", 0.05, min = 0, step = 0.01))),
-            shiny::numericInput("max_uses_per_parent", "Max uses per parent", 4, min = 1, step = 1),
+            shiny::numericInput("max_crosses_per_parent", "Max uses per parent", 4, min = 1, step = 1),
             shiny::numericInput("min_unique_parents", "Min unique parents (blank = auto)", NA, min = 1, step = 1),
             shiny::numericInput("max_pair_kinship", "Max pair kinship (blank = off)", NA, step = 0.05)),
           bslib::card(bslib::card_header("Optimizer & method"),
@@ -407,11 +407,11 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::checkboxInput("run_posterior_prediction", "Run posterior prediction", FALSE),
             shiny::conditionalPanel("input.run_posterior_prediction == true",
               shiny::selectInput("posterior_method", "Method", c("mcmc","closed_form")),
-              shiny::numericInput("nIter", "Iterations", 5000, min = 1),
-              shiny::numericInput("burnIn", "Burn-in", 500, min = 0),
+              shiny::numericInput("n_iter", "Iterations", 5000, min = 1),
+              shiny::numericInput("burn_in", "Burn-in", 500, min = 0),
               shiny::checkboxInput("use_parallel", "Use parallel", FALSE),
               shiny::conditionalPanel("input.use_parallel == true",
-                shiny::numericInput("parallel_cores", "Parallel cores (blank = auto)", NA, min = 1, step = 1)))))),
+                shiny::numericInput("n_threads", "Parallel cores (blank = auto)", NA, min = 1, step = 1)))))),
 
       bslib::nav_panel("Output",
         ngcd_section("Priority ranking & outputs"),
@@ -976,7 +976,7 @@ workbench_server <- function(cfg) {
         threshold_penalty_autoscale = input$threshold_penalty_autoscale,
         trait_value_metric = input$trait_value_metric, uc_variance_source = input$uc_variance_source,
         method_varPMV = input$method_varPMV, selection_prop = input$selection_prop,
-        progeny = input$progeny, recombination_model = input$recombination_model,
+        progeny = input$progeny, recomb_model = input$recomb_model,
         grm_method = input$grm_method, assume_inbred = input$assume_inbred,
         min_effect_reliability = input$min_effect_reliability,
         duplicate_action = input$duplicate_action, duplicate_threshold = input$duplicate_threshold,
@@ -986,7 +986,7 @@ workbench_server <- function(cfg) {
         ld_maf_threshold = input$ld_maf_threshold, ld_backend = input$ld_backend,
         n_crosses = if (identical(input$cross_number_mode, "auto"))
           as.integer(input$cross_sweep_k_max %||% 30) else input$n_crosses,
-        max_uses_per_parent = input$max_uses_per_parent,
+        max_crosses_per_parent = input$max_crosses_per_parent,
         min_unique_parents = num_or_null(input$min_unique_parents), max_pair_kinship = num_or_null(input$max_pair_kinship),
         optimizer = input$optimizer, allocation_method = input$allocation_method, use_ocs = input$use_ocs,
         lambda_group = input$lambda_group, lambda_mating = input$lambda_mating,
@@ -996,8 +996,8 @@ workbench_server <- function(cfg) {
         lambda_marker = input$lambda_marker, drop_lethal_carrier_crosses = input$drop_lethal_carrier_crosses,
         budget = num_or_null(input$budget), lambda_cost = input$lambda_cost, lambda_logistic = input$lambda_logistic,
         run_posterior_prediction = input$run_posterior_prediction, posterior_method = input$posterior_method,
-        nIter = input$nIter, burnIn = input$burnIn, use_parallel = input$use_parallel,
-        parallel_cores = if (isTRUE(input$use_parallel)) num_or_null(input$parallel_cores) else NULL,
+        n_iter = input$n_iter, burn_in = input$burn_in, use_parallel = input$use_parallel,
+        n_threads = if (isTRUE(input$use_parallel)) num_or_null(input$n_threads) else NULL,
         training_genotype_file = if (!is.null(input$f_train_geno)) input$f_train_geno$datapath else NULL,
         training_phenotype_file = if (!is.null(input$f_train_pheno)) input$f_train_pheno$datapath else NULL,
         training_genotype_id_col = input$training_genotype_id_col,
@@ -1135,7 +1135,7 @@ workbench_server <- function(cfg) {
       # Feasibility: distinct crosses can't exceed n_parents * max_uses / 2.
       if (!is.null(d)) {
         n_par <- if (isTRUE(input$restrict_shared_ids)) d$n_shared_ids else length(d$gids)
-        mu <- input$max_uses_per_parent %||% 6
+        mu <- input$max_crosses_per_parent %||% 6
         capacity <- floor(n_par * mu / 2)
         if (is.finite(capacity) && !is.null(input$n_crosses) && input$n_crosses > capacity)
           msgs <- c(msgs, sprintf(
@@ -1228,7 +1228,7 @@ workbench_server <- function(cfg) {
         ploidy = as.integer(input$ploidy %||% "2"),
         n_crosses = if (identical(input$cross_number_mode, "auto"))
           as.integer(input$cross_sweep_k_max %||% 30) else input$n_crosses,
-        max_uses_per_parent = input$max_uses_per_parent,
+        max_crosses_per_parent = input$max_crosses_per_parent,
         dominance = isTRUE(input$poly_dominance),
         gain = input$poly_gain %||% "mean",
         double_reduction = num_or_null(input$poly_double_reduction) %||% 0,

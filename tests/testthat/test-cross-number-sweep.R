@@ -24,7 +24,7 @@ test_that("auto cross-number mode returns a recommended K and a curve", {
     map_pos_bp_col = "Position_BP", map_position_unit = "bp",
     prediction_mode = "trait_by_trait", multi_trait_method = "auto",
     trait_value_metric = "var_complex", progeny = "DH", assume_inbred = TRUE,
-    duplicate_action = "none", max_uses_per_parent = 4, optimizer = "greedy_local",
+    duplicate_action = "none", max_crosses_per_parent = 4, optimizer = "greedy_local",
     allocation_method = "ocs", use_ocs = TRUE, seed = 1,
     cross_number_mode = "auto", cross_sweep_k_min = 3, cross_sweep_k_max = 12,
     cross_sweep_k_step = 1, cross_sweep_criterion = "elbow_relative")
