@@ -116,7 +116,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               choices = NGCD_CROPS, selected = character(0),
               options = list(create = TRUE, placeholder = "Select or type a crop...")),
             shiny::div(class = "help-hint",
-              "Suggests a crop-aware method family in your results (validated archetypes: wheat, barley, maize, field pea, potato; other crops use the general path)."),
+              "Adds a crop-suitability note to your results: how well the diploid DH/RIL approach is validated for your crop (and switches to a polyploid-appropriate method for complex polyploids). Validated archetypes: wheat, barley, maize, field pea, potato."),
             shiny::selectInput("ploidy", "Ploidy",
               choices = c("Diploid (2)" = "2", "Tetraploid (4)" = "4",
                           "Hexaploid (6)" = "6", "Octoploid (8)" = "8"), selected = "2"),
@@ -1359,12 +1359,16 @@ workbench_server <- function(cfg) {
       shiny::tagList(
         if (!is.null(r$crop_recommendation)) {
           cr <- r$crop_recommendation
-          if (isTRUE(cr$mapped) && !isTRUE(cr$is_fallback))
-            ngcd_callout(kind = "info", shiny::tags$b(sprintf("Crop-aware routing (%s): ", cr$crop %||% "")),
-              sprintf("recommended method family '%s' (%s).", cr$family %||% "-", cr$reason %||% ""))
-          else
-            ngcd_callout(kind = "info", shiny::tags$b("Crop-aware routing: "),
-              "no validated archetype for this crop; using the general path. Pick a listed crop (wheat, barley, maize, field pea, potato) for a crop-specific recommendation.")
+          if (isTRUE(cr$mapped)) {
+            vs <- cr$validation_scope %||% ""
+            approx <- grepl("stress|not true|approxim", vs, ignore.case = TRUE)
+            ngcd_callout(kind = if (approx) "warn" else "info",
+              shiny::tags$b(sprintf("Crop suitability (%s): ", cr$crop %||% "")),
+              if (nzchar(vs)) vs else "Directly supported by the diploid DH/RIL harness.",
+              sprintf(" Method family: %s.", cr$family %||% "frontier_policy"))
+          } else
+            ngcd_callout(kind = "info", shiny::tags$b("Crop suitability: "),
+              "No validated archetype for this crop, so the general diploid path is used. Pick a listed crop (wheat, barley, maize, field pea, potato) for a crop-specific note.")
         },
         if (!is.null(sw) && !is.null(sw$recommended_k)) ngcd_callout(kind = "info",
           shiny::tags$b(sprintf("Number of crosses chosen automatically: K = %d", as.integer(sw$recommended_k))),
