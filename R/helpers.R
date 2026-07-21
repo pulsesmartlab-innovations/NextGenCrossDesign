@@ -254,6 +254,49 @@ ngcd_frontier_plotly <- function(fr, op_x = NULL, op_y = NULL) {
     margin = list(t = 40))
 }
 
+# Diminishing-returns curve for the auto cross-number sweep. x = K (number of crosses),
+# y = mean gain; the recommended K (elbow) is highlighted. For the Ne / coancestry criteria
+# a secondary trace shows the constrained quantity vs K so the user sees where it binds.
+ngcd_diminishing_returns_plotly <- function(curve, recommended_k = NULL,
+                                            criterion = "elbow_relative") {
+  curve <- as.data.frame(curve, stringsAsFactors = FALSE)
+  curve <- curve[order(curve$K), , drop = FALSE]
+  col <- function(nm) if (nm %in% names(curve)) curve[[nm]] else rep(NA_real_, nrow(curve))
+  htext <- sprintf(paste0("<b>K = %s</b><br>Mean gain: %.4g<br>",
+                          "Marginal gain: %.4g<br>Ne: %.3g<br>Group coancestry: %.4g"),
+    curve$K, curve$mean_gain, col("marginal_gain"),
+    col("Ne_estimate"), col("group_coancestry"))
+  p <- plotly::plot_ly()
+  p <- plotly::add_trace(p, x = curve$K, y = curve$mean_gain,
+    type = "scatter", mode = "lines+markers", name = "mean gain",
+    line = list(color = "#00583d", width = 2), marker = list(color = "#00583d", size = 7),
+    text = htext, hoverinfo = "text")
+  if (!is.null(recommended_k) && is.finite(recommended_k)) {
+    yk <- curve$mean_gain[match(as.integer(recommended_k), curve$K)]
+    if (length(yk) && is.finite(yk))
+      p <- plotly::add_trace(p, x = as.integer(recommended_k), y = yk,
+        type = "scatter", mode = "markers", name = "recommended K",
+        marker = list(color = "#FFC425", size = 16, line = list(color = "#003524", width = 2)),
+        text = sprintf("<b>Recommended K = %d</b><br>Mean gain: %.4g", as.integer(recommended_k), yk),
+        hoverinfo = "text")
+  }
+  sec <- if (identical(criterion, "ne_target")) list(col = "Ne_estimate", lab = "Effective size (Ne)")
+         else if (identical(criterion, "coancestry_budget")) list(col = "group_coancestry", lab = "Group coancestry")
+         else NULL
+  if (!is.null(sec) && sec$col %in% names(curve)) {
+    p <- plotly::add_trace(p, x = curve$K, y = curve[[sec$col]], yaxis = "y2",
+      type = "scatter", mode = "lines", name = sec$lab,
+      line = list(color = "#8a6d00", width = 1.5, dash = "dot"), hoverinfo = "skip")
+  }
+  plotly::layout(p,
+    title = list(text = "Diminishing returns: gain vs number of crosses", font = list(color = "#003524")),
+    xaxis = list(title = "Number of crosses (K)", zeroline = FALSE),
+    yaxis = list(title = "Mean gain", zeroline = FALSE),
+    yaxis2 = if (!is.null(sec)) list(title = sec$lab, overlaying = "y", side = "right", zeroline = FALSE) else NULL,
+    hovermode = "closest", legend = list(orientation = "h", x = 0, y = -0.22),
+    margin = list(t = 40))
+}
+
 ngcd_demo_files <- function(cfg) {
   d <- cfg$demo_data_dir
   list(genotype = file.path(d, "genotype.csv"), phenotype = file.path(d, "phenotype.csv"),

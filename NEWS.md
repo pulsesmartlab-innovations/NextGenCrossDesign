@@ -1,3 +1,17 @@
+# nextgenCrossWorkbench 0.10.2
+
+## New features
+
+* **Diminishing-returns chart.** The automatic cross-number sweep now renders the
+  gain-vs-K curve on Results with the recommended K (elbow) highlighted, plus an Ne /
+  coancestry overlay for those stopping rules. Previously only the recommended number was
+  shown and the "see the chart" text pointed nowhere.
+* **Crop-aware suitability note.** The `crop` selector (previously collected but ignored)
+  now drives a crop-suitability callout in the results via `ng_crop_aware_policy_select()`:
+  it states how well the diploid DH/RIL approach is validated for the crop (directly
+  supported vs a diploidized/stress approximation) and switches to a polyploid-appropriate
+  method for complex polyploids. Wheat is treated as diploid.
+
 # nextgenCrossWorkbench 0.10.1
 
 Lockstep release for the backend API-naming program (nextgenCrossDesign 0.7.0).

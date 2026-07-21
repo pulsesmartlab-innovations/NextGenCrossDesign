@@ -115,6 +115,8 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::selectizeInput("crop", "Target crop",
               choices = NGCD_CROPS, selected = character(0),
               options = list(create = TRUE, placeholder = "Select or type a crop...")),
+            shiny::div(class = "help-hint",
+              "Adds a crop-suitability note to your results: how well the diploid DH/RIL approach is validated for your crop (and switches to a polyploid-appropriate method for complex polyploids). Validated archetypes: wheat, barley, maize, field pea, potato."),
             shiny::selectInput("ploidy", "Ploidy",
               choices = c("Diploid (2)" = "2", "Tetraploid (4)" = "4",
                           "Hexaploid (6)" = "6", "Octoploid (8)" = "8"), selected = "2"),
@@ -945,7 +947,7 @@ workbench_server <- function(cfg) {
     build_params <- shiny::reactive({
       mapcfg <- resolve_map()
       p <- list(schema = "ng_run_config.v1",
-        crop = input$crop,  # metadata (ignored by the runner formals)
+        crop = input$crop,  # drives the crop-aware method recommendation in the runner
         genotype_id_col = input$genotype_id_col, phenotype_id_col = input$phenotype_id_col,
         map_marker_col = input$map_marker_col, map_chr_col = input$map_chr_col,
         map_position_unit = mapcfg$map_position_unit,
@@ -1355,9 +1357,22 @@ workbench_server <- function(cfg) {
       crit_lab <- c(elbow_relative = "diminishing returns", elbow_kneedle = "diminishing returns (kneedle)",
                     ne_target = "effective population size", coancestry_budget = "coancestry budget")
       shiny::tagList(
+        if (!is.null(r$crop_recommendation)) {
+          cr <- r$crop_recommendation
+          if (isTRUE(cr$mapped)) {
+            vs <- cr$validation_scope %||% ""
+            approx <- grepl("stress|not true|approxim", vs, ignore.case = TRUE)
+            ngcd_callout(kind = if (approx) "warn" else "info",
+              shiny::tags$b(sprintf("Crop suitability (%s): ", cr$crop %||% "")),
+              if (nzchar(vs)) vs else "Directly supported by the diploid DH/RIL harness.",
+              sprintf(" Method family: %s.", cr$family %||% "frontier_policy"))
+          } else
+            ngcd_callout(kind = "info", shiny::tags$b("Crop suitability: "),
+              "No validated archetype for this crop, so the general diploid path is used. Pick a listed crop (wheat, barley, maize, field pea, potato) for a crop-specific note.")
+        },
         if (!is.null(sw) && !is.null(sw$recommended_k)) ngcd_callout(kind = "info",
           shiny::tags$b(sprintf("Number of crosses chosen automatically: K = %d", as.integer(sw$recommended_k))),
-          sprintf(" (%s rule%s). See the diminishing-returns chart on the Report tab.",
+          sprintf(" (%s rule%s). See the diminishing-returns chart below.",
                   crit_lab[[sw$criterion %||% "elbow_relative"]] %||% "diminishing returns",
                   if (length(sw$k_range)) sprintf(", swept K = %d-%d", min(sw$k_range), max(sw$k_range)) else "")),
         bslib::layout_columns(col_widths = c(2,2,2,2,2,2),
@@ -1366,7 +1381,11 @@ workbench_server <- function(cfg) {
           bslib::card(ngcd_kpi(ngcd_num(ps$group_coancestry), "Group coancestry")),
           bslib::card(ngcd_kpi(ngcd_num(ps$unique_parents, 0), "Unique parents")),
           bslib::card(ngcd_kpi(ngcd_num(ps$max_parent_use, 0), "Max parent use")),
-          bslib::card(ngcd_kpi(ngcd_num(ps$mean_progeny_inbreeding), "Mean progeny F"))))
+          bslib::card(ngcd_kpi(ngcd_num(ps$mean_progeny_inbreeding), "Mean progeny F"))),
+        if (!is.null(sw) && is.data.frame(sw$curve) && nrow(sw$curve) > 1 &&
+            requireNamespace("plotly", quietly = TRUE))
+          bslib::card(bslib::card_header("Choosing the number of crosses"),
+            plotly::plotlyOutput("res_diminishing", height = "360px")))
     })
     output$res_selected <- DT::renderDT({
       r <- res(); shiny::req(r); df <- r$selected_crosses
@@ -1534,6 +1553,11 @@ workbench_server <- function(cfg) {
         r <- res(); shiny::req(r); fr <- r$plan_summary$frontier
         shiny::req(is.data.frame(fr) && nrow(fr) > 0)
         ngcd_frontier_plotly(fr, r$plan_summary$group_coancestry, r$plan_summary$mean_gain)
+      })
+      output$res_diminishing <- plotly::renderPlotly({
+        r <- res(); shiny::req(r); sw <- r$cross_number_sweep
+        shiny::req(is.data.frame(sw$curve) && nrow(sw$curve) > 1)
+        ngcd_diminishing_returns_plotly(sw$curve, sw$recommended_k, sw$criterion %||% "elbow_relative")
       })
     }
     output$res_qc <- shiny::renderUI({

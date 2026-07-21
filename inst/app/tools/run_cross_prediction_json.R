@@ -301,6 +301,7 @@ run <- function() {
   have_sweep <- exists("ng_optimize_mating_plan_curve", where = asNamespace("nextgenCrossDesign")) &&
                 exists("ng_parent_kinship", where = asNamespace("nextgenCrossDesign"))
   sweep_out <- NULL
+  sweep_err <- NULL
 
   if (identical(cross_mode, "auto") && have_sweep) {
     k_min  <- as.integer(raw$cross_sweep_k_min %||% 3L)
@@ -322,7 +323,7 @@ run <- function() {
       K_range                = K_range,
       gain_col               = "multi_trait_score",
       parent_kinship               = parent_kinship,
-      max_crosses_per_parent = args_in$max_crosses_per_parent %||% NULL,
+      max_crosses_per_parent = args_in$max_crosses_per_parent %||% 6L,  # match ng_run_cross_prediction's default; NULL breaks the allocator
       max_pair_kinship       = args_in$max_pair_kinship %||% Inf,
       lambda_group           = args_in$lambda_group %||% 0.05,
       lambda_mating          = args_in$lambda_mating %||% 0.02,
@@ -335,7 +336,7 @@ run <- function() {
       relative_threshold     = as.numeric(raw$cross_sweep_relative_threshold %||% 0.05),
       ne_min                 = as.numeric(raw$cross_sweep_ne_min %||% 30),
       coancestry_max         = as.numeric(raw$cross_sweep_coancestry_max %||% 0.05)),
-      error = function(e) { attr(e, "ng_msg") <<- conditionMessage(e); NULL })
+      error = function(e) { sweep_err <<- conditionMessage(e); NULL })
 
     if (!is.null(curve)) {
       elbow_K <- attr(curve, "elbow_K")
@@ -355,6 +356,7 @@ run <- function() {
       }
     } else {
       result <- run_full   # sweep failed: fall back to the K_max plan
+      if (!is.null(sweep_err)) sweep_out <- list(error = sweep_err, k_range = K_range)
     }
   } else {
     result <- do.call(nextgenCrossDesign::ng_run_cross_prediction, args_in)
@@ -392,7 +394,7 @@ run <- function() {
         gain_col               = gain_col,
         robustness_quantile    = as.numeric(raw$robustness_quantile %||% 0.25),
         objective              = objective, top_n_target = tnt,
-        max_crosses_per_parent = args_in$max_crosses_per_parent %||% NULL,
+        max_crosses_per_parent = args_in$max_crosses_per_parent %||% 6L,  # match ng_run_cross_prediction's default; NULL breaks the allocator
         min_unique_parents     = args_in$min_unique_parents %||% NULL,
         max_pair_kinship       = args_in$max_pair_kinship %||% Inf,
         lambda_group           = args_in$lambda_group %||% 0.05,
@@ -423,6 +425,36 @@ run <- function() {
     }
   }
 
+  # ---- crop-aware method recommendation (A2) -------------------------------
+  # Map the workbench's display crop name to a backend crop-genome archetype and ask the
+  # crop-aware policy which method family fits the crop + parent count. Guarded end-to-end
+  # so a missing function, an unmapped crop, or a bad scenario never errors the run.
+  crop_recommendation <- NULL
+  crop_name <- raw$crop %||% ""
+  if (nzchar(crop_name) &&
+      exists("ng_crop_aware_policy_select", where = asNamespace("nextgenCrossDesign"))) {
+    crop_scenario_map <- c(
+      "Wheat (spring)" = "bread_wheat_hexaploid_approx", "Wheat (winter)" = "bread_wheat_hexaploid_approx",
+      "Durum wheat" = "bread_wheat_hexaploid_approx", "Barley" = "barley_like", "Maize" = "maize_like",
+      "Field pea" = "field_pea_like", "Potato" = "potato_tetraploid_stress")
+    key <- if (crop_name %in% names(crop_scenario_map)) crop_scenario_map[[crop_name]] else NULL
+    n_par <- tryCatch(nrow(result$cleaned_data$genotype), error = function(e) NA_integer_)
+    if (is.null(n_par) || is.na(n_par)) n_par <- 30L
+    crop_recommendation <- tryCatch({
+      if (!is.null(key)) {
+        sel <- nextgenCrossDesign::ng_crop_genome_select(key)
+        rec <- nextgenCrossDesign::ng_crop_aware_policy_select(
+          n_parents = as.integer(n_par), crop_scenario = sel$scenario, crop = sel$crop,
+          harness_model = sel$harness_model, validation_scope = sel$validation_scope)
+        list(mapped = TRUE, is_fallback = isTRUE(rec$is_fallback), crop = sel$crop,
+             scenario = sel$scenario, method = rec$method, family = rec$family,
+             reason = rec$reason, validation_scope = sel$validation_scope)
+      } else {
+        list(mapped = FALSE, is_fallback = TRUE, crop = crop_name, reason = "no_archetype")
+      }
+    }, error = function(e) NULL)
+  }
+
   # ---- assemble ng_run_result.v1 payload -----------------------------------
   pick <- function(name) if (!is.null(result[[name]])) result[[name]] else NULL
 
@@ -448,7 +480,8 @@ run <- function() {
     posterior_predictions = pick("posterior_predictions"),
     output_files    = pick("output_files"),
     cross_number_sweep = sweep_out,
-    robust_plan     = robust_out
+    robust_plan     = robust_out,
+    crop_recommendation = crop_recommendation
   )
   payload <- payload[!vapply(payload, is.null, logical(1))]
 
