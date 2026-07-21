@@ -423,6 +423,36 @@ run <- function() {
     }
   }
 
+  # ---- crop-aware method recommendation (A2) -------------------------------
+  # Map the workbench's display crop name to a backend crop-genome archetype and ask the
+  # crop-aware policy which method family fits the crop + parent count. Guarded end-to-end
+  # so a missing function, an unmapped crop, or a bad scenario never errors the run.
+  crop_recommendation <- NULL
+  crop_name <- raw$crop %||% ""
+  if (nzchar(crop_name) &&
+      exists("ng_crop_aware_policy_select", where = asNamespace("nextgenCrossDesign"))) {
+    crop_scenario_map <- c(
+      "Wheat (spring)" = "bread_wheat_hexaploid_approx", "Wheat (winter)" = "bread_wheat_hexaploid_approx",
+      "Durum wheat" = "bread_wheat_hexaploid_approx", "Barley" = "barley_like", "Maize" = "maize_like",
+      "Field pea" = "field_pea_like", "Potato" = "potato_tetraploid_stress")
+    key <- if (crop_name %in% names(crop_scenario_map)) crop_scenario_map[[crop_name]] else NULL
+    n_par <- tryCatch(nrow(result$cleaned_data$genotype), error = function(e) NA_integer_)
+    if (is.null(n_par) || is.na(n_par)) n_par <- 30L
+    crop_recommendation <- tryCatch({
+      if (!is.null(key)) {
+        sel <- nextgenCrossDesign::ng_crop_genome_select(key)
+        rec <- nextgenCrossDesign::ng_crop_aware_policy_select(
+          n_parents = as.integer(n_par), crop_scenario = sel$scenario, crop = sel$crop,
+          harness_model = sel$harness_model, validation_scope = sel$validation_scope)
+        list(mapped = TRUE, is_fallback = isTRUE(rec$is_fallback), crop = sel$crop,
+             scenario = sel$scenario, method = rec$method, family = rec$family,
+             reason = rec$reason, validation_scope = sel$validation_scope)
+      } else {
+        list(mapped = FALSE, is_fallback = TRUE, crop = crop_name, reason = "no_archetype")
+      }
+    }, error = function(e) NULL)
+  }
+
   # ---- assemble ng_run_result.v1 payload -----------------------------------
   pick <- function(name) if (!is.null(result[[name]])) result[[name]] else NULL
 
@@ -448,7 +478,8 @@ run <- function() {
     posterior_predictions = pick("posterior_predictions"),
     output_files    = pick("output_files"),
     cross_number_sweep = sweep_out,
-    robust_plan     = robust_out
+    robust_plan     = robust_out,
+    crop_recommendation = crop_recommendation
   )
   payload <- payload[!vapply(payload, is.null, logical(1))]
 
