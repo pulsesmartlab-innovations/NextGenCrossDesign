@@ -212,7 +212,8 @@ run <- function() {
                  "cross_sweep_coancestry_max",
                  "robust_allocation", "robustness_quantile", "robust_objective",
                  "robust_top_n_target",
-                 "family_size_total_progeny", "family_size_min", "family_size_max")
+                 "family_size_total_progeny", "family_size_min", "family_size_max",
+                 "multitrait_joint_prob", "multitrait_targets")
   supplied  <- setdiff(names(raw), meta_keys)
   unknown   <- setdiff(supplied, formals_list)
   if (length(unknown)) {
@@ -479,6 +480,61 @@ run <- function() {
     }, error = function(e) list(error = conditionMessage(e)))
   }
 
+  # ---- multi-trait joint P(superior progeny) (C2) --------------------------
+  # Probability a cross throws progeny that clear the target on EVERY selected trait at
+  # once (accounts for cross-trait covariance) -- a joint superiority metric that a
+  # per-trait probability misses. Targets default to each trait's population mean in its
+  # selection direction; override with "trait: value" lines. Guarded end-to-end.
+  mt_joint <- NULL
+  if (isTRUE(as.logical(raw$multitrait_joint_prob %||% FALSE)) &&
+      exists("ng_add_p_superior_progeny_multitrait", where = asNamespace("nextgenCrossDesign")) &&
+      is.data.frame(result$trait_direction) && nrow(result$trait_direction) >= 2 &&
+      is.data.frame(result$candidate_crosses)) {
+    aug <- tryCatch({
+      td <- result$trait_direction
+      traits <- as.character(td$trait %||% td[[1]])
+      dirs   <- as.character(td$direction %||% td$Selection_direction %||% td[[2]])
+      cc <- result$candidate_crosses
+      mean_cols <- paste0(traits, "_mean"); var_cols <- paste0(traits, "_pmv")
+      if (!all(mean_cols %in% names(cc)) || !all(var_cols %in% names(cc)))
+        stop("candidate_crosses is missing per-trait mean/variance columns")
+      pheno <- result$cleaned_data$phenotype
+      targets <- vapply(traits, function(t) mean(as.numeric(pheno[[t]]), na.rm = TRUE), 0)
+      # optional "trait: value" overrides
+      if (nzchar(raw$multitrait_targets %||% "")) {
+        for (ln in strsplit(raw$multitrait_targets, "[\n,]")[[1]]) {
+          kv <- strsplit(trimws(ln), ":")[[1]]
+          if (length(kv) == 2 && trimws(kv[1]) %in% traits)
+            targets[[trimws(kv[1])]] <- suppressWarnings(as.numeric(kv[2]))
+        }
+      }
+      inc <- dirs %in% c("increase", "maximize")
+      tau_lower <- ifelse(inc, targets, -Inf)
+      tau_upper <- ifelse(inc, Inf, targets)
+      Y  <- as.matrix(pheno[, traits, drop = FALSE])
+      Gh <- tryCatch(nextgenCrossDesign::ng_estimate_genetic_covariance(
+                       geno = result$cleaned_data$genotype, Y = Y),
+                     error = function(e) diag(length(traits)))
+      ts <- data.frame(trait = traits, mean_col = mean_cols, var_col = var_cols,
+                       stringsAsFactors = FALSE)
+      out <- nextgenCrossDesign::ng_add_p_superior_progeny_multitrait(
+        scores = cc, trait_specs = ts, tau_lower = tau_lower, tau_upper = tau_upper, G_hat = Gh)
+      attr(out, "targets") <- targets; out
+    }, error = function(e) structure(NULL, err = conditionMessage(e)))
+    if (is.data.frame(aug) && "p_superior_progeny_mt" %in% names(aug)) {
+      result$candidate_crosses <- aug
+      if (is.data.frame(result$selected_crosses)) {
+        k  <- paste(aug$parent1, aug$parent2)
+        sk <- paste(result$selected_crosses$parent1, result$selected_crosses$parent2)
+        result$selected_crosses$p_superior_progeny_mt <- aug$p_superior_progeny_mt[match(sk, k)]
+      }
+      mt_joint <- list(enabled = TRUE, traits = as.list(attr(aug, "targets")),
+                       mean_p = mean(aug$p_superior_progeny_mt, na.rm = TRUE))
+    } else {
+      mt_joint <- list(enabled = TRUE, error = attr(aug, "err") %||% "could not compute joint probability")
+    }
+  }
+
   # ---- assemble ng_run_result.v1 payload -----------------------------------
   pick <- function(name) if (!is.null(result[[name]])) result[[name]] else NULL
 
@@ -506,7 +562,8 @@ run <- function() {
     cross_number_sweep = sweep_out,
     robust_plan     = robust_out,
     crop_recommendation = crop_recommendation,
-    family_sizes = family_sizes
+    family_sizes = family_sizes,
+    multitrait_joint = mt_joint
   )
   payload <- payload[!vapply(payload, is.null, logical(1))]
 

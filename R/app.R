@@ -182,6 +182,14 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::conditionalPanel("input.prediction_mode == 'index_as_trait'",
               shiny::uiOutput("index_col_ui"),
               shiny::selectInput("index_direction", "Index direction", c("increase","decrease")))),
+          bslib::card(bslib::card_header("Multi-trait joint P(superior progeny)"),
+            shiny::div(class = "help-hint",
+              "Probability a cross throws progeny clearing the target on EVERY selected trait at once (uses the estimated cross-trait covariance) - a joint superiority a per-trait probability misses. Multi-trait runs only."),
+            shiny::checkboxInput("multitrait_joint_prob", "Compute joint P(superior progeny)", FALSE),
+            shiny::conditionalPanel("input.multitrait_joint_prob",
+              shiny::textAreaInput("multitrait_targets",
+                "Per-trait targets ('trait: value' per line; blank = population mean)",
+                placeholder = "yield: 65\ndisease: 3", height = "80px"))),
           bslib::card(bslib::card_header("Multi-trait method"),
             shiny::selectInput("multi_trait_method", "Method",
               ngcd_control_choices(cfg$backend_registry, "multi_trait_method", c("auto","weighted","economic_index","desired_gain")), selected = "auto"),
@@ -1049,6 +1057,11 @@ workbench_server <- function(cfg) {
         fs_max <- num_or_null(input$family_size_max)
         if (!is.null(fs_max) && is.finite(fs_max)) p$family_size_max <- as.integer(fs_max)
       }
+      # Multi-trait joint P(superior progeny) (optional).
+      if (isTRUE(input$multitrait_joint_prob)) {
+        p$multitrait_joint_prob <- TRUE
+        if (nzchar(input$multitrait_targets %||% "")) p$multitrait_targets <- input$multitrait_targets
+      }
 
       # RIL mode: send finite + nselfing only if the backend supports it; else
       # fall back to infinite (v0.4.0 backend only supports infinite RILs).
@@ -1386,6 +1399,17 @@ workbench_server <- function(cfg) {
             ngcd_callout(kind = "info", shiny::tags$b("Crop suitability: "),
               "No validated archetype for this crop, so the general diploid path is used. Pick a listed crop (wheat, barley, maize, field pea, potato) for a crop-specific note.")
         },
+        if (!is.null(r$multitrait_joint)) {
+          mj <- r$multitrait_joint
+          if (!is.null(mj$error))
+            ngcd_callout(kind = "warn", shiny::tags$b("Joint P(superior progeny): "), mj$error)
+          else
+            ngcd_callout(kind = "info",
+              shiny::tags$b(sprintf("Joint P(superior progeny) added (mean %.0f%%). ",
+                100 * (mj$mean_p %||% 0))),
+              sprintf("Targets: %s. See the p_superior_progeny_mt column in Selected crosses.",
+                paste(sprintf("%s=%.3g", names(mj$traits), unlist(mj$traits)), collapse = ", ")))
+        },
         if (!is.null(sw) && !is.null(sw$recommended_k)) ngcd_callout(kind = "info",
           shiny::tags$b(sprintf("Number of crosses chosen automatically: K = %d", as.integer(sw$recommended_k))),
           sprintf(" (%s rule%s). See the diminishing-returns chart below.",
@@ -1405,7 +1429,7 @@ workbench_server <- function(cfg) {
     })
     output$res_selected <- DT::renderDT({
       r <- res(); shiny::req(r); df <- r$selected_crosses
-      keep <- intersect(c("priority_rank","parent1","parent2","multi_trait_score","pair_kinship","priority_tier","priority_percentile"), names(df))
+      keep <- intersect(c("priority_rank","parent1","parent2","multi_trait_score","pair_kinship","priority_tier","priority_percentile","p_superior_progeny_mt"), names(df))
       extra <- grep("_value$", names(df), value = TRUE)
       ngcd_dt(df[, unique(c(keep, extra)), drop = FALSE], page = 15, priority_col = "priority_tier")
     })

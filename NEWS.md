@@ -1,3 +1,13 @@
+# nextgenCrossWorkbench 0.13.0
+
+## New features
+
+* **Multi-trait joint P(superior progeny).** A new option on the Objective screen adds a
+  `p_superior_progeny_mt` column: the probability a cross throws progeny that clear the target on
+  *every* selected trait at once, using the estimated cross-trait genetic covariance (a joint
+  superiority a per-trait probability misses). Targets default to each trait's population mean in
+  its selection direction and can be overridden per trait. Multi-trait runs only; off by default.
+
 # nextgenCrossWorkbench 0.12.0
 
 ## New features
