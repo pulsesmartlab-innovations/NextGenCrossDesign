@@ -301,6 +301,7 @@ run <- function() {
   have_sweep <- exists("ng_optimize_mating_plan_curve", where = asNamespace("nextgenCrossDesign")) &&
                 exists("ng_parent_kinship", where = asNamespace("nextgenCrossDesign"))
   sweep_out <- NULL
+  sweep_err <- NULL
 
   if (identical(cross_mode, "auto") && have_sweep) {
     k_min  <- as.integer(raw$cross_sweep_k_min %||% 3L)
@@ -322,7 +323,7 @@ run <- function() {
       K_range                = K_range,
       gain_col               = "multi_trait_score",
       parent_kinship               = parent_kinship,
-      max_crosses_per_parent = args_in$max_crosses_per_parent %||% NULL,
+      max_crosses_per_parent = args_in$max_crosses_per_parent %||% 6L,  # match ng_run_cross_prediction's default; NULL breaks the allocator
       max_pair_kinship       = args_in$max_pair_kinship %||% Inf,
       lambda_group           = args_in$lambda_group %||% 0.05,
       lambda_mating          = args_in$lambda_mating %||% 0.02,
@@ -335,7 +336,7 @@ run <- function() {
       relative_threshold     = as.numeric(raw$cross_sweep_relative_threshold %||% 0.05),
       ne_min                 = as.numeric(raw$cross_sweep_ne_min %||% 30),
       coancestry_max         = as.numeric(raw$cross_sweep_coancestry_max %||% 0.05)),
-      error = function(e) { attr(e, "ng_msg") <<- conditionMessage(e); NULL })
+      error = function(e) { sweep_err <<- conditionMessage(e); NULL })
 
     if (!is.null(curve)) {
       elbow_K <- attr(curve, "elbow_K")
@@ -355,6 +356,7 @@ run <- function() {
       }
     } else {
       result <- run_full   # sweep failed: fall back to the K_max plan
+      if (!is.null(sweep_err)) sweep_out <- list(error = sweep_err, k_range = K_range)
     }
   } else {
     result <- do.call(nextgenCrossDesign::ng_run_cross_prediction, args_in)
@@ -392,7 +394,7 @@ run <- function() {
         gain_col               = gain_col,
         robustness_quantile    = as.numeric(raw$robustness_quantile %||% 0.25),
         objective              = objective, top_n_target = tnt,
-        max_crosses_per_parent = args_in$max_crosses_per_parent %||% NULL,
+        max_crosses_per_parent = args_in$max_crosses_per_parent %||% 6L,  # match ng_run_cross_prediction's default; NULL breaks the allocator
         min_unique_parents     = args_in$min_unique_parents %||% NULL,
         max_pair_kinship       = args_in$max_pair_kinship %||% Inf,
         lambda_group           = args_in$lambda_group %||% 0.05,
