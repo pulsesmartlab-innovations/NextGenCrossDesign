@@ -43,7 +43,7 @@ ngcd_load_config <- function(dir = getwd()) {
   defaults <- list(
     rscript_path             = "Rscript",
     package_library          = "",
-    required_backend_version = "0.4.0",
+    required_backend_version = "0.7.0",
     alphamate_executable     = "",
     run_timeout_seconds      = 1800,
     max_upload_mb            = 200,
