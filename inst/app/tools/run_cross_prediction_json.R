@@ -211,7 +211,8 @@ run <- function() {
                  "cross_sweep_relative_threshold", "cross_sweep_ne_min",
                  "cross_sweep_coancestry_max",
                  "robust_allocation", "robustness_quantile", "robust_objective",
-                 "robust_top_n_target")
+                 "robust_top_n_target",
+                 "family_size_total_progeny", "family_size_min", "family_size_max")
   supplied  <- setdiff(names(raw), meta_keys)
   unknown   <- setdiff(supplied, formals_list)
   if (length(unknown)) {
@@ -455,6 +456,29 @@ run <- function() {
     }, error = function(e) NULL)
   }
 
+  # ---- family-size allocation (C1) -----------------------------------------
+  # When the user sets a total progeny budget, distribute it across the selected
+  # crosses in proportion to their merit (score-weighted). Guarded so it never errors.
+  family_sizes <- NULL
+  fs_total <- suppressWarnings(as.integer(raw$family_size_total_progeny %||% NA))
+  if (!is.na(fs_total) && fs_total > 0 &&
+      is.data.frame(result$selected_crosses) && nrow(result$selected_crosses) > 0 &&
+      exists("ng_allocate_family_sizes", where = asNamespace("nextgenCrossDesign"))) {
+    val_col <- if ("multi_trait_score" %in% names(result$selected_crosses)) "multi_trait_score"
+               else intersect(c("usefulness_pmv_gebv", "cross_mean_blend"), names(result$selected_crosses))[1]
+    family_sizes <- tryCatch({
+      fs <- nextgenCrossDesign::ng_allocate_family_sizes(
+        plan = result$selected_crosses, total_progeny = fs_total,
+        value_col = val_col,
+        min_progeny = suppressWarnings(as.integer(raw$family_size_min %||% 1L)),
+        max_progeny = if (!is.na(suppressWarnings(as.integer(raw$family_size_max %||% NA))))
+                        as.integer(raw$family_size_max) else Inf)
+      keep <- intersect(c("parent1", "parent2", "priority_tier", "multi_trait_score", "n_progeny"), names(fs))
+      list(total_progeny = fs_total, value_col = val_col,
+           families = as.data.frame(fs[, keep, drop = FALSE]))
+    }, error = function(e) list(error = conditionMessage(e)))
+  }
+
   # ---- assemble ng_run_result.v1 payload -----------------------------------
   pick <- function(name) if (!is.null(result[[name]])) result[[name]] else NULL
 
@@ -481,7 +505,8 @@ run <- function() {
     output_files    = pick("output_files"),
     cross_number_sweep = sweep_out,
     robust_plan     = robust_out,
-    crop_recommendation = crop_recommendation
+    crop_recommendation = crop_recommendation,
+    family_sizes = family_sizes
   )
   payload <- payload[!vapply(payload, is.null, logical(1))]
 

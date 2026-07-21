@@ -178,6 +178,7 @@ ngcd_settings_registry <- function() {
     cross_sweep_coancestry_max = "num",
     robust_allocation = "checkbox", robust_objective = "select",
     robustness_quantile = "slider", robust_top_n_target = "num",
+    family_size_total_progeny = "num", family_size_min = "num", family_size_max = "num",
     workflow = "radio", poly_trait_col = "select", poly_gain = "select",
     poly_grm_method = "select", poly_dominance = "checkbox", poly_run_qc = "checkbox",
     poly_double_reduction = "num",
