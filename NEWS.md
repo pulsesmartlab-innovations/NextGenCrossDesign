@@ -1,3 +1,12 @@
+# nextgenCrossWorkbench 0.12.0
+
+## New features
+
+* **Family-size allocation.** A new *Family sizes* card on the Allocation screen lets you set a
+  total progeny budget; the backend (`ng_allocate_family_sizes()`) distributes it across the
+  selected crosses in proportion to their merit, with optional min/max per family. Results appear
+  on a new *Results > Family sizes* tab as a per-cross progeny table and bar chart. Off by default.
+
 # nextgenCrossWorkbench 0.11.0
 
 ## New features
