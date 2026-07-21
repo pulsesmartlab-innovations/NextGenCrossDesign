@@ -1,3 +1,14 @@
+# nextgenCrossWorkbench 0.11.0
+
+## New features
+
+* **Registry-driven controls.** The workbench now reads the backend capability registry
+  (`ng_backend_capability_registry()`, schema v2) at startup and derives its method / metric
+  dropdown options from it, so new or renamed backend methods appear without a UI edit. Existing
+  labels are preserved; only genuinely-new options are appended. This immediately surfaces
+  options the hardcoded lists were missing (e.g. the `threshold` multi-trait method, and the
+  `DHs` / `RILs` progeny systems). Falls back to the built-in lists against an older backend.
+
 # nextgenCrossWorkbench 0.10.2
 
 ## New features

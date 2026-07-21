@@ -135,6 +135,28 @@ ngcd_resolve_rscript <- function(cfg) {
   NA_character_
 }
 
+# Fetch the backend capability registry (schema >= v2) once at startup by asking the
+# configured R to write it as JSON in a child process, then read it back. Returns the
+# parsed list or NULL if the backend/registry is unavailable (older backend) -- callers
+# must fall back to hardcoded choices so the app never breaks against an old engine.
+ngcd_fetch_backend_registry <- function(cfg) {
+  rscript <- ngcd_resolve_rscript(cfg)
+  if (is.na(rscript)) return(NULL)
+  tmp <- tempfile(fileext = ".json")
+  libarg <- if (nzchar(cfg$package_library %||% "")) cfg$package_library else ""
+  code <- sprintf(paste0(
+    'lib <- "%s"; if (nzchar(lib)) .libPaths(c(lib, .libPaths())); ',
+    'if (requireNamespace("nextgenCrossDesign", quietly=TRUE) && ',
+    'exists("ng_write_backend_capability_registry_json", where=asNamespace("nextgenCrossDesign"))) ',
+    'nextgenCrossDesign::ng_write_backend_capability_registry_json(output_path="%s")'),
+    gsub("\\\\", "/", libarg), gsub("\\\\", "/", tmp))
+  tryCatch(system2(rscript, c("-e", shQuote(code)), stdout = TRUE, stderr = TRUE),
+           error = function(e) NULL)
+  if (!file.exists(tmp)) return(NULL)
+  on.exit(unlink(tmp), add = TRUE)
+  tryCatch(jsonlite::fromJSON(tmp, simplifyVector = FALSE), error = function(e) NULL)
+}
+
 # Probe the configured R + backend package in a child process.
 ngcd_check_backend <- function(cfg) {
   rscript <- ngcd_resolve_rscript(cfg)

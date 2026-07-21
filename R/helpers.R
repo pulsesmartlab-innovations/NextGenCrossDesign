@@ -297,6 +297,34 @@ ngcd_diminishing_returns_plotly <- function(curve, recommended_k = NULL,
     margin = list(t = 40))
 }
 
+# Choices for a dropdown, merging the backend registry `controls` list with the given
+# hardcoded fallback. To avoid any visual regression, existing values KEEP the frontend's
+# fallback labels; only registry values not already present are appended (with the registry
+# label), so new/renamed backend methods surface without a UI edit and no existing label
+# changes. Returns a shiny-style named vector (names = labels, values = values). If the
+# registry is unavailable, returns the fallback unchanged.
+ngcd_control_choices <- function(registry, id, fallback = NULL) {
+  ctls <- registry$controls
+  if (is.null(ctls) || !length(ctls)) return(fallback)
+  hit <- Filter(function(c) identical(c$id, id), ctls)
+  if (!length(hit) || !length(hit[[1]]$choices)) return(fallback)
+  ch  <- hit[[1]]$choices
+  reg <- stats::setNames(vapply(ch, function(x) x$value %||% "", ""),
+                         vapply(ch, function(x) x$label %||% x$value %||% "", ""))
+  if (is.null(fallback) || !length(fallback)) return(reg)
+  extra <- reg[!(unname(reg) %in% unname(fallback))]  # registry values the fallback lacks
+  c(fallback, extra)
+}
+
+# Registry-declared default for a control, or the given fallback.
+ngcd_control_default <- function(registry, id, fallback = NULL) {
+  ctls <- registry$controls
+  if (is.null(ctls) || !length(ctls)) return(fallback)
+  hit <- Filter(function(c) identical(c$id, id), ctls)
+  if (!length(hit) || is.null(hit[[1]]$default)) return(fallback)
+  hit[[1]]$default
+}
+
 ngcd_demo_files <- function(cfg) {
   d <- cfg$demo_data_dir
   list(genotype = file.path(d, "genotype.csv"), phenotype = file.path(d, "phenotype.csv"),
