@@ -294,6 +294,13 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::numericInput("max_crosses_per_parent", "Max uses per parent", 4, min = 1, step = 1),
             shiny::numericInput("min_unique_parents", "Min unique parents (blank = auto)", NA, min = 1, step = 1),
             shiny::numericInput("max_pair_kinship", "Max pair kinship (blank = off)", NA, step = 0.05)),
+          bslib::card(bslib::card_header("Family sizes (optional)"),
+            shiny::div(class = "help-hint",
+              "Set a total progeny budget to distribute across the selected crosses in proportion to their merit (score-weighted). Leave blank to skip. Results appear on the Family sizes tab."),
+            bslib::layout_columns(col_widths = c(4,4,4),
+              shiny::numericInput("family_size_total_progeny", "Total progeny (blank = off)", NA, min = 1, step = 10),
+              shiny::numericInput("family_size_min", "Min per family", 1, min = 0, step = 1),
+              shiny::numericInput("family_size_max", "Max per family (blank = none)", NA, min = 1, step = 1))),
           bslib::card(bslib::card_header("Optimizer & method"),
             shiny::selectInput("optimizer", "Optimizer",
               ngcd_control_choices(cfg$backend_registry, "optimizer", c("auto","evolution","greedy_local","repair_local","mip_linear","mip_contribution")), selected = "auto"),
@@ -488,6 +495,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           bslib::nav_panel("Selected crosses", DT::DTOutput("res_selected")),
           bslib::nav_panel("Candidate scores", DT::DTOutput("res_candidate")),
           bslib::nav_panel("Parent use", DT::DTOutput("res_parentuse")),
+          bslib::nav_panel("Family sizes", shiny::uiOutput("res_family_ui")),
           bslib::nav_panel("Robust plan", shiny::uiOutput("res_robust_ui")),
           bslib::nav_panel("Polyploid plan", shiny::uiOutput("res_poly_ui")),
           bslib::nav_panel("Gain-diversity frontier", shiny::uiOutput("res_frontier_ui")),
@@ -1033,6 +1041,14 @@ workbench_server <- function(cfg) {
         p$cross_sweep_ne_min <- num_or_null(input$cross_sweep_ne_min) %||% 30
         p$cross_sweep_coancestry_max <- num_or_null(input$cross_sweep_coancestry_max) %||% 0.05
       }
+      # Family-size allocation (optional): forward the total progeny budget + bounds.
+      fs_total <- num_or_null(input$family_size_total_progeny)
+      if (!is.null(fs_total) && is.finite(fs_total) && fs_total > 0) {
+        p$family_size_total_progeny <- as.integer(fs_total)
+        p$family_size_min <- as.integer(num_or_null(input$family_size_min) %||% 1)
+        fs_max <- num_or_null(input$family_size_max)
+        if (!is.null(fs_max) && is.finite(fs_max)) p$family_size_max <- as.integer(fs_max)
+      }
 
       # RIL mode: send finite + nselfing only if the backend supports it; else
       # fall back to infinite (v0.4.0 backend only supports infinite RILs).
@@ -1452,6 +1468,43 @@ workbench_server <- function(cfg) {
     })
 
     # ---- robust posterior plan ----
+    output$res_family_ui <- shiny::renderUI({
+      r <- res(); shiny::req(r)
+      fs <- r$family_sizes
+      if (is.null(fs)) return(ngcd_callout(kind = "info",
+        shiny::tags$b("No family-size allocation for this run."),
+        shiny::tags$p("Set a ", shiny::tags$b("Total progeny"), " budget in the Family sizes card on the ",
+          shiny::tags$b("Allocation"), " screen, then re-run. It distributes that budget across the ",
+          "selected crosses in proportion to their merit (score-weighted).")))
+      if (!is.null(fs$error)) return(ngcd_callout(kind = "warn",
+        shiny::tags$b("Family-size allocation could not be computed: "), fs$error))
+      shiny::tagList(
+        ngcd_callout(kind = "info",
+          shiny::tags$b(sprintf("Total progeny %s across %d crosses",
+            format(as.integer(fs$total_progeny), big.mark = ","),
+            if (is.data.frame(fs$families)) nrow(fs$families) else 0L)),
+          sprintf(" (weighted by %s).", fs$value_col %||% "merit")),
+        if (requireNamespace("plotly", quietly = TRUE))
+          bslib::card(bslib::card_header("Progeny per cross"),
+            plotly::plotlyOutput("res_family_plot", height = "320px")),
+        bslib::card(bslib::card_header("Family sizes"), DT::DTOutput("res_family_dt")))
+    })
+    output$res_family_dt <- DT::renderDT({
+      r <- res(); shiny::req(r); fs <- r$family_sizes
+      shiny::req(is.data.frame(fs$families)); ngcd_dt(fs$families, page = 15)
+    })
+    if (requireNamespace("plotly", quietly = TRUE))
+      output$res_family_plot <- plotly::renderPlotly({
+        r <- res(); shiny::req(r); fs <- r$family_sizes
+        shiny::req(is.data.frame(fs$families) && "n_progeny" %in% names(fs$families))
+        fam <- fs$families; lab <- paste(fam$parent1, "x", fam$parent2)
+        p <- plotly::plot_ly(x = lab, y = fam$n_progeny, type = "bar",
+          marker = list(color = "#00583d"), hoverinfo = "y")
+        plotly::layout(p, title = list(text = "Progeny per cross", font = list(color = "#003524")),
+          xaxis = list(title = "", tickangle = -40), yaxis = list(title = "Progeny"),
+          margin = list(t = 40))
+      })
+
     output$res_robust_ui <- shiny::renderUI({
       r <- res(); shiny::req(r)
       rp <- r$robust_plan
