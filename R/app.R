@@ -1357,7 +1357,7 @@ workbench_server <- function(cfg) {
       shiny::tagList(
         if (!is.null(sw) && !is.null(sw$recommended_k)) ngcd_callout(kind = "info",
           shiny::tags$b(sprintf("Number of crosses chosen automatically: K = %d", as.integer(sw$recommended_k))),
-          sprintf(" (%s rule%s). See the diminishing-returns chart on the Report tab.",
+          sprintf(" (%s rule%s). See the diminishing-returns chart below.",
                   crit_lab[[sw$criterion %||% "elbow_relative"]] %||% "diminishing returns",
                   if (length(sw$k_range)) sprintf(", swept K = %d-%d", min(sw$k_range), max(sw$k_range)) else "")),
         bslib::layout_columns(col_widths = c(2,2,2,2,2,2),
@@ -1366,7 +1366,11 @@ workbench_server <- function(cfg) {
           bslib::card(ngcd_kpi(ngcd_num(ps$group_coancestry), "Group coancestry")),
           bslib::card(ngcd_kpi(ngcd_num(ps$unique_parents, 0), "Unique parents")),
           bslib::card(ngcd_kpi(ngcd_num(ps$max_parent_use, 0), "Max parent use")),
-          bslib::card(ngcd_kpi(ngcd_num(ps$mean_progeny_inbreeding), "Mean progeny F"))))
+          bslib::card(ngcd_kpi(ngcd_num(ps$mean_progeny_inbreeding), "Mean progeny F"))),
+        if (!is.null(sw) && is.data.frame(sw$curve) && nrow(sw$curve) > 1 &&
+            requireNamespace("plotly", quietly = TRUE))
+          bslib::card(bslib::card_header("Choosing the number of crosses"),
+            plotly::plotlyOutput("res_diminishing", height = "360px")))
     })
     output$res_selected <- DT::renderDT({
       r <- res(); shiny::req(r); df <- r$selected_crosses
@@ -1534,6 +1538,11 @@ workbench_server <- function(cfg) {
         r <- res(); shiny::req(r); fr <- r$plan_summary$frontier
         shiny::req(is.data.frame(fr) && nrow(fr) > 0)
         ngcd_frontier_plotly(fr, r$plan_summary$group_coancestry, r$plan_summary$mean_gain)
+      })
+      output$res_diminishing <- plotly::renderPlotly({
+        r <- res(); shiny::req(r); sw <- r$cross_number_sweep
+        shiny::req(is.data.frame(sw$curve) && nrow(sw$curve) > 1)
+        ngcd_diminishing_returns_plotly(sw$curve, sw$recommended_k, sw$criterion %||% "elbow_relative")
       })
     }
     output$res_qc <- shiny::renderUI({
