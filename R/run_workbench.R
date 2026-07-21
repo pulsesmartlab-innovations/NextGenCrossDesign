@@ -38,6 +38,9 @@ init_workbench_dir <- function(dir = getwd()) {
 #' @export
 workbench_app <- function(dir = getwd()) {
   cfg <- ngcd_load_config(dir)
+  # Fetch the backend capability registry once; the UI derives its dropdowns from it
+  # (falling back to hardcoded choices if the backend is older / registry unavailable).
+  cfg$backend_registry <- ngcd_fetch_backend_registry(cfg)
   shiny::addResourcePath("ngcd_www", cfg$www_dir)
   report_dir <- cfg$report_dir
   if (!dir.exists(report_dir)) dir.create(report_dir, recursive = TRUE, showWarnings = FALSE)
