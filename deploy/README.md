@@ -37,7 +37,7 @@ A pre-built, **multi-arch** image (`linux/amd64` + `linux/arm64`) is published t
 GitHub Container Registry:
 
 ```
-ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.10.1   # (also :latest)
+ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.15.2   # (also :latest)
 ```
 
 `application.yml` already points at this path, so on most hosts you do **not**
@@ -70,17 +70,17 @@ tarballs** copied into the build context (no GitHub token ends up in the image).
 
 ```bash
 # 1. Build the backend tarball (from a checkout of the backend repo)
-#    -> produces nextgenCrossDesign_0.7.0.tar.gz
+#    -> produces nextgenCrossDesign_0.9.0.tar.gz
 R CMD build /path/to/nextgenCrossDesignR
 
 # 2. Build the front-end tarball (from a checkout of THIS repo)
-#    -> produces nextgenCrossWorkbench_0.10.1.tar.gz
+#    -> produces nextgenCrossWorkbench_0.15.2.tar.gz
 R CMD build .
 
 # 3. Put both tarballs at the repo root (the build context) and build the image
-docker build -t ngcd-workbench:0.10.1 \
-  --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.7.0.tar.gz \
-  --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.10.1.tar.gz \
+docker build -t ngcd-workbench:0.15.2 \
+  --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.9.0.tar.gz \
+  --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.2.tar.gz \
   -f deploy/Dockerfile .
 ```
 
@@ -102,11 +102,11 @@ docker buildx create --name ngcd-builder --driver docker-container --use
 echo <PAT-with-write:packages> | docker login ghcr.io -u <user> --password-stdin
 docker buildx build --builder ngcd-builder \
   --platform linux/amd64,linux/arm64 \
-  -t ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.10.1 \
+  -t ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.15.2 \
   -t ghcr.io/pulsesmartlab-innovations/ngcd-workbench:latest \
   --push \
-  --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.7.0.tar.gz \
-  --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.10.1.tar.gz \
+  --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.9.0.tar.gz \
+  --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.2.tar.gz \
   -f deploy/Dockerfile .
 ```
 
@@ -153,7 +153,7 @@ rebuilding:
 | `data_dir` / `NGCD_DATA_DIR` | per-session temp dir (server mode) | Writable base for runs, reports, presets. Blank = the mode default. |
 | `keep_runs` / `NGCD_KEEP_RUNS` | `20` | Max run dirs kept per session (`0` = unlimited). |
 | `rscript_path` / `NGCD_RSCRIPT_PATH` | `Rscript` | Backend interpreter; on PATH inside the container. |
-| `required_backend_version` | `0.7.0` | Must match the backend installed in the image. |
+| `required_backend_version` | `0.7.0` | Floor for progressive enhancement; the image bundles backend 0.9.0. |
 | `developer_mode` / `NGCD_DEVELOPER_MODE` | `false` | Keep false on a hosted server (hides Setup/plumbing). |
 
 ## Updating the backend

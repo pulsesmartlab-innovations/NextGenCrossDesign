@@ -11,16 +11,16 @@
 # Tarballs avoid putting a GitHub token in the image for the private backend repo.
 #
 # Build:
-#   docker build -t ngcd-workbench:0.10.1 \
-#     --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.7.0.tar.gz \
-#     --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.10.1.tar.gz \
+#   docker build -t ngcd-workbench:0.15.2 \
+#     --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.9.0.tar.gz \
+#     --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.2.tar.gz \
 #     -f deploy/Dockerfile .
 
 # Pin a specific R version for reproducible deployments.
 FROM rocker/r-ver:4.4.2
 
-ARG BACKEND_TARBALL=nextgenCrossDesign_0.7.0.tar.gz
-ARG FRONTEND_TARBALL=nextgenCrossWorkbench_0.10.1.tar.gz
+ARG BACKEND_TARBALL=nextgenCrossDesign_0.9.0.tar.gz
+ARG FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.2.tar.gz
 
 # System libraries: a C++ toolchain for the backend kernel, plus the headers the
 # R package dependencies need, and pandoc for HTML/PDF report rendering.
@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # benchmarking and are NOT needed to serve the app.
 #
 # The backend Imports block MUST stay in sync with nextgenCrossDesign's
-# DESCRIPTION: as of backend 0.7.0 that is Rcpp, lpSolve, jsonlite, Matrix,
+# DESCRIPTION: as of backend 0.9.0 that is Rcpp, lpSolve, jsonlite, Matrix,
 # mvtnorm, ggplot2, openxlsx (plus base/recommended parallel + Matrix that ship
 # with R). mvtnorm/ggplot2/Matrix were promoted from Suggests to Imports in
 # 0.7.0, so they are now required at `R CMD INSTALL` time, not just at runtime.
