@@ -32,8 +32,11 @@ workbench drives as a *separate, user-configured R process*. The front-end
 installs and launches independently of the backend.
 
 This vignette explains the input files, how to configure and launch the app, and
-the analysis workflow — the standard diploid workflow, robust (posterior)
-allocation, and the dosage-aware polyploid design workflow.
+the analysis workflow — the standard diploid workflow, multi-trait joint
+superiority, family-size allocation, the gain–diversity Pareto explorer, robust
+(posterior) allocation, and the dosage-aware polyploid and disomic-subgenome
+design workflows. The method, metric and breeding-system menus are read from the
+backend's capability registry, so they always match the installed engine.
 
 ```{r}
 library(nextgenCrossWorkbench)
@@ -134,18 +137,23 @@ The app is organized as a ten-step navigation bar; each screen has a collapsible
 1. **Setup** — confirm the app can reach your R installation and the backend
    engine (green status badges).
 2. **Data** — load or upload inputs, map columns (auto-guessed), review
-   ID/marker alignment checks, and edit tables.
+   ID/marker alignment checks, and edit tables. Naming a **target crop** adds a
+   crop-suitability note to the results (how well the diploid path is validated for
+   that crop archetype); most crops are handled on the standard diploid path.
 3. **Objective** — trait-by-trait or index-as-trait prediction; pick which traits
    to include and how to combine them (auto, weighted, economic index, desired
-   gain).
+   gain, threshold), and optionally add a **multi-trait joint P(superior progeny)**
+   (below).
 4. **Scoring** — the trait-value metric (default `var_complex`, the usefulness
    criterion), the breeding system (DH or RIL), recombination and GRM methods,
    and the selection proportion.
 5. **QC** — duplicate-parent detection, missingness/MAF filters, optional LD
    pruning, and a residual-heterozygosity audit with a one-click exclusion.
 6. **Allocation** — the number of crosses (fixed, or an automatic optimizer that
-   sweeps K), the gain-versus-diversity balance, the optimizer, and constraints
-   on parent use, kinship, quotas, and progeny inbreeding.
+   sweeps K), the gain-versus-diversity balance, the optimizer, constraints
+   on parent use, kinship, quotas, and progeny inbreeding, an optional
+   **family-size allocation** (distribute a total progeny budget across the
+   plan), and an optional **Pareto frontier explorer** (below).
 7. **Advanced** — marker-target steering, lethal-allele handling, cost/logistic
    penalties, budgets, and posterior (MCMC) prediction options.
 8. **Output** — whether to write an Excel crossing-plan workbook and PNG figures,
@@ -154,10 +162,13 @@ The app is organized as a ten-step navigation bar; each screen has a collapsible
    tables, and drives the backend. Errors are surfaced with plain-language hints.
 10. **Results** — a KPI row (crosses, mean gain, group coancestry, unique
     parents, maximum parent use, mean progeny inbreeding) above sub-tabs for the
-    ranked plan, candidate scores, parent use, the gain–diversity frontier, QC
-    audit, input matching, marker effects, and method/settings provenance, plus a
-    self-contained **interactive HTML report** downloadable as HTML or PDF, and a
-    **Diagnostics & tuning** tab (below).
+    ranked plan, candidate scores, parent use, **family sizes**, the
+    gain–diversity frontier, the **Pareto explorer**, QC audit, input matching,
+    marker effects, and method/settings provenance, plus a self-contained
+    **interactive HTML report** downloadable as HTML or PDF, and a
+    **Diagnostics & tuning** tab (below). When the automatic cross-number
+    optimizer runs, a **diminishing-returns chart** (gain vs K with the
+    recommended K marked) is shown here directly.
 
 ### Diagnostics & tuning
 
@@ -196,8 +207,40 @@ curve with your chosen plan marked.
 Rather than fixing the number of crosses, the Allocation screen can **sweep the
 number of crosses K** and recommend a value using a diminishing-returns (elbow /
 kneedle) rule, an effective-population-size floor, or a coancestry budget. When
-the sweep runs, the report adds a diminishing-returns curve and states the chosen
-K and rule.
+the sweep runs, the Results screen shows an interactive **diminishing-returns
+chart** — mean gain against K with the recommended K highlighted (plus an
+effective-size or coancestry overlay for those rules) — and states the chosen K
+and rule, so you can see *why* that number was picked and where extra crosses
+stop adding gain.
+
+### Family-size allocation
+
+Once a plan is chosen, the **Family sizes** card on the Allocation screen lets you
+enter a **total progeny budget**; the backend distributes it across the selected
+crosses in proportion to their merit (score-weighted), with optional minimum and
+maximum family sizes. The allocation appears on the **Family sizes** results tab as
+a per-cross progeny table and a bar chart — a direct answer to "given N seedlings,
+how many should each cross get?".
+
+### Multi-trait joint P(superior progeny)
+
+For multi-trait runs, the **Objective** screen can add a joint superiority column:
+the probability that a cross throws progeny clearing your target on *every*
+selected trait at once. It uses the estimated cross-trait genetic covariance, so it
+captures the joint distribution a per-trait probability misses (a cross can be
+strong for one trait yet rarely produce progeny that are simultaneously good for
+all). Targets default to each trait's population mean in its selection direction and
+can be set per trait. The result is shown as a `p_superior_progeny_mt` column on the
+selected-crosses table.
+
+### Pareto frontier explorer
+
+The single gain-versus-diversity dial picks one point automatically. To see the
+*whole* trade-off yourself, turn on the **Pareto frontier explorer** on the
+Allocation screen and give it an explicit list of diversity-penalty (lambda)
+values; the **Pareto explorer** results tab then plots the full frontier (mean gain
+vs group coancestry) and lists every point, so you can choose the balance you want
+knowingly.
 
 ### Robust (posterior) allocation
 
@@ -226,6 +269,19 @@ value), double reduction (autopolyploids, ploidy ≥ 4), a ploidy-aware genomic
 relationship matrix, and ploidy-aware QC. The resulting plan reports each cross's
 predicted mean, variance, dominance-aware usefulness, parent genomic estimated
 breeding values, and pairwise kinship.
+
+### Disomic-subgenome (true allopolyploid) design
+
+For **true allopolyploids** — species whose subgenomes are inherited *diploidly*
+(each subgenome coded 0..2) — switch the analysis type to *Disomic subgenome*. You
+supply a dosage matrix, a single-trait phenotype, and a marker map with a column
+that names each marker's subgenome; the workbench splits the data by subgenome and
+runs **everything subgenome-aware** — per-subgenome QC, per-subgenome ridge marker
+effects, the subgenome genomic-relationship matrix, and subgenome cross scoring —
+before a coancestry-aware allocation. This is deliberately **not crop-specific**:
+most polyploid crops (wheat, canola) are genotyped and analysed as diploid, so use
+the *Standard* workflow for those and reserve this path for data you genuinely want
+modelled as separate diploid subgenomes.
 
 ## Reproducibility and provenance
 
