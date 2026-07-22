@@ -1,3 +1,14 @@
+# nextgenCrossWorkbench 0.14.0
+
+## New features
+
+* **Disomic-subgenome design (true allopolyploids).** A new *Disomic subgenome* analysis type for
+  true allopolyploids where each subgenome is inherited diploidly (dosage 0..2 per subgenome). You
+  declare each marker's subgenome via a marker-map column; the workbench splits the dosage and runs
+  everything subgenome-aware -- per-subgenome QC, per-subgenome ridge effects, the subgenome GRM,
+  subgenome cross scoring, and a coancestry-aware allocation. Not crop-specific (most crops, e.g.
+  wheat and canola, are genotyped as diploid -- use Standard for those).
+
 # nextgenCrossWorkbench 0.13.0
 
 ## New features
