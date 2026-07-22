@@ -321,7 +321,8 @@ run <- function() {
                  "robust_allocation", "robustness_quantile", "robust_objective",
                  "robust_top_n_target",
                  "family_size_total_progeny", "family_size_min", "family_size_max",
-                 "multitrait_joint_prob", "multitrait_targets")
+                 "multitrait_joint_prob", "multitrait_targets",
+                 "pareto_explore", "pareto_lambdas")
   supplied  <- setdiff(names(raw), meta_keys)
   unknown   <- setdiff(supplied, formals_list)
   if (length(unknown)) {
@@ -643,6 +644,29 @@ run <- function() {
     }
   }
 
+  # ---- Pareto frontier explorer (C3) ---------------------------------------
+  # Sweep an explicit lambda grid to map the whole gain-vs-diversity trade-off and
+  # return every point's plan, so the user can see and pick a point directly (vs the
+  # auto dial). Self-contained: does not change the main plan. Guarded end-to-end.
+  pareto <- NULL
+  if (isTRUE(as.logical(raw$pareto_explore %||% FALSE)) &&
+      exists("ng_pareto_mate_allocation", where = asNamespace("nextgenCrossDesign")) &&
+      is.data.frame(result$candidate_crosses)) {
+    pareto <- tryCatch({
+      lam <- suppressWarnings(as.numeric(strsplit(raw$pareto_lambdas %||% "0,0.02,0.05,0.1,0.2", "[,\\s]+")[[1]]))
+      lam <- sort(unique(lam[is.finite(lam) & lam >= 0]))
+      if (length(lam) < 2) lam <- c(0, 0.02, 0.05, 0.1, 0.2)
+      gcol <- if ("multi_trait_score" %in% names(result$candidate_crosses)) "multi_trait_score"
+              else intersect(c("usefulness_pmv_gebv", "cross_mean_blend"), names(result$candidate_crosses))[1]
+      pk <- nextgenCrossDesign::ng_parent_kinship(result$cleaned_data$genotype)
+      nK <- if (is.data.frame(result$selected_crosses)) nrow(result$selected_crosses) else 20L
+      pa <- nextgenCrossDesign::ng_pareto_mate_allocation(
+        scores = result$candidate_crosses, n_crosses = nK, gain_col = gcol,
+        parent_kinship = pk, lambdas = lam)
+      list(frontier = as.data.frame(pa$frontier), gain_col = gcol, n_crosses = nK, lambdas = as.list(lam))
+    }, error = function(e) list(error = conditionMessage(e)))
+  }
+
   # ---- assemble ng_run_result.v1 payload -----------------------------------
   pick <- function(name) if (!is.null(result[[name]])) result[[name]] else NULL
 
@@ -671,7 +695,8 @@ run <- function() {
     robust_plan     = robust_out,
     crop_recommendation = crop_recommendation,
     family_sizes = family_sizes,
-    multitrait_joint = mt_joint
+    multitrait_joint = mt_joint,
+    pareto = pareto
   )
   payload <- payload[!vapply(payload, is.null, logical(1))]
 

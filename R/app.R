@@ -318,6 +318,13 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::numericInput("family_size_total_progeny", "Total progeny (blank = off)", NA, min = 1, step = 10),
               shiny::numericInput("family_size_min", "Min per family", 1, min = 0, step = 1),
               shiny::numericInput("family_size_max", "Max per family (blank = none)", NA, min = 1, step = 1))),
+          bslib::card(bslib::card_header("Pareto frontier explorer (optional)"),
+            shiny::div(class = "help-hint",
+              "Sweep an explicit lambda grid to map the whole gain-vs-diversity trade-off and see every point's plan on the Pareto explorer tab. The single diversity dial above already picks one point automatically; use this to explore the full curve yourself."),
+            shiny::checkboxInput("pareto_explore", "Explore the Pareto frontier", FALSE),
+            shiny::conditionalPanel("input.pareto_explore",
+              shiny::textInput("pareto_lambdas", "Diversity-penalty (lambda) grid, comma-separated",
+                               "0, 0.02, 0.05, 0.1, 0.2"))),
           bslib::card(bslib::card_header("Optimizer & method"),
             shiny::selectInput("optimizer", "Optimizer",
               ngcd_control_choices(cfg$backend_registry, "optimizer", c("auto","evolution","greedy_local","repair_local","mip_linear","mip_contribution")), selected = "auto"),
@@ -516,6 +523,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           bslib::nav_panel("Robust plan", shiny::uiOutput("res_robust_ui")),
           bslib::nav_panel("Polyploid plan", shiny::uiOutput("res_poly_ui")),
           bslib::nav_panel("Gain-diversity frontier", shiny::uiOutput("res_frontier_ui")),
+          bslib::nav_panel("Pareto explorer", shiny::uiOutput("res_pareto_ui")),
           bslib::nav_panel("QC audit", shiny::uiOutput("res_qc")),
           bslib::nav_panel("Input matching", shiny::verbatimTextOutput("res_match")),
           bslib::nav_panel("Marker effects", DT::DTOutput("res_effects")),
@@ -1080,6 +1088,11 @@ workbench_server <- function(cfg) {
         p$multitrait_joint_prob <- TRUE
         if (nzchar(input$multitrait_targets %||% "")) p$multitrait_targets <- input$multitrait_targets
       }
+      # Pareto frontier explorer (optional).
+      if (isTRUE(input$pareto_explore)) {
+        p$pareto_explore <- TRUE
+        if (nzchar(input$pareto_lambdas %||% "")) p$pareto_lambdas <- input$pareto_lambdas
+      }
 
       # RIL mode: send finite + nselfing only if the backend supports it; else
       # fall back to infinite (v0.4.0 backend only supports infinite RILs).
@@ -1642,6 +1655,35 @@ workbench_server <- function(cfg) {
       fr <- r$plan_summary$frontier
       !is.null(fr) && is.data.frame(fr) && nrow(fr) > 0
     }
+    output$res_pareto_ui <- shiny::renderUI({
+      r <- res(); shiny::req(r); pa <- r$pareto
+      if (is.null(pa)) return(ngcd_callout(kind = "info",
+        shiny::tags$b("Pareto frontier not explored."),
+        shiny::tags$p("Turn on ", shiny::tags$b("Explore the Pareto frontier"), " on the ",
+          shiny::tags$b("Allocation"), " screen and set a lambda grid, then re-run. It sweeps the ",
+          "whole gain-vs-diversity trade-off so you can see and pick a point yourself.")))
+      if (!is.null(pa$error)) return(ngcd_callout(kind = "warn",
+        shiny::tags$b("Pareto frontier could not be computed: "), pa$error))
+      shiny::tagList(
+        ngcd_callout(kind = "info",
+          sprintf("Frontier over %d lambda values (gain column: %s). Lower group coancestry = more diverse; higher = more gain.",
+            if (is.data.frame(pa$frontier)) nrow(pa$frontier) else 0L, pa$gain_col %||% "merit")),
+        if (requireNamespace("plotly", quietly = TRUE))
+          bslib::card(bslib::card_header("Pareto frontier"),
+            plotly::plotlyOutput("res_pareto_plot", height = "380px")),
+        bslib::card(bslib::card_header("Frontier points"), DT::DTOutput("res_pareto_dt")))
+    })
+    output$res_pareto_dt <- DT::renderDT({
+      r <- res(); shiny::req(r); pa <- r$pareto; shiny::req(is.data.frame(pa$frontier))
+      ngcd_dt(pa$frontier, page = 15)
+    })
+    if (requireNamespace("plotly", quietly = TRUE))
+      output$res_pareto_plot <- plotly::renderPlotly({
+        r <- res(); shiny::req(r); pa <- r$pareto
+        shiny::req(is.data.frame(pa$frontier) && nrow(pa$frontier) > 0)
+        ngcd_frontier_plotly(pa$frontier)
+      })
+
     output$res_frontier_ui <- shiny::renderUI({
       r <- res(); shiny::req(r)
       if (has_frontier(r)) {
