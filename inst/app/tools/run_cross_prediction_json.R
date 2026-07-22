@@ -223,6 +223,52 @@ run_subgenome_design <- function(raw, result_path) {
   geno_by_subgenome <- setNames(
     lapply(subgenome_names, function(s) dosage[, marker_sg == s, drop = FALSE]), subgenome_names)
 
+  # A chromosome column + a cM position turn on the recombination-aware within-family
+  # variance (per-subgenome a'Ra, summed). We require BOTH a chromosome and a numeric
+  # position for every genotyped marker -- never guess a chromosome, since lumping
+  # distinct chromosomes would fabricate cross-chromosome linkage and bias the variance.
+  # Position handling mirrors the diploid path's UI resolution: honor the resolved
+  # unit (bp -> cM via bp_per_cm; Morgans via map_pos_cm_divisor), else auto-detect a
+  # cM column. Without a usable chromosome+position we fall back to linkage-equilibrium.
+  mk <- as.character(mp[[mkcol]])
+  chr_candidates <- c(raw$map_chr_col, "chr", "chrom", "chromosome", "linkage_group", "lg")
+  chr_col <- chr_candidates[chr_candidates %in% names(mp)][1L]
+  unit    <- tolower(as.character(raw$map_position_unit %||% "cm"))
+  cm_cands <- c(raw$map_pos_cm_col, raw$map_pos_col, "pos_cm", "Position_cM", "cM", "cm",
+                "position", "pos", "genetic_pos", "map_pos")
+  cm_col  <- cm_cands[cm_cands %in% names(mp)][1L]
+  bp_cands <- c(raw$map_pos_bp_col, "Position_BP", "bp")
+  bp_col  <- bp_cands[bp_cands %in% names(mp)][1L]
+  bp_per_cm  <- suppressWarnings(as.numeric(raw$bp_per_cm %||% NA_real_))
+  cm_divisor <- suppressWarnings(as.numeric(raw$map_pos_cm_divisor %||% 1))
+  if (!is.finite(cm_divisor) || cm_divisor <= 0) cm_divisor <- 1
+  posv <- rep(NA_real_, nrow(mp))
+  if (identical(unit, "bp") && !is.na(bp_col) && is.finite(bp_per_cm) && bp_per_cm > 0) {
+    posv <- suppressWarnings(as.numeric(mp[[bp_col]])) / bp_per_cm
+  } else if (!is.na(cm_col)) {
+    posv <- suppressWarnings(as.numeric(mp[[cm_col]])) / cm_divisor
+  }
+  map_by_subgenome <- NULL
+  variance_note <- NULL
+  if (!is.na(chr_col) && any(is.finite(posv))) {
+    chrv <- as.character(mp[[chr_col]])
+    idx_all <- match(colnames(dosage), mk)
+    if (!anyNA(idx_all) && !anyNA(posv[idx_all]) && !anyNA(chrv[idx_all])) {
+      map_by_subgenome <- setNames(lapply(subgenome_names, function(s) {
+        mkeep <- colnames(dosage)[marker_sg == s]
+        idx <- match(mkeep, mk)
+        data.frame(marker = mkeep, chr = chrv[idx], pos_cm = posv[idx],
+                   stringsAsFactors = FALSE)
+      }), subgenome_names)
+    } else {
+      variance_note <- "Some markers lack a chromosome or numeric position; used the linkage-equilibrium variance."
+    }
+  } else {
+    variance_note <- "No chromosome + position map columns detected; used the linkage-equilibrium (unlinked) variance. Provide a chromosome column and cM positions (or bp positions with a bp/cM rate) for the recombination-aware usefulness variance."
+  }
+  progeny_target <- toupper(as.character(raw$subgenome_progeny %||% raw$progeny_type %||% "DH"))
+  progeny_target <- if (grepl("RIL", progeny_target)) "RIL" else "DH"
+
   # phenotype (single numeric trait aligned to the parents)
   y <- NULL
   if (!is.null(raw$phenotype_file) && file.exists(raw$phenotype_file)) {
@@ -247,10 +293,28 @@ run_subgenome_design <- function(raw, result_path) {
   md    <- nextgenCrossDesign::ng_polyploid_model_select(inheritance_model = "disomic_subgenome",
                                                          subgenome_names = subgenome_names)
   pairs <- nextgenCrossDesign::ng_make_pairs(ids)
-  sc    <- nextgenCrossDesign::ng_polyploid_subgenome_score_crosses(
-             gs, eff, candidate_pairs = pairs, model_decision = md,
-             selection_prop = as.numeric(raw$selection_prop %||% 0.1))
-  K     <- nextgenCrossDesign::ng_polyploid_subgenome_grm(gs)
+  grm_method <- tolower(as.character(raw$grm_method %||% raw$poly_grm_method %||% "vanraden"))
+  grm_method <- if (grepl("yang", grm_method)) "yang" else "vanraden"
+  score_fmls <- names(formals(nextgenCrossDesign::ng_polyploid_subgenome_score_crosses))
+  # Recombination-aware variance needs a backend that accepts map_by_subgenome.
+  # Older installs lack that formal -> score without it (linkage-equilibrium) and say so.
+  score_args <- list(gs, eff, candidate_pairs = pairs, model_decision = md,
+                     selection_prop = as.numeric(raw$selection_prop %||% 0.1))
+  if ("grm_method" %in% score_fmls) score_args$grm_method <- grm_method
+  if ("map_by_subgenome" %in% score_fmls) {
+    score_args$map_by_subgenome <- map_by_subgenome
+    score_args$progeny_target   <- progeny_target
+  } else if (!is.null(map_by_subgenome)) {
+    map_by_subgenome <- NULL
+    variance_note <- "Installed nextgenCrossDesign is too old for recombination-aware subgenome variance; used the linkage-equilibrium variance. Update the backend."
+  }
+  sc    <- do.call(nextgenCrossDesign::ng_polyploid_subgenome_score_crosses, score_args)
+  variance_model <- attr(sc, "variance_model") %||%
+    (if ("poly_variance_model" %in% names(as.data.frame(sc))) as.data.frame(sc)$poly_variance_model[[1L]]
+     else "linkage_equilibrium")
+  K     <- if ("method" %in% names(formals(nextgenCrossDesign::ng_polyploid_subgenome_grm)))
+             nextgenCrossDesign::ng_polyploid_subgenome_grm(gs, method = grm_method)
+           else nextgenCrossDesign::ng_polyploid_subgenome_grm(gs)
   mode  <- raw$poly_gain %||% "gain"; if (!mode %in% c("gain", "diversity", "ocs")) mode <- "gain"
   plan  <- nextgenCrossDesign::ng_polyploid_policy(
              sc, n_crosses = as.integer(raw$n_crosses %||% 10L), mode = mode, parent_kinship = K,
@@ -264,7 +328,9 @@ run_subgenome_design <- function(raw, result_path) {
     package_version = as.character(utils::packageVersion("nextgenCrossDesign")),
     run_label = raw$run_label %||% NULL, poly_design = TRUE, prediction_mode = "subgenome_design",
     subgenome = list(names = subgenome_names,
-                     markers_per_subgenome = as.list(vapply(gs, ncol, 0L)), mode = mode),
+                     markers_per_subgenome = as.list(vapply(gs, ncol, 0L)), mode = mode,
+                     variance_model = variance_model, progeny_target = progeny_target,
+                     variance_note = variance_note %||% NULL),
     plan_summary = list(n_crosses = nrow(plan_df),
                         mean_gain = if (!is.null(gain_vec)) mean(gain_vec, na.rm = TRUE) else NA_real_),
     selected_crosses = plan_df,
@@ -274,7 +340,9 @@ run_subgenome_design <- function(raw, result_path) {
                                     n_crosses = nrow(plan_df)),
                      gain_col = if ("poly_gain" %in% names(plan_df)) "poly_gain" else "poly_usefulness"),
     settings = list(inheritance_model = "disomic_subgenome", subgenomes = length(subgenome_names),
-                    allocation_mode = mode, grm_method = "subgenome", progeny = "disomic_subgenome"))
+                    allocation_mode = mode, grm_method = grm_method, grm_scope = "subgenome",
+                    progeny = "disomic_subgenome",
+                    variance_model = variance_model, progeny_target = progeny_target))
   jsonlite::write_json(payload, result_path, auto_unbox = TRUE, null = "null", na = "null",
                        dataframe = "rows", pretty = TRUE, digits = 10)
   cat("OK: wrote", result_path, "(subgenome design)\n")

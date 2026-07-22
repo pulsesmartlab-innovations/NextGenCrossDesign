@@ -1313,11 +1313,21 @@ workbench_server <- function(cfg) {
     # diploid; the runner splits the dosage by the chosen marker-map column and runs
     # QC + effects + GRM + scoring per subgenome, then a coancestry-aware allocation.
     build_subgenome_params <- function() {
+      mapcfg <- resolve_map()  # same unit resolution as the diploid path
       list(schema = "ng_run_config.v1", workflow = "subgenome_design",
         genotype_id_col = input$genotype_id_col %||% "NAME",
         phenotype_id_col = input$phenotype_id_col %||% "NAME",
         map_marker_col = input$map_marker_col,
         subgenome_col = input$subgenome_col,
+        # chromosome + position enable the recombination-aware within-family variance;
+        # GRM method (vanraden/yang) mirrors the diploid + autopolyploid paths.
+        map_chr_col = input$map_chr_col,
+        map_position_unit = mapcfg$map_position_unit,
+        map_pos_bp_col = mapcfg$map_pos_bp_col,
+        bp_per_cm = mapcfg$bp_per_cm,
+        map_pos_cm_col = mapcfg$map_pos_cm_col,
+        map_pos_cm_divisor = mapcfg$map_pos_cm_divisor,
+        grm_method = input$grm_method %||% input$poly_grm_method %||% "vanraden",
         poly_trait_col = input$poly_trait_col,
         n_crosses = input$n_crosses,
         max_crosses_per_parent = input$max_crosses_per_parent,
