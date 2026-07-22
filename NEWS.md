@@ -1,3 +1,13 @@
+# nextgenCrossWorkbench 0.15.0
+
+## New features
+
+* **Pareto frontier explorer.** A new option on the Allocation screen sweeps an explicit
+  diversity-penalty (lambda) grid via `ng_pareto_mate_allocation()` and shows the whole
+  gain-vs-diversity trade-off on a new *Results > Pareto explorer* tab (frontier chart + a points
+  table). Complements the single auto diversity dial by letting you see and pick from the full
+  curve. Off by default; does not change the main plan.
+
 # nextgenCrossWorkbench 0.14.0
 
 ## New features
