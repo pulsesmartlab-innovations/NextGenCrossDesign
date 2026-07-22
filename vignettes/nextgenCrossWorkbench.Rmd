@@ -278,10 +278,28 @@ supply a dosage matrix, a single-trait phenotype, and a marker map with a column
 that names each marker's subgenome; the workbench splits the data by subgenome and
 runs **everything subgenome-aware** — per-subgenome QC, per-subgenome ridge marker
 effects, the subgenome genomic-relationship matrix, and subgenome cross scoring —
-before a coancestry-aware allocation. This is deliberately **not crop-specific**:
-most polyploid crops (wheat, canola) are genotyped and analysed as diploid, so use
-the *Standard* workflow for those and reserve this path for data you genuinely want
-modelled as separate diploid subgenomes.
+before a coancestry-aware allocation.
+
+The within-family **usefulness variance is recombination-aware** whenever your
+marker map carries a **chromosome column and cM positions** (or bp positions with a
+bp-per-cM rate, converted automatically). Each subgenome contributes the exact
+doubled-haploid/RIL family variance — the marker-effect contrasts weighted by the
+recombination kernel `(1 − 2r) = exp(−2·d/100)` under Haldane, where `d` is the
+map distance in cM — and the subgenome contributions are **summed**. That sum is
+*exact* under disomic inheritance: homoeologues never pair at meiosis, so there is no
+recombination between subgenomes and the cross-subgenome covariance is zero. It is the
+*same* recombination-aware calculation the Standard workflow uses, applied per
+subgenome. Without chromosome + position columns the app falls back to a
+linkage-equilibrium (unlinked-loci) approximation and says so in the run notes. The
+relationship matrix follows your chosen **GRM method** (VanRaden or Yang), computed
+per subgenome and averaged.
+
+This path is deliberately **not crop-specific**: most polyploid crops (wheat, canola)
+are genotyped and analysed as diploid, so use the *Standard* workflow for those and
+reserve this path for data you genuinely want modelled as separate diploid subgenomes.
+For **autopolyploids** such as potato (tetrasomic, dosages 0..4), use the *Polyploid*
+workflow at the appropriate ploidy instead — the disomic-subgenome path is only for
+species whose subgenomes each segregate as a diploid.
 
 ## Reproducibility and provenance
 
