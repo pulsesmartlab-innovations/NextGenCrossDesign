@@ -177,6 +177,109 @@ run_polyploid_design <- function(raw, result_path) {
   cat("OK: wrote", result_path, "(polyploid design)\n")
 }
 
+# Disomic-subgenome (true allopolyploid) design. Each subgenome is inherited diploidly
+# (dosage 0..2), so the pipeline splits the dosage by subgenome and does everything
+# subgenome-aware: per-subgenome QC (ploidy 2), per-subgenome ridge effects, the
+# subgenome GRM, subgenome cross scoring, then native allocation. Not crop-specific --
+# the user declares the subgenome of each marker via a marker-map column.
+run_subgenome_design <- function(raw, result_path) {
+  ns <- asNamespace("nextgenCrossDesign")
+  need <- c("ng_polyploid_subgenome_score_crosses", "ng_polyploid_subgenome_grm",
+            "ng_polyploid_model_select", "ng_polyploid_policy", "ng_polyploid_qc",
+            "ng_fit_ridge_effects", "ng_make_pairs")
+  miss <- need[!vapply(need, function(f) exists(f, where = ns), logical(1))]
+  if (length(miss))
+    stop(paste0("This backend build lacks: ", paste(miss, collapse = ", "),
+                ". Reinstall a newer nextgenCrossDesign."), call. = FALSE)
+  read_tab <- function(p) utils::read.csv(p, check.names = FALSE, stringsAsFactors = FALSE)
+
+  if (is.null(raw$genotype_file) || !file.exists(raw$genotype_file))
+    stop("Subgenome design needs a dosage (genotype) file.", call. = FALSE)
+  gdf <- read_tab(raw$genotype_file)
+  gid <- raw$genotype_id_col %||% names(gdf)[1L]; if (!gid %in% names(gdf)) gid <- names(gdf)[1L]
+  ids <- as.character(gdf[[gid]]); mcols <- setdiff(names(gdf), gid)
+  dosage <- suppressWarnings(as.matrix(vapply(gdf[mcols], as.numeric, numeric(nrow(gdf)))))
+  if (is.null(dim(dosage))) dosage <- matrix(dosage, nrow = nrow(gdf))
+  rownames(dosage) <- ids; colnames(dosage) <- mcols; storage.mode(dosage) <- "double"
+  dmax <- suppressWarnings(max(dosage, na.rm = TRUE))
+  if (is.finite(dmax) && dmax > 2)
+    stop(sprintf("Each disomic subgenome is diploid, so dosages must be 0..2, but values go up to %g. Genotype each subgenome as a diploid (0/1/2).", dmax), call. = FALSE)
+
+  # subgenome label per marker from the marker map
+  if (is.null(raw$map_file) || !file.exists(raw$map_file))
+    stop("Subgenome design needs a marker map with a subgenome column.", call. = FALSE)
+  mp <- read_tab(raw$map_file)
+  mkcol <- raw$map_marker_col %||% names(mp)[1L]; if (!mkcol %in% names(mp)) mkcol <- names(mp)[1L]
+  scol <- raw$subgenome_col
+  if (is.null(scol) || !nzchar(scol) || !scol %in% names(mp))
+    stop("Pick the marker-map column that names each marker's subgenome.", call. = FALSE)
+  sg <- setNames(as.character(mp[[scol]]), as.character(mp[[mkcol]]))
+  marker_sg <- sg[colnames(dosage)]
+  if (anyNA(marker_sg))
+    stop("Some genotype markers have no subgenome label in the marker map.", call. = FALSE)
+  subgenome_names <- sort(unique(marker_sg))
+  if (length(subgenome_names) < 2L)
+    stop("Disomic-subgenome design needs >= 2 subgenomes; only one label was found. Use the autopolyploid path for a single genome.", call. = FALSE)
+  geno_by_subgenome <- setNames(
+    lapply(subgenome_names, function(s) dosage[, marker_sg == s, drop = FALSE]), subgenome_names)
+
+  # phenotype (single numeric trait aligned to the parents)
+  y <- NULL
+  if (!is.null(raw$phenotype_file) && file.exists(raw$phenotype_file)) {
+    pdf <- read_tab(raw$phenotype_file); pid <- raw$phenotype_id_col %||% names(pdf)[1L]
+    if (!pid %in% names(pdf)) pid <- names(pdf)[1L]
+    tcol <- raw$poly_trait_col %||% setdiff(names(pdf)[vapply(pdf, is.numeric, logical(1))], pid)[1L]
+    if (!is.na(tcol) && tcol %in% names(pdf)) y <- setNames(as.numeric(pdf[[tcol]]), as.character(pdf[[pid]]))[ids]
+  }
+  if (is.null(y) || all(is.na(y))) stop("Subgenome design needs a numeric phenotype.", call. = FALSE)
+
+  # subgenome-aware QC (each diploid) + per-subgenome ridge effects
+  min_maf <- as.numeric(raw$poly_min_maf %||% 0.01)
+  do_qc   <- isTRUE(as.logical(raw$run_qc %||% TRUE))
+  gs <- setNames(lapply(geno_by_subgenome, function(g)
+          if (do_qc) nextgenCrossDesign::ng_polyploid_qc(g, ploidy = 2, min_maf = min_maf)$clean else g),
+        subgenome_names)
+  ridge_seed <- suppressWarnings(as.integer(raw$seed %||% 1L)); if (length(ridge_seed) != 1L || is.na(ridge_seed)) ridge_seed <- 1L
+  set.seed(ridge_seed)
+  eff <- setNames(lapply(gs, function(g)
+           nextgenCrossDesign::ng_fit_ridge_effects(g, y[rownames(g)], rownames(g))$beta), subgenome_names)
+
+  md    <- nextgenCrossDesign::ng_polyploid_model_select(inheritance_model = "disomic_subgenome",
+                                                         subgenome_names = subgenome_names)
+  pairs <- nextgenCrossDesign::ng_make_pairs(ids)
+  sc    <- nextgenCrossDesign::ng_polyploid_subgenome_score_crosses(
+             gs, eff, candidate_pairs = pairs, model_decision = md,
+             selection_prop = as.numeric(raw$selection_prop %||% 0.1))
+  K     <- nextgenCrossDesign::ng_polyploid_subgenome_grm(gs)
+  mode  <- raw$poly_gain %||% "gain"; if (!mode %in% c("gain", "diversity", "ocs")) mode <- "gain"
+  plan  <- nextgenCrossDesign::ng_polyploid_policy(
+             sc, n_crosses = as.integer(raw$n_crosses %||% 10L), mode = mode, parent_kinship = K,
+             max_crosses_per_parent = as.integer(raw$max_crosses_per_parent %||% 4L))
+  plan_df  <- as.data.frame(plan, stringsAsFactors = FALSE)
+  gain_vec <- if ("poly_gain" %in% names(plan_df)) plan_df$poly_gain else plan_df$poly_usefulness
+
+  payload <- list(
+    schema = "ng_run_result.v1", ok = TRUE, error = FALSE,
+    generated_at = format(as.POSIXct(Sys.time(), tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+    package_version = as.character(utils::packageVersion("nextgenCrossDesign")),
+    run_label = raw$run_label %||% NULL, poly_design = TRUE, prediction_mode = "subgenome_design",
+    subgenome = list(names = subgenome_names,
+                     markers_per_subgenome = as.list(vapply(gs, ncol, 0L)), mode = mode),
+    plan_summary = list(n_crosses = nrow(plan_df),
+                        mean_gain = if (!is.null(gain_vec)) mean(gain_vec, na.rm = TRUE) else NA_real_),
+    selected_crosses = plan_df,
+    poly_plan = list(crosses = plan_df,
+                     summary = list(inheritance_model = "disomic_subgenome",
+                                    subgenome_names = paste(subgenome_names, collapse = ", "),
+                                    n_crosses = nrow(plan_df)),
+                     gain_col = if ("poly_gain" %in% names(plan_df)) "poly_gain" else "poly_usefulness"),
+    settings = list(inheritance_model = "disomic_subgenome", subgenomes = length(subgenome_names),
+                    allocation_mode = mode, grm_method = "subgenome", progeny = "disomic_subgenome"))
+  jsonlite::write_json(payload, result_path, auto_unbox = TRUE, null = "null", na = "null",
+                       dataframe = "rows", pretty = TRUE, digits = 10)
+  cat("OK: wrote", result_path, "(subgenome design)\n")
+}
+
 run <- function() {
   if (!file.exists(config_path)) {
     stop("Config file not found: ", config_path, call. = FALSE)
@@ -199,6 +302,11 @@ run <- function() {
   # ploidy, dosage 0..ploidy, optional additive+dominance scoring, no map.
   if (identical(raw$workflow %||% "cross_prediction", "polyploid_design")) {
     run_polyploid_design(raw, result_path)
+    return(invisible())
+  }
+  # Disomic-subgenome (true allopolyploid): each subgenome diploid, split by a map column.
+  if (identical(raw$workflow %||% "cross_prediction", "subgenome_design")) {
+    run_subgenome_design(raw, result_path)
     return(invisible())
   }
 

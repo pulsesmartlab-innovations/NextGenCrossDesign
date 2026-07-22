@@ -180,7 +180,7 @@ ngcd_settings_registry <- function() {
     robustness_quantile = "slider", robust_top_n_target = "num",
     family_size_total_progeny = "num", family_size_min = "num", family_size_max = "num",
     multitrait_joint_prob = "checkbox", multitrait_targets = "textarea",
-    workflow = "radio", poly_trait_col = "select", poly_gain = "select",
+    workflow = "radio", poly_trait_col = "select", subgenome_col = "select", poly_gain = "select",
     poly_grm_method = "select", poly_dominance = "checkbox", poly_run_qc = "checkbox",
     poly_double_reduction = "num",
     min_crosses_per_parent = "num", lambda_marker = "num", budget = "num", lambda_cost = "num",

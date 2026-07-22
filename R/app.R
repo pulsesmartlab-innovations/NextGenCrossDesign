@@ -90,20 +90,29 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           bslib::card(bslib::card_header("Data source"),
             shiny::radioButtons("workflow", "Analysis type",
               c("Standard cross prediction (diploid 0/1/2)" = "standard",
-                "Polyploid design (any ploidy, dosage 0..ploidy)" = "polyploid"),
+                "Polyploid design (any ploidy, dosage 0..ploidy)" = "polyploid",
+                "Disomic subgenome (true allopolyploid)" = "subgenome"),
               selected = "standard"),
             shiny::conditionalPanel("input.workflow == 'polyploid'",
               ngcd_callout(kind = "info",
                 "Polyploid mode uses ", shiny::tags$b("ng_polyploid_design_crosses"),
                 ": upload a dosage matrix (0..ploidy) and a single-trait phenotype. A marker map and trait-direction file are not needed. ",
                 shiny::tags$b("The bundled demo is tetraploid - set Ploidy = 4."))),
+            shiny::conditionalPanel("input.workflow == 'subgenome'",
+              ngcd_callout(kind = "info",
+                "For ", shiny::tags$b("true allopolyploids"), " where each subgenome is inherited diploidly (dosage 0..2 per subgenome). ",
+                "Upload a dosage matrix, a single-trait phenotype, and a marker map with a column naming each marker's subgenome. ",
+                "Everything is done subgenome-aware: QC, ridge effects, GRM, and scoring per subgenome. ",
+                shiny::tags$b("Most crops (wheat, canola) are genotyped as diploid - use Standard for those.")),
+              shiny::uiOutput("subgenome_col_ui")),
             shiny::radioButtons("data_source", NULL,
               c("Bundled demo data" = "demo", "Upload my CSV files" = "upload"), selected = "demo"),
             shiny::conditionalPanel("input.data_source == 'upload'",
               shiny::fileInput("f_geno", "Genotype / dosage CSV", accept = c(".csv", ".txt", ".tsv")),
               shiny::fileInput("f_pheno", "Phenotype CSV", accept = c(".csv", ".txt", ".tsv")),
+              shiny::conditionalPanel("input.workflow == 'standard' || input.workflow == 'subgenome'",
+                shiny::fileInput("f_map", "Marker map CSV", accept = c(".csv", ".txt", ".tsv"))),
               shiny::conditionalPanel("input.workflow == 'standard'",
-                shiny::fileInput("f_map", "Marker map CSV", accept = c(".csv", ".txt", ".tsv")),
                 shiny::fileInput("f_dir", "Trait direction CSV", accept = c(".csv", ".txt", ".tsv"))),
               shiny::div(class = "help-hint", style = "margin-top:-6px",
                 "Comma, semicolon or tab separated; a UTF-8 byte-order mark (Excel) is handled automatically."),
@@ -822,6 +831,15 @@ workbench_server <- function(cfg) {
       if (length(cand) > 40) cand <- unique(c(cn[1], ngcd_guess_col(cn, guess)))
       cand[!is.na(cand) & nzchar(cand)]
     }
+    # subgenome column picker (disomic-subgenome workflow)
+    output$subgenome_col_ui <- shiny::renderUI({
+      c <- cols()
+      if (!length(c$map)) return(shiny::div(class = "help-hint",
+        "Upload a marker map with a subgenome column, then pick it here."))
+      shiny::selectInput("subgenome_col", "Subgenome column (marker map)",
+        choices = c$map,
+        selected = ngcd_guess_col(c$map, c("Subgenome","subgenome","genome","sg")) %||% c$map[[1]])
+    })
     # column mapping
     output$colmap_ui <- shiny::renderUI({
       c <- cols()
@@ -1278,6 +1296,25 @@ workbench_server <- function(cfg) {
       p
     }
 
+    # Disomic-subgenome config (the runner's subgenome_design path). Each subgenome is
+    # diploid; the runner splits the dosage by the chosen marker-map column and runs
+    # QC + effects + GRM + scoring per subgenome, then a coancestry-aware allocation.
+    build_subgenome_params <- function() {
+      list(schema = "ng_run_config.v1", workflow = "subgenome_design",
+        genotype_id_col = input$genotype_id_col %||% "NAME",
+        phenotype_id_col = input$phenotype_id_col %||% "NAME",
+        map_marker_col = input$map_marker_col,
+        subgenome_col = input$subgenome_col,
+        poly_trait_col = input$poly_trait_col,
+        n_crosses = input$n_crosses,
+        max_crosses_per_parent = input$max_crosses_per_parent,
+        poly_gain = "ocs",
+        selection_prop = input$selection_prop,
+        run_qc = isTRUE(input$poly_run_qc),
+        poly_min_maf = num_or_null(input$poly_min_maf),
+        seed = input$seed, write_outputs = FALSE, write_figures = FALSE)
+    }
+
     do_run <- function(force_drop_het = FALSE) {
       if (!data_ready()) {
         shiny::showNotification(if (is_poly()) "Load a dosage file and a phenotype file first."
@@ -1288,7 +1325,11 @@ workbench_server <- function(cfg) {
       prog <- shiny::Progress$new(session); on.exit(prog$close())
       prog$set(message = "Assembling configuration...", value = 0.15)
       poly <- is_poly()
-      if (poly) {
+      if (identical(input$workflow, "subgenome")) {
+        params   <- build_subgenome_params()
+        run_data <- rv$data  # genotype + phenotype + marker map (carries the subgenome column)
+        label    <- "subgenome_design"
+      } else if (poly) {
         params   <- build_poly_params()
         run_data <- list(genotype = rv$data$genotype, phenotype = rv$data$phenotype)
         label    <- paste0("polyploid_", input$ploidy %||% "2")
@@ -1398,6 +1439,15 @@ workbench_server <- function(cfg) {
           } else
             ngcd_callout(kind = "info", shiny::tags$b("Crop suitability: "),
               "No validated archetype for this crop, so the general diploid path is used. Pick a listed crop (wheat, barley, maize, field pea, potato) for a crop-specific note.")
+        },
+        if (!is.null(r$subgenome)) {
+          sg <- r$subgenome
+          ngcd_callout(kind = "info",
+            shiny::tags$b(sprintf("Disomic-subgenome design (%d subgenomes: %s). ",
+              length(sg$names), paste(sg$names, collapse = ", "))),
+            sprintf("Markers per subgenome: %s. Each subgenome QC'd, effect-fit and scored as a diploid; allocation mode: %s.",
+              paste(sprintf("%s=%s", names(sg$markers_per_subgenome), unlist(sg$markers_per_subgenome)), collapse = ", "),
+              sg$mode %||% "ocs"))
         },
         if (!is.null(r$multitrait_joint)) {
           mj <- r$multitrait_joint
