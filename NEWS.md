@@ -1,3 +1,10 @@
+# nextgenCrossWorkbench 0.15.1
+
+* Documentation: the vignette now covers the diminishing-returns chart, crop
+  suitability note, registry-driven menus, family-size allocation, multi-trait
+  joint P(superior progeny), the Pareto frontier explorer, and disomic-subgenome
+  design.
+
 # nextgenCrossWorkbench 0.15.0
 
 ## New features
