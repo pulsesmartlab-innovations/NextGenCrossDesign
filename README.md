@@ -63,13 +63,21 @@ covers the whole decision, from raw CSVs to a shareable report:
   progeny standard deviation) as the default merit metric.
 - **Multi-trait objectives** — trait-by-trait or index-as-trait, with explicit,
   direction-aware selection (yield up, disease down) and several combination
-  methods (auto, weighted, economic index, desired gain).
+  methods (auto, weighted, economic index, desired gain). Optionally score each
+  cross by its **joint probability of superior progeny** — the chance a cross
+  yields offspring that clear the target on *all* traits at once.
 - **Optimal mate allocation** — optimum-contribution-style selection that
   balances mean gain against group coancestry, with greedy/evolutionary/MIP
   optimizers and constraints on parent use, kinship, and group quotas.
 - **Automatic cross-number optimizer** — instead of fixing the number of crosses,
   the app can sweep K and recommend a number using a diminishing-returns
   (elbow / kneedle), effective-population-size floor, or coancestry-budget rule.
+- **Pareto / breeder explorer** — walk the full gain–diversity frontier and pick
+  the plan that matches your appetite for gain versus long-term diversity, rather
+  than committing to a single trade-off up front.
+- **Family-size allocation** — split a fixed total-progeny budget across the
+  selected crosses by merit, with per-family minimum and maximum sizes, so the
+  best crosses get proportionally more seed.
 - **Robust (posterior) allocation** — re-optimize using posterior quantiles or
   top-N probabilities so the plan is stable under prediction uncertainty.
 - **Polyploid / clonal design** — dosage-aware workflows for **autopolyploids**
@@ -291,17 +299,54 @@ Selected crosses (ranked, priority-tiered):
 
 ![Selected crosses](man/figures/screen-11-selected-crosses.png)
 
-The gain-diversity frontier, with your chosen plan marked:
+Per-cross candidate scores (mean, variance, usefulness, kinship) for every
+predicted cross, not just the selected ones:
+
+![Candidate scores](man/figures/screen-12-candidate-scores.png)
+
+The gain-diversity frontier, with your chosen plan marked. The **Pareto /
+breeder explorer** lets you step along this frontier and adopt any optimal plan on
+it — trading a little gain for more long-term diversity, or vice versa — instead
+of being locked into one trade-off:
 
 ![Gain-diversity frontier](man/figures/screen-14-frontier.png)
+
+**Cross-number optimizer.** When you let the app choose the number of crosses
+(Objective screen → *Number of crosses: automatic*), it sweeps K and reports the
+diminishing-returns curve below, marking the recommended K under your chosen rule
+(relative-marginal / kneedle elbow, effective-population-size floor, or
+coancestry budget). Total gain rises steeply, then flattens as added crosses buy
+less merit — the recommendation is where that trade-off turns. The same curve
+appears in the interactive report. In R this is `ng_optimize_mating_plan_curve()`
++ `ng_plot_diminishing_returns()`.
+
+![Cross-number optimizer — diminishing returns](man/figures/screen-22-cross-number-optimizer.png)
 
 Parent-use distribution across the plan:
 
 ![Parent use](man/figures/screen-13-parent-use.png)
 
+**Family-size allocation.** Turn a fixed total-progeny budget into a per-cross
+seed plan: the best crosses get proportionally more progeny, bounded by per-family
+minimum and maximum sizes. In R this is `ng_allocate_family_sizes()`.
+
+![Family-size allocation](man/figures/screen-23-family-size.png)
+
 Marker-effect reliability per trait:
 
 ![Marker effects](man/figures/screen-17-marker-effects.png)
+
+QC audit — duplicate parents, missingness/MAF, and residual heterozygosity:
+
+![QC audit](man/figures/screen-15-qc-audit.png)
+
+Input matching — the exact parent/marker/column matching used for the run:
+
+![Input matching](man/figures/screen-16-input-matching.png)
+
+Method & settings provenance — the full configuration that produced the plan:
+
+![Method and settings](man/figures/screen-18-method-settings.png)
 
 ---
 
@@ -381,10 +426,12 @@ entry point and its optimization, robustness, and polyploid routines:
 |------|----------------|
 | Prediction | trait-by-trait / index-as-trait; marker-effect reliability floor; posterior (MCMC) prediction |
 | Merit | `var_complex` (usefulness), `uc`, `pmv`, `vpm`, `mean`, `var_simple`; UC variance source; PMV method |
-| Multi-trait | auto / weighted / economic-index / desired-gain; soft/strict thresholds with autoscaled penalties |
+| Multi-trait | auto / weighted / economic-index / desired-gain; soft/strict thresholds with autoscaled penalties; joint probability of superior progeny across all traits |
 | Breeding system | DH / RIL (infinite or finite selfing); Haldane/Kosambi; VanRaden/Yang GRM |
 | Allocation | OCS / greedy / evolutionary / MIP / AlphaMate-style; parent-use, kinship, quota, inbreeding constraints |
 | Cross number | fixed, or automatic sweep with elbow / kneedle / Ne-floor / coancestry-budget selection |
+| Pareto explorer | walk the gain–diversity frontier and adopt any optimal plan along it |
+| Family size | split a total-progeny budget across selected crosses by merit, with per-family min/max |
 | Robustness | posterior-quantile and top-N-probability re-optimization |
 | Polyploid | autopolyploid dosage 0..ploidy design (dominance/heterosis, double reduction, ploidy-aware GRM & QC); disomic-subgenome allopolyploid path with recombination-aware per-subgenome variance & VanRaden/Yang GRM |
 | QC | duplicate detection, missingness/MAF filters, LD pruning, residual-heterozygosity audit |
