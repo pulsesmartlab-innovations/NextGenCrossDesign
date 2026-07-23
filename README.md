@@ -72,9 +72,11 @@ covers the whole decision, from raw CSVs to a shareable report:
   (elbow / kneedle), effective-population-size floor, or coancestry-budget rule.
 - **Robust (posterior) allocation** — re-optimize using posterior quantiles or
   top-N probabilities so the plan is stable under prediction uncertainty.
-- **Polyploid / clonal design** — a dedicated dosage-aware workflow for
-  autopolyploids and clonal crops, with ploidy-aware GRM, dominance/heterosis
-  modeling, double reduction, and ploidy-aware QC.
+- **Polyploid / clonal design** — dosage-aware workflows for **autopolyploids**
+  (potato-like, tetrasomic) with ploidy-aware GRM, dominance/heterosis, double
+  reduction, and ploidy-aware QC, plus a **disomic-subgenome (allopolyploid)**
+  path whose within-family variance is recombination-aware and GRM is
+  VanRaden/Yang, computed per subgenome.
 - **A self-contained interactive report** — executive summary, KPIs, and eight
   interactive figures, cross-linked and saveable to PDF or standalone HTML.
 
@@ -108,17 +110,18 @@ backend in the same R library.
 
 ```r
 # 1. the backend (compiles native code — needs Rtools/Xcode/build-essential)
-#    Requires nextgenCrossDesign >= 0.4.0 (see required_backend_version in config.yml).
-remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.4.0")
+#    Floor is nextgenCrossDesign >= 0.7.0 (required_backend_version in config.yml);
+#    0.9.0+ adds the recombination-aware allopolyploid subgenome path.
+remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.9.0")
 
 #    …or from a local source tarball:
-R CMD INSTALL nextgenCrossDesign_0.4.0.tar.gz
+R CMD INSTALL nextgenCrossDesign_0.9.0.tar.gz
 
 # 2. this front-end — from CRAN once published:
 install.packages("nextgenCrossWorkbench", dependencies = TRUE)
 
 #    …or from a local source tarball:
-install.packages("nextgenCrossWorkbench_0.10.0.tar.gz",
+install.packages("nextgenCrossWorkbench_0.15.2.tar.gz",
                  repos = NULL, type = "source", dependencies = TRUE)
 ```
 
@@ -345,10 +348,18 @@ downloaded as standalone HTML (plotly.js inlined, works offline) or PDF.
 ## Polyploid / clonal design workflow
 
 Switching the analysis type to **Polyploid** on the Data screen exposes a
-dosage-aware design path (`ng_design_crosses_poly`) for autopolyploids and clonal
-crops: upload a dosage matrix (0..ploidy) and a single-trait phenotype, set the
-ploidy, and optionally model dominance/heterosis, double reduction, and a
+dosage-aware design path (`ng_polyploid_design_crosses`) for autopolyploids and
+clonal crops: upload a dosage matrix (0..ploidy) and a single-trait phenotype, set
+the ploidy, and optionally model dominance/heterosis, double reduction, and a
 ploidy-aware GRM. The bundled demo is a tetraploid clone panel.
+
+For **true allopolyploids** — species whose subgenomes are inherited *diploidly*
+(each coded 0..2) — the **Disomic subgenome** analysis type runs everything
+subgenome-aware: per-subgenome QC, marker effects, and VanRaden/Yang GRM, plus a
+**recombination-aware** within-family usefulness variance (exact per-subgenome,
+summed) when the marker map carries chromosome + cM positions. Autopolyploids such
+as potato (dosages 0..4) use the *Polyploid* path instead — the subgenome path is
+only for species whose subgenomes each segregate as a diploid.
 
 Polyploid data setup (ploidy = 4):
 
@@ -375,7 +386,7 @@ entry point and its optimization, robustness, and polyploid routines:
 | Allocation | OCS / greedy / evolutionary / MIP / AlphaMate-style; parent-use, kinship, quota, inbreeding constraints |
 | Cross number | fixed, or automatic sweep with elbow / kneedle / Ne-floor / coancestry-budget selection |
 | Robustness | posterior-quantile and top-N-probability re-optimization |
-| Polyploid | dosage 0..ploidy design; dominance/heterosis; double reduction; ploidy-aware GRM & QC |
+| Polyploid | autopolyploid dosage 0..ploidy design (dominance/heterosis, double reduction, ploidy-aware GRM & QC); disomic-subgenome allopolyploid path with recombination-aware per-subgenome variance & VanRaden/Yang GRM |
 | QC | duplicate detection, missingness/MAF filters, LD pruning, residual-heterozygosity audit |
 | Output | interactive HTML + PDF report; Excel workbook; PNG figures; reproducible seed |
 
@@ -496,7 +507,7 @@ If you use this workbench in published work, please cite both components:
 > (R package). North Dakota State University.
 >
 > Morales, M. *nextgenCrossWorkbench: NextGenCrossDesign — a Shiny
-> front-end for nextgenCrossDesign* (R package, v0.10.0). North Dakota State
+> front-end for nextgenCrossDesign* (R package, v0.15.2). North Dakota State
 > University, PulseSmartLab - PI: Dr. Sikiru Atanda.
 
 ---
