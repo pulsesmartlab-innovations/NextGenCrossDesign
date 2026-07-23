@@ -1,6 +1,5 @@
 #!/usr/bin/env Rscript
-# Regenerate the analytical README figures (cross-number optimizer, family-size
-# allocation) from the backend on a small simulated panel. The app renders the
+# Regenerate the analytical README figures (the cross-number optimizer chart) from the backend on a small simulated panel. The app renders the
 # same computations interactively; these static PNGs are for the repo landing page.
 #
 #   Rscript tools/make-readme-figures.R
@@ -39,20 +38,5 @@ p1 <- ng_plot_diminishing_returns(curve) +
 ggsave(file.path(FIG, "screen-22-cross-number-optimizer.png"), p1,
        width = 8.5, height = 5, dpi = 130, bg = "white")
 
-## ---- family-size allocation ----
-plan <- ng_optimize_mating_plan(scores, n_crosses = 12, gain_col = gcol,
-                                parent_kinship = K, max_crosses_per_parent = 4)
-fam  <- ng_allocate_family_sizes(plan, total_progeny = 600, min_progeny = 15,
-                                 max_progeny = 120, value_col = gcol, power = 1)
-fam$cross <- paste(fam$parent1, fam$parent2, sep = " x ")
-fam <- fam[order(-fam$n_progeny), ]; fam$cross <- factor(fam$cross, levels = fam$cross)
-p2 <- ggplot(fam, aes(cross, n_progeny)) + geom_col(fill = "#2c7fb8") +
-  labs(title = "Family-size allocation",
-       subtitle = "Total 600 progeny split by cross merit (min 15, max 120 per family)",
-       x = "Selected cross", y = "Allocated progeny") +
-  theme_minimal(base_size = 12) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(face = "bold"))
-ggsave(file.path(FIG, "screen-23-family-size.png"), p2,
-       width = 8.5, height = 5, dpi = 130, bg = "white")
 
-cat("wrote man/figures/screen-22-cross-number-optimizer.png and screen-23-family-size.png\n")
+cat("wrote man/figures/screen-22-cross-number-optimizer.png\n")

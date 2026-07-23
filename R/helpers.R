@@ -339,3 +339,12 @@ ngcd_poly_demo_files <- function(cfg) {
   list(genotype = file.path(d, "dosage.csv"), phenotype = file.path(d, "phenotype.csv"),
        map = NULL, direction = NULL)
 }
+
+# Disomic-subgenome demo (diploid dosage 0..2 + single-trait phenotype + a marker
+# map carrying a subgenome column and cM positions, so the within-family variance
+# is recombination-aware) for the true-allopolyploid mode.
+ngcd_subgenome_demo_files <- function(cfg) {
+  d <- ngcd_res("data", "demo_subgenome")
+  list(genotype = file.path(d, "dosage.csv"), phenotype = file.path(d, "phenotype.csv"),
+       map = file.path(d, "marker_map.csv"), direction = NULL)
+}

@@ -304,12 +304,17 @@ predicted cross, not just the selected ones:
 
 ![Candidate scores](man/figures/screen-12-candidate-scores.png)
 
-The gain-diversity frontier, with your chosen plan marked. The **Pareto /
-breeder explorer** lets you step along this frontier and adopt any optimal plan on
-it — trading a little gain for more long-term diversity, or vice versa — instead
-of being locked into one trade-off:
+The gain-diversity frontier, with your chosen plan marked:
 
 ![Gain-diversity frontier](man/figures/screen-14-frontier.png)
+
+**Pareto / breeder explorer.** The Pareto explorer sweeps the diversity-penalty
+(lambda) grid and lays out every optimal plan along the gain-vs-diversity frontier,
+so you can step along it and adopt the plan that matches your appetite for gain
+versus long-term diversity — instead of being locked into one trade-off. Each
+frontier point is a fully-specified plan (gain, coancestry, unique parents):
+
+![Pareto explorer](man/figures/screen-24-pareto-explorer.png)
 
 **Cross-number optimizer.** When you let the app choose the number of crosses
 (Objective screen → *Number of crosses: automatic*), it sweeps K and reports the
@@ -331,6 +336,14 @@ seed plan: the best crosses get proportionally more progeny, bounded by per-fami
 minimum and maximum sizes. In R this is `ng_allocate_family_sizes()`.
 
 ![Family-size allocation](man/figures/screen-23-family-size.png)
+
+**Multi-trait joint P(superior progeny).** For a multi-trait run you can also score
+each cross by the probability it throws progeny clearing the target on *every* trait
+at once (using the estimated cross-trait covariance) — a joint superiority that a
+per-trait probability misses. It surfaces as a `p_superior_progeny_mt` column and a
+results callout:
+
+![Multi-trait joint P(superior progeny)](man/figures/screen-25-multitrait-joint.png)
 
 Marker-effect reliability per trait:
 
@@ -404,7 +417,11 @@ subgenome-aware: per-subgenome QC, marker effects, and VanRaden/Yang GRM, plus a
 **recombination-aware** within-family usefulness variance (exact per-subgenome,
 summed) when the marker map carries chromosome + cM positions. Autopolyploids such
 as potato (dosages 0..4) use the *Polyploid* path instead — the subgenome path is
-only for species whose subgenomes each segregate as a diploid.
+only for species whose subgenomes each segregate as a diploid. A bundled
+disomic-subgenome demo (two subgenomes, with a cM map so the variance is
+recombination-aware) lets you try it immediately:
+
+![Disomic-subgenome results](man/figures/screen-26-subgenome-results.png)
 
 Polyploid data setup (ploidy = 4):
 

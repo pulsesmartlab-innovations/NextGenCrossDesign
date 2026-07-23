@@ -638,9 +638,11 @@ workbench_server <- function(cfg) {
 
     # ---- load data into editable store ----
     is_poly <- shiny::reactive(identical(input$workflow, "polyploid"))
+    is_subgenome <- shiny::reactive(identical(input$workflow, "subgenome"))
     src_files <- shiny::reactive({
       if (identical(input$data_source, "demo"))
-        (if (is_poly()) ngcd_poly_demo_files(cfg) else ngcd_demo_files(cfg))
+        (if (is_subgenome()) ngcd_subgenome_demo_files(cfg)
+         else if (is_poly()) ngcd_poly_demo_files(cfg) else ngcd_demo_files(cfg))
       else list(
         genotype  = if (!is.null(input$f_geno))  input$f_geno$datapath  else NULL,
         phenotype = if (!is.null(input$f_pheno)) input$f_pheno$datapath else NULL,
@@ -728,6 +730,9 @@ workbench_server <- function(cfg) {
     data_ready <- shiny::reactive({
       ok1 <- function(d) !is.null(d) && nrow(d) > 0
       if (is_poly()) ok1(rv$data$genotype) && ok1(rv$data$phenotype)
+      # Disomic-subgenome needs genotype + phenotype + a marker map (with the
+      # subgenome column); it does NOT use a trait-direction file (single trait).
+      else if (is_subgenome()) ok1(rv$data$genotype) && ok1(rv$data$phenotype) && ok1(rv$data$map)
       else all(vapply(rv$data, ok1, logical(1)))
     })
     # phenotype trait-column picker for polyploid mode (single trait)
