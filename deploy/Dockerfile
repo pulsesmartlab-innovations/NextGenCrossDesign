@@ -11,16 +11,16 @@
 # Tarballs avoid putting a GitHub token in the image for the private backend repo.
 #
 # Build:
-#   docker build -t ngcd-workbench:0.15.2 \
+#   docker build -t ngcd-workbench:0.15.3 \
 #     --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.9.0.tar.gz \
-#     --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.2.tar.gz \
+#     --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.3.tar.gz \
 #     -f deploy/Dockerfile .
 
 # Pin a specific R version for reproducible deployments.
 FROM rocker/r-ver:4.4.2
 
 ARG BACKEND_TARBALL=nextgenCrossDesign_0.9.0.tar.gz
-ARG FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.2.tar.gz
+ARG FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.3.tar.gz
 
 # System libraries: a C++ toolchain for the backend kernel, plus the headers the
 # R package dependencies need, and pandoc for HTML/PDF report rendering.
