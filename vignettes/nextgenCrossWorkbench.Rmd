@@ -289,8 +289,8 @@ map distance in cM — and the subgenome contributions are **summed**. That sum 
 *exact* under disomic inheritance: homoeologues never pair at meiosis, so there is no
 recombination between subgenomes and the cross-subgenome covariance is zero. It is the
 *same* recombination-aware calculation the Standard workflow uses, applied per
-subgenome. Without chromosome + position columns the app falls back to a
-linkage-equilibrium (unlinked-loci) approximation and says so in the run notes. The
+subgenome. Without chromosome + position columns the app falls back to an
+unlinked-loci approximation (reported as `unlinked`) and says so in the run notes. The
 relationship matrix follows your chosen **GRM method** (VanRaden or Yang), computed
 per subgenome and averaged.
 

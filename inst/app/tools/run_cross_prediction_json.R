@@ -229,7 +229,7 @@ run_subgenome_design <- function(raw, result_path) {
   # distinct chromosomes would fabricate cross-chromosome linkage and bias the variance.
   # Position handling mirrors the diploid path's UI resolution: honor the resolved
   # unit (bp -> cM via bp_per_cm; Morgans via map_pos_cm_divisor), else auto-detect a
-  # cM column. Without a usable chromosome+position we fall back to linkage-equilibrium.
+  # cM column. Without a usable chromosome+position we fall back to the unlinked approximation.
   mk <- as.character(mp[[mkcol]])
   chr_candidates <- c(raw$map_chr_col, "chr", "chrom", "chromosome", "linkage_group", "lg")
   chr_col <- chr_candidates[chr_candidates %in% names(mp)][1L]
@@ -261,10 +261,10 @@ run_subgenome_design <- function(raw, result_path) {
                    stringsAsFactors = FALSE)
       }), subgenome_names)
     } else {
-      variance_note <- "Some markers lack a chromosome or numeric position; used the linkage-equilibrium variance."
+      variance_note <- "Some markers lack a chromosome or numeric position; used the unlinked variance."
     }
   } else {
-    variance_note <- "No chromosome + position map columns detected; used the linkage-equilibrium (unlinked) variance. Provide a chromosome column and cM positions (or bp positions with a bp/cM rate) for the recombination-aware usefulness variance."
+    variance_note <- "No chromosome + position map columns detected; used the unlinked variance. Provide a chromosome column and cM positions (or bp positions with a bp/cM rate) for the recombination-aware usefulness variance."
   }
   progeny_target <- toupper(as.character(raw$subgenome_progeny %||% raw$progeny_type %||% "DH"))
   progeny_target <- if (grepl("RIL", progeny_target)) "RIL" else "DH"
@@ -297,7 +297,7 @@ run_subgenome_design <- function(raw, result_path) {
   grm_method <- if (grepl("yang", grm_method)) "yang" else "vanraden"
   score_fmls <- names(formals(nextgenCrossDesign::ng_polyploid_subgenome_score_crosses))
   # Recombination-aware variance needs a backend that accepts map_by_subgenome.
-  # Older installs lack that formal -> score without it (linkage-equilibrium) and say so.
+  # Older installs lack that formal -> score without it (unlinked) and say so.
   score_args <- list(gs, eff, candidate_pairs = pairs, model_decision = md,
                      selection_prop = as.numeric(raw$selection_prop %||% 0.1))
   if ("grm_method" %in% score_fmls) score_args$grm_method <- grm_method
@@ -306,12 +306,14 @@ run_subgenome_design <- function(raw, result_path) {
     score_args$progeny_target   <- progeny_target
   } else if (!is.null(map_by_subgenome)) {
     map_by_subgenome <- NULL
-    variance_note <- "Installed nextgenCrossDesign is too old for recombination-aware subgenome variance; used the linkage-equilibrium variance. Update the backend."
+    variance_note <- "Installed nextgenCrossDesign is too old for recombination-aware subgenome variance; used the unlinked variance. Update the backend."
   }
   sc    <- do.call(nextgenCrossDesign::ng_polyploid_subgenome_score_crosses, score_args)
   variance_model <- attr(sc, "variance_model") %||%
     (if ("poly_variance_model" %in% names(as.data.frame(sc))) as.data.frame(sc)$poly_variance_model[[1L]]
-     else "linkage_equilibrium")
+     else "unlinked")
+  # <= 0.9.0 backends emitted "linkage_equilibrium"; normalize to the current "unlinked".
+  if (identical(variance_model, "linkage_equilibrium")) variance_model <- "unlinked"
   K     <- if ("method" %in% names(formals(nextgenCrossDesign::ng_polyploid_subgenome_grm)))
              nextgenCrossDesign::ng_polyploid_subgenome_grm(gs, method = grm_method)
            else nextgenCrossDesign::ng_polyploid_subgenome_grm(gs)
