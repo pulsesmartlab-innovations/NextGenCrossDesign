@@ -218,6 +218,146 @@ ngcd_diag_poly <- function(res) {
   out
 }
 
+# -- breeder mating constraints (min-use / group quota / disallowed pairings /
+#    committed crosses / min-unique relaxation) --------------------------------
+# These reshape the delivered plan silently at the backend; surface what they did.
+ngcd_diag_constraints <- function(res) {
+  cd <- res$constraint_diagnostics
+  if (is.null(cd)) return(list())
+  out <- list()
+  req <- suppressWarnings(as.integer(cd$n_crosses_requested %||% NA))
+  got <- suppressWarnings(as.integer(cd$n_crosses_delivered %||% NA))
+  ra   <- suppressWarnings(as.integer(cd$min_unique_relaxation_attempts %||% 0))
+  mreq <- suppressWarnings(as.integer(cd$min_unique_requested %||% NA))
+  mused <- suppressWarnings(as.integer(cd$min_unique_used %||% NA))
+  nc  <- suppressWarnings(as.integer(cd$n_committed %||% 0))
+  mif <- suppressWarnings(as.integer(cd$min_use_if_used %||% NA))
+  any_constraint <- isTRUE(cd$group_quota_active) || isTRUE(cd$group_permission_active) ||
+    isTRUE(cd$budget_active) || (is.finite(nc) && nc > 0) ||
+    (is.finite(mif) && mif > 1) || (is.finite(ra) && ra > 0)
+
+  # plan delivered fewer crosses than requested
+  if (is.finite(req) && is.finite(got) && got < req) {
+    if (isTRUE(any_constraint))
+      out <- c(out, list(ngcd_diag_item("constraints", "warn",
+        sprintf("Breeder constraints shrank the plan to %d of %d requested crosses", got, req),
+        "A binding constraint (min-use-if-used, group quota, disallowed group pairing, or budget) removed crosses that would otherwise have been selected, so fewer were delivered than requested.",
+        "To recover the full count, relax the binding constraint: raise the group quota, allow the disallowed pairing, lower 'min uses if used', or increase the budget. If the smaller plan is acceptable, no action is needed.")))
+    else
+      out <- c(out, list(ngcd_diag_item("constraints", "note",
+        sprintf("Only %d of %d requested crosses could be formed", got, req),
+        "Not enough distinct candidate crosses satisfied the per-parent cap to reach the requested number - this is candidate scarcity, not a breeder constraint.",
+        "Add more candidate parents, or raise 'Max uses per parent' so existing parents can appear in more crosses.")))
+  }
+
+  # minimum-unique-parents auto-relaxed to stay feasible
+  if (is.finite(ra) && ra > 0 && is.finite(mreq) && is.finite(mused) && mused < mreq)
+    out <- c(out, list(ngcd_diag_item("constraints", "warn",
+      sprintf("Minimum-unique-parents was relaxed from %d to %d to stay feasible", mreq, mused),
+      "The requested parent-diversity floor could not be met alongside the other constraints (per-parent cap, cross count), so the allocator lowered it automatically instead of failing.",
+      "Raise 'Max uses per parent' or add candidate parents so the floor fits, or set 'Minimum unique parents' to the value actually used.")))
+
+  # committed crosses force-included
+  if (is.finite(nc) && nc > 0)
+    out <- c(out, list(ngcd_diag_item("constraints", "note",
+      sprintf("%d cross(es) were force-included as committed matings", nc),
+      "You locked these crosses in; the optimizer filled the rest of the plan around them, which can displace higher-merit unconstrained crosses.",
+      "Remove entries from 'Committed crosses' to give the optimizer full freedom, or keep them if they are agronomic must-dos.")))
+
+  # min-use-if-used active
+  if (is.finite(mif) && mif > 1)
+    out <- c(out, list(ngcd_diag_item("constraints", "note",
+      sprintf("Min-use-if-used is active - any used parent appears at least %d times", mif),
+      "Every parent that enters the plan is used at least this many times to justify producing/maintaining it, which concentrates the plan onto fewer distinct parents.",
+      "Lower 'min uses if used' to admit parents used only once, or keep it to reduce the number of parents you must manage.")))
+  out
+}
+
+# -- marker steering & lethal-allele guarding (Module 4) ---------------------
+ngcd_diag_marker_lethal <- function(res) {
+  cd <- res$constraint_diagnostics
+  if (is.null(cd)) return(list())
+  out <- list()
+
+  # lethal-allele guarding
+  if (isTRUE(cd$lethal_active)) {
+    dropped <- suppressWarnings(as.integer(cd$lethal_dropped %||% 0))
+    nloci   <- suppressWarnings(as.integer(cd$lethal_n_loci %||% 0))
+    pre     <- suppressWarnings(as.integer(cd$lethal_candidates_pre %||% NA))
+    if (is.finite(dropped) && dropped > 0 && isTRUE(cd$lethal_dropped_from_plan)) {
+      pctxt <- if (is.finite(pre) && pre > 0)
+        sprintf(" (%s of %d candidate crosses)", ngcd_diag_pct(dropped / pre), pre) else ""
+      out <- c(out, list(ngcd_diag_item("marker_guard", "note",
+        sprintf("Lethal-allele guarding removed %d carrier x carrier cross(es)%s", dropped, pctxt),
+        sprintf("At the %d nominated deleterious-recessive locus/loci, matings where BOTH parents carry the risk allele were dropped before allocation, so no plan cross can segregate the lethal genotype.", nloci),
+        "This is protective and usually desired. To keep those crosses for inspection, turn off 'drop lethal-carrier crosses' - they are then flagged but retained.")))
+    } else if (is.finite(dropped) && dropped > 0) {
+      out <- c(out, list(ngcd_diag_item("marker_guard", "warn",
+        sprintf("Lethal-allele guarding flagged %d carrier x carrier cross(es) but kept them", dropped),
+        sprintf("Both parents carry the risk allele at %d nominated locus/loci; the crosses were flagged but NOT removed because dropping is turned off, so the plan may include lethal-segregating matings.", nloci),
+        "Turn on 'drop lethal-carrier crosses' to exclude them automatically.")))
+    } else {
+      out <- c(out, list(ngcd_diag_item("marker_guard", "ok",
+        sprintf("Lethal-allele guarding active on %d locus/loci - no carrier x carrier crosses found", nloci),
+        "None of your candidate crosses mate two carriers of a nominated risk allele, so nothing had to be removed.",
+        NULL)))
+    }
+  }
+
+  # marker steering
+  if (isTRUE(cd$marker_steering_active)) {
+    nloci <- suppressWarnings(as.integer(cd$marker_n_loci %||% 0))
+    lam   <- suppressWarnings(as.numeric(cd$marker_lambda %||% 0))
+    if (isTRUE(cd$marker_blended) && is.finite(lam) && lam != 0)
+      out <- c(out, list(ngcd_diag_item("marker_guard", "note",
+        sprintf("Marker steering is driving allocation (%d target locus/loci, weight = %s)", nloci, ngcd_diag_num(lam, 2)),
+        "The plan optimizes a blend of predicted merit and progress toward your target-allele frequencies, so some merit is traded for allele-frequency movement at the steered loci.",
+        "Lower the steering weight to prioritize merit, raise it to push the target alleles harder, or set it to 0 to rank on merit alone (targets are still reported).")))
+    else
+      out <- c(out, list(ngcd_diag_item("marker_guard", "note",
+        sprintf("Marker-target progress is reported for %d locus/loci (steering weight 0)", nloci),
+        "Per-cross target-allele progress is shown, but the target is NOT influencing which crosses are selected because the steering weight is zero.",
+        "Set a positive steering weight to make allocation actively pursue the target frequencies.")))
+  }
+  out
+}
+
+# -- cost & logistics --------------------------------------------------------
+ngcd_diag_cost <- function(res) {
+  cd <- res$constraint_diagnostics
+  if (is.null(cd)) return(list())
+  out <- list()
+  if (isTRUE(cd$budget_active)) {
+    budget <- suppressWarnings(as.numeric(cd$budget %||% NA))
+    spent  <- suppressWarnings(as.numeric(cd$plan_total_cost %||% NA))
+    if (is.finite(budget) && is.finite(spent) && budget > 0) {
+      if (spent >= 0.98 * budget)
+        out <- c(out, list(ngcd_diag_item("cost", "warn",
+          sprintf("The budget is binding (plan cost %s of %s)", ngcd_diag_num(spent, 2), ngcd_diag_num(budget, 2)),
+          "The plan spends essentially the whole budget; higher-merit but more expensive crosses were left out to stay within it.",
+          "Raise 'Budget' to admit more/costlier crosses, or reduce per-cross costs. Lower it to spend less, at some merit cost.")))
+      else
+        out <- c(out, list(ngcd_diag_item("cost", "ok",
+          sprintf("The plan is within budget (cost %s of %s)", ngcd_diag_num(spent, 2), ngcd_diag_num(budget, 2)),
+          "The budget was not the binding constraint - the chosen plan cost less than the cap.",
+          NULL)))
+    }
+  }
+  lam_c <- suppressWarnings(as.numeric(cd$cost_emphasis %||% 0))
+  if (is.finite(lam_c) && lam_c != 0)
+    out <- c(out, list(ngcd_diag_item("cost", "note",
+      sprintf("Cost is penalized in the objective (weight = %s)", ngcd_diag_num(lam_c, 2)),
+      "Allocation trades predicted merit against per-cross cost, so cheaper crosses are favored even at slightly lower merit.",
+      "Lower the cost weight to prioritize merit, or raise it to lean harder on cheaper crosses.")))
+  lam_l <- suppressWarnings(as.numeric(cd$logistic_emphasis %||% 0))
+  if (is.finite(lam_l) && lam_l != 0)
+    out <- c(out, list(ngcd_diag_item("cost", "note",
+      sprintf("Logistics are penalized in the objective (weight = %s)", ngcd_diag_num(lam_l, 2)),
+      "A per-cross logistic burden is traded against merit, so operationally easier crosses are favored.",
+      "Lower the logistic weight to prioritize merit, or raise it to favor easier crosses.")))
+  out
+}
+
 # -- top-level assembler -----------------------------------------------------
 #' Assemble actionable diagnostics for a run result.
 #' @param res parsed backend result (ng_run_result.v1)
@@ -228,6 +368,9 @@ ngcd_diagnostics <- function(res) {
   items <- c(
     ngcd_diag_cross_number(res),
     ngcd_diag_allocation(res),
+    ngcd_diag_constraints(res),
+    ngcd_diag_marker_lethal(res),
+    ngcd_diag_cost(res),
     ngcd_diag_robust(res),
     ngcd_diag_reliability(res),
     ngcd_diag_qc(res),
