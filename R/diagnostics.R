@@ -358,6 +358,42 @@ ngcd_diag_cost <- function(res) {
   out
 }
 
+# -- risk / portfolio (backend 0.13.0; single-trait only) -------------------
+ngcd_diag_priority_risk <- function(res) {
+  sc <- res$selected_crosses
+  if (!is.data.frame(sc) || !all(c("risk_bin", "priority_tier") %in% names(sc))) return(list())
+  out <- list()
+  top <- levels(sc$priority_tier)[[1L]]
+  in_top <- as.character(sc$priority_tier) == top
+  hi <- as.character(sc$risk_bin) == "high"
+  k <- sum(in_top & hi, na.rm = TRUE); n <- sum(in_top, na.rm = TRUE)
+  if (n > 0 && k > 0)
+    out <- c(out, list(ngcd_diag_item("priority_risk", if (k >= ceiling(n/2)) "warn" else "note",
+      sprintf("%d of %d top-tier crosses rely on low-confidence predictions", k, n),
+      "These crosses rank highly on the point estimate but their predictions are uncertain (high risk).",
+      "Hedge with lower-risk 'workhorse' crosses, or enable posterior prediction to sharpen the estimates.")))
+  cm <- res$priority_risk_diagnostics$confidence_method %||% (sc$confidence_method[[1L]] %||% NA)
+  if (isTRUE(cm %in% c("midparent_pev_partial", "reliability_coarse_variance", "reliability")))
+    out <- c(out, list(ngcd_diag_item("priority_risk", "note",
+      "Risk is estimated from a partial/coarse signal",
+      sprintf("confidence_method = '%s' — the variance-estimation part of risk is not fully captured.", cm),
+      "Enable posterior prediction for a complete per-cross risk column.")))
+  out
+}
+
+# -- portfolio profile (metric-aware guidance) ------------------------------
+ngcd_diag_portfolio <- function(res) {
+  sc <- res$selected_crosses
+  if (!is.data.frame(sc) || !("portfolio_profile" %in% names(sc))) return(list())
+  metric <- res$settings$trait_value_metric %||% "usefulness"
+  n_up <- sum(as.character(sc$portfolio_profile) %in% c("breakthrough", "long_shot"), na.rm = TRUE)
+  msg <- if (identical(metric, "mean"))
+    sprintf("You scored on 'mean'; %d cross(es) carry within-family variance (upside) you did not rank.", n_up)
+  else "The portfolio shows the genetic decomposition (level x within-family SD) of your plan (relative to this run)."
+  list(ngcd_diag_item("portfolio", "note", "Portfolio view available",
+    msg, "Open the 'Portfolio & risk' tab: x = genetic SD (upside), y = mean (level), colour = risk."))
+}
+
 # -- top-level assembler -----------------------------------------------------
 #' Assemble actionable diagnostics for a run result.
 #' @param res parsed backend result (ng_run_result.v1)
@@ -374,7 +410,9 @@ ngcd_diagnostics <- function(res) {
     ngcd_diag_robust(res),
     ngcd_diag_reliability(res),
     ngcd_diag_qc(res),
-    ngcd_diag_poly(res))
+    ngcd_diag_poly(res),
+    ngcd_diag_priority_risk(res),
+    ngcd_diag_portfolio(res))
   # order: warn first, then note, then ok
   ord <- c(warn = 1L, note = 2L, ok = 3L)
   sev <- vapply(items, function(x) ord[[x$severity %||% "note"]] %||% 2L, integer(1))

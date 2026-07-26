@@ -140,3 +140,29 @@ test_that("the full result adds diagnostics without breaking the report", {
   expect_match(html, "Diagnostics &amp; tuning")
   expect_match(html, "id='diagnostics'")
 })
+
+test_that("ngcd_diag_priority_risk flags a high-risk top tier", {
+  res <- list(
+    selected_crosses = data.frame(
+      priority_tier = factor(c("highly_priority","highly_priority","priority"),
+                             levels = c("highly_priority","priority","medium_priority","low_priority")),
+      risk_bin = factor(c("high","high","low"), levels = c("low","med","high"), ordered = TRUE),
+      portfolio_profile = factor(c("breakthrough","long_shot","workhorse")),
+      confidence_method = rep("midparent_pev_partial", 3), stringsAsFactors = FALSE),
+    priority_risk_diagnostics = list(confidence_method = "midparent_pev_partial"))
+  items <- ng("ngcd_diag_priority_risk")(res)
+  expect_true(length(items) >= 1)
+  expect_true(any(vapply(items, function(x) grepl("risk", x$title, ignore.case = TRUE), logical(1))))
+})
+
+test_that("ngcd_diag_portfolio notes un-ranked upside for mean metric", {
+  res <- list(settings = list(trait_value_metric = "mean"),
+    selected_crosses = data.frame(portfolio_profile = factor(c("long_shot","workhorse")),
+                                  stringsAsFactors = FALSE))
+  expect_true(length(ng("ngcd_diag_portfolio")(res)) >= 1)
+})
+
+test_that("risk/portfolio helpers no-op when columns absent (multi-trait/old backend)", {
+  expect_length(ng("ngcd_diag_priority_risk")(list(selected_crosses = data.frame(a = 1))), 0)
+  expect_length(ng("ngcd_diag_portfolio")(list(selected_crosses = data.frame(a = 1))), 0)
+})

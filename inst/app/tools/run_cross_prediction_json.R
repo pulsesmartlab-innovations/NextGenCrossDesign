@@ -757,6 +757,8 @@ run <- function() {
     objective       = pick("objective"),
     plan_summary    = pick("plan_summary"),
     constraint_diagnostics = pick("constraint_diagnostics"),
+    priority_risk_diagnostics = pick("priority_risk_diagnostics"),
+    trait_check_diagnostics = pick("trait_check_diagnostics"),
     candidate_crosses = pick("candidate_crosses"),
     selected_crosses  = pick("selected_crosses"),
     ld_pruning_report = pick("ld_pruning_report"),
