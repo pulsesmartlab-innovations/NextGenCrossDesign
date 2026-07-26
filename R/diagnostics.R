@@ -394,6 +394,29 @@ ngcd_diag_portfolio <- function(res) {
     msg, "Open the 'Portfolio & risk' tab: x = genetic SD (upside), y = mean (level), colour = risk."))
 }
 
+# -- per-trait check-threshold veto (backend 0.14.0) ------------------------
+ngcd_diag_trait_check <- function(res) {
+  d <- res$trait_check_diagnostics
+  if (is.null(d)) return(list())
+  out <- list()
+  nf <- suppressWarnings(as.integer(d$n_flagged %||% 0))
+  nx <- suppressWarnings(as.integer(d$n_excluded %||% 0))
+  ne <- suppressWarnings(as.integer(d$n_not_evaluable %||% 0))
+  ntr <- if (is.data.frame(d$active)) nrow(d$active) else 0L
+  if (is.finite(nf) && nf > 0)
+    out <- c(out, list(ngcd_diag_item("trait_check", if (nx > 0) "warn" else "note",
+      sprintf("%d cross(es) fail a per-trait check%s", nf,
+              if (nx > 0) sprintf("; %d excluded from the plan", nx) else " (flagged, kept)"),
+      sprintf("Their mid-parent is on the worse side of your check line for %d trait(s).", ntr),
+      "Turn on 'exclude threshold violators' to drop them, or relax/remove the trait check.")))
+  if (is.finite(ne) && ne > 0)
+    out <- c(out, list(ngcd_diag_item("trait_check", "note",
+      sprintf("%d trait-check comparison(s) were not evaluable", ne),
+      "A parent or the check line had no value on the chosen basis (e.g. phenotype missing).",
+      "Use a GEBV basis, or pick a check line/traits that are measured.")))
+  out
+}
+
 # -- top-level assembler -----------------------------------------------------
 #' Assemble actionable diagnostics for a run result.
 #' @param res parsed backend result (ng_run_result.v1)
@@ -412,7 +435,8 @@ ngcd_diagnostics <- function(res) {
     ngcd_diag_qc(res),
     ngcd_diag_poly(res),
     ngcd_diag_priority_risk(res),
-    ngcd_diag_portfolio(res))
+    ngcd_diag_portfolio(res),
+    ngcd_diag_trait_check(res))
   # order: warn first, then note, then ok
   ord <- c(warn = 1L, note = 2L, ok = 3L)
   sev <- vapply(items, function(x) ord[[x$severity %||% "note"]] %||% 2L, integer(1))
