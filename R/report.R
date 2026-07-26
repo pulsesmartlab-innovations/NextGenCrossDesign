@@ -275,18 +275,22 @@ ngcd_portfolio_plotly <- function(res) {
   i <- stats::dnorm(stats::qnorm(1 - p)) / p                 # selection intensity
   cols <- c(low = "#1f7a4d", med = "#8a6d1a", high = "#a3341f")
   lab <- if ("cross" %in% names(sc)) sc$cross else seq_len(nrow(sc))
+  conf_num <- suppressWarnings(as.numeric(sc$cross_confidence %||% NA))
+  conf <- ifelse(is.finite(conf_num), formatC(conf_num, format = "f", digits = 2), "--")
   hov <- sprintf("%s<br>tier: %s<br>profile: %s<br>confidence: %s",
                  lab, as.character(sc$priority_tier %||% NA),
                  as.character(sc$portfolio_profile %||% NA),
-                 ngcd_diag_num(sc$cross_confidence %||% NA, 2))
+                 conf)
   fig <- plotly::plot_ly()
   # iso-usefulness contour lines across the plotted range
   xr <- range(sc$cross_upside, na.rm = TRUE); yr <- range(sc$cross_level, na.rm = TRUE)
-  Us <- seq(min(yr) + i * min(xr), max(yr) + i * max(xr), length.out = 4)
-  for (U in Us) fig <- plotly::add_lines(fig, x = xr, y = U - i * xr,
-      line = list(dash = "dot", color = "#bbbbbb"), showlegend = FALSE, hoverinfo = "skip")
+  if (all(is.finite(xr)) && all(is.finite(yr))) {
+    Us <- seq(min(yr) + i * min(xr), max(yr) + i * max(xr), length.out = 4)
+    for (U in Us) fig <- plotly::add_lines(fig, x = xr, y = U - i * xr,
+        line = list(dash = "dot", color = "#bbbbbb"), showlegend = FALSE, hoverinfo = "skip")
+  }
   for (rb in c("low","med","high")) {
-    idx <- as.character(sc$risk_bin) == rb
+    idx <- !is.na(sc$risk_bin) & as.character(sc$risk_bin) == rb
     if (any(idx)) fig <- plotly::add_markers(fig, x = sc$cross_upside[idx], y = sc$cross_level[idx],
       name = paste0(rb, " risk"), text = hov[idx], hoverinfo = "text",
       marker = list(color = cols[[rb]], size = 9))
