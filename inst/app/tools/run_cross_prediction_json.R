@@ -444,6 +444,10 @@ run <- function() {
   if (!is.null(args_in$lethal_spec))
     args_in$lethal_spec <- as_rows_df(args_in$lethal_spec,
       c("marker", "risk_allele"), list(risk_allele = "alt"))
+  if (!is.null(args_in$trait_checks))
+    args_in$trait_checks <- as_rows_df(args_in$trait_checks,
+      c("trait", "check", "direction", "basis"),
+      list(direction = NA, basis = "gebv"))
   if (!is.null(args_in$parent_group) && is.list(args_in$parent_group))
     args_in$parent_group <- stats::setNames(as.character(unlist(args_in$parent_group)),
                                             names(args_in$parent_group))
