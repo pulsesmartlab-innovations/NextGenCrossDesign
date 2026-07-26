@@ -41,9 +41,13 @@ breeder's question "what am I selecting for?", NOT a bag of mode+method+threshol
   the backend `prediction_mode` from it in `build_params`):
   1. **"Single trait"** — pick ONE trait (a single-select); **no index, no weighting apparatus
      shown**. → `prediction_mode = "trait_by_trait"`, `traits_to_use = [that trait]`,
-     `multi_trait_method = "auto"`. (Single-trait is already fully supported by the backend — this is
-     the common case for a breeder deciding crossing blocks on one trait; it must NOT force the user
-     through multi-trait machinery.)
+     `multi_trait_method = "auto"`. **This is FULL single-trait genomic prediction**, so it keeps
+     usefulness/UC, within-family variance, the Portfolio & risk view, and the trait-check veto (all
+     of which need `trait_by_trait`). **It is NOT routed to `index_as_trait`** (that's a separate
+     mode-3 choice for a pre-computed index column), and it must **not be confused with multi-trait**
+     (mode 2, which combines several traits with weights). Single-trait is the common case for a
+     breeder deciding crossing blocks on one trait and must not force them through index/weighting
+     machinery.
   2. **"Multiple traits (build a selection index)"** — the `traits_to_use` multi-select + the
      "Traits & their importance" weighting card below. → `prediction_mode = "trait_by_trait"`.
   3. **"Use my selection-index column"** — `index_col` + `index_direction`. →
