@@ -37,16 +37,23 @@ Each control keeps its **exact input ID**; cards move as self-contained `bslib::
 
 **① Selection objective** (renamed from *Objective* / "Breeding goal") — restructured around the
 breeder's question "what am I selecting for?", NOT a bag of mode+method+threshold. Three parts:
-- **Mode toggle (reworded `prediction_mode`)** at the top, in plain breeder language:
-  *"Build a selection index from my traits"* (`trait_by_trait`) vs *"Use my pre-computed
-  selection-index column"* (`index_as_trait`). **Input id + values unchanged** (still
-  `trait_by_trait`/`index_as_trait`); only the displayed labels change.
-  - conditional: build-from-traits → the `traits_to_use` picker; use-my-column → `index_col` +
-    `index_direction`.
-- **Card "Traits & their importance"** — `traits_to_use` + the weighting method (`multi_trait_method`)
-  **relabeled in breeder terms** (auto→"Automatic", weighted→"Relative weights",
-  economic_index→"Economic weights", desired_gain→"Desired gains") + the weight/target inputs.
-  **Input ids + values unchanged**; only display labels.
+- **Mode toggle — THREE breeder-natural choices** (new UI radio `objective_mode`; the app derives
+  the backend `prediction_mode` from it in `build_params`):
+  1. **"Single trait"** — pick ONE trait (a single-select); **no index, no weighting apparatus
+     shown**. → `prediction_mode = "trait_by_trait"`, `traits_to_use = [that trait]`,
+     `multi_trait_method = "auto"`. (Single-trait is already fully supported by the backend — this is
+     the common case for a breeder deciding crossing blocks on one trait; it must NOT force the user
+     through multi-trait machinery.)
+  2. **"Multiple traits (build a selection index)"** — the `traits_to_use` multi-select + the
+     "Traits & their importance" weighting card below. → `prediction_mode = "trait_by_trait"`.
+  3. **"Use my selection-index column"** — `index_col` + `index_direction`. →
+     `prediction_mode = "index_as_trait"`.
+  Existing `conditionalPanel`s keyed on `input.prediction_mode` are re-pointed to `input.objective_mode`
+  (or a derived flag); the backend param names/values are unchanged.
+- **Card "Traits & their importance"** (shown for mode 2 only) — `traits_to_use` + the weighting
+  method (`multi_trait_method`) **relabeled in breeder terms** (auto→"Automatic",
+  weighted→"Relative weights", economic_index→"Economic weights", desired_gain→"Desired gains") +
+  the weight/target inputs. **Input ids + values unchanged**; only display labels.
 - **Card "Minimum levels (culling thresholds)"** — `threshold_policy` (soft/strict) +
   `threshold_penalty_weight` + `threshold_penalty_autoscale` (+ per-trait floor inputs), framed as
   independent culling levels, distinct from index weighting.
@@ -130,8 +137,15 @@ Grep ALL user-facing strings (not just the 3 lines v1 flagged) and repoint/rewor
   production; replace with an inline requirement note, not a pointer to a hidden tab.
 - polyploid dosage-cleaning callout (app.R ~261-265) — cross-link now that QC lives under Data.
 
-## 6. Invariants (UI-only)
-- **No input ID changes** — pre/post grep of every `input$<id>` / `inputId=` must be identical.
+## 6. Invariants (UI-only, with ONE deliberate exception)
+- **One intentional exception (the objective mode):** the 3-way `objective_mode` selector is a NEW UI
+  input replacing the direct `prediction_mode` radio; `build_params` derives `prediction_mode` +
+  `traits_to_use` + `multi_trait_method` from it (§2.2 ①). This is additive UX — it produces the
+  SAME backend values the app produces today (`trait_by_trait` for single/multiple, `index_as_trait`
+  for the index column), just reachable more intuitively. It is the only place the redesign adds
+  build_params logic; everything else is pure card relocation.
+- **No OTHER input ID changes** — apart from `prediction_mode`→`objective_mode` above, pre/post grep
+  of every `input$<id>` / `inputId=` must be identical (no other input lost/renamed in the card moves).
 - `nav_select("nav","Results")` (app.R:1476) unchanged (Results stays top-level).
 - `build_params` and all server reactives unchanged; `conditionalPanel`s (keyed on
   `input.workflow`/`data_source`/`prediction_mode`/`diversity_mode`/`mate_relatedness`/
