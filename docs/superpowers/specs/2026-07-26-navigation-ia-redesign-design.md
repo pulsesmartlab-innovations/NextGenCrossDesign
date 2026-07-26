@@ -35,9 +35,25 @@ Top nav (Setup stays **dev-only**, `if (isTRUE(dev))`, unchanged):
 Each control keeps its **exact input ID**; cards move as self-contained `bslib::card` /
 `accordion_panel` blocks. Redistribution map (source → destination):
 
-**① Breeding goal** — the objective ONLY (from old *Objective*, minus scoring):
-- `prediction_mode`, `traits_to_use`, `multi_trait_method`, index inputs, `threshold_policy` /
-  threshold weights.
+**① Selection objective** (renamed from *Objective* / "Breeding goal") — restructured around the
+breeder's question "what am I selecting for?", NOT a bag of mode+method+threshold. Three parts:
+- **Mode toggle (reworded `prediction_mode`)** at the top, in plain breeder language:
+  *"Build a selection index from my traits"* (`trait_by_trait`) vs *"Use my pre-computed
+  selection-index column"* (`index_as_trait`). **Input id + values unchanged** (still
+  `trait_by_trait`/`index_as_trait`); only the displayed labels change.
+  - conditional: build-from-traits → the `traits_to_use` picker; use-my-column → `index_col` +
+    `index_direction`.
+- **Card "Traits & their importance"** — `traits_to_use` + the weighting method (`multi_trait_method`)
+  **relabeled in breeder terms** (auto→"Automatic", weighted→"Relative weights",
+  economic_index→"Economic weights", desired_gain→"Desired gains") + the weight/target inputs.
+  **Input ids + values unchanged**; only display labels.
+- **Card "Minimum levels (culling thresholds)"** — `threshold_policy` (soft/strict) +
+  `threshold_penalty_weight` + `threshold_penalty_autoscale` (+ per-trait floor inputs), framed as
+  independent culling levels, distinct from index weighting.
+- **Disambiguate "index":** the word currently means two opposite things here — the *mode*
+  ("index-as-trait" = you already have an index) vs a *weighting method* ("economic_index" = build
+  one). Reword so "index" is never overloaded (mode → "my selection-index column"; method →
+  "Economic weights").
 - **MOVE OUT:** the joint-P(superior-progeny) card (`multitrait_joint_prob` / `multitrait_targets`,
   old Objective ~app.R:194-201) → **② Prediction & scoring** (it is a cross-scoring metric, not an
   objective).
@@ -48,7 +64,7 @@ Each control keeps its **exact input ID**; cards move as self-contained `bslib::
   `posterior_method`, `n_iter`, `burn_in`, `use_parallel`, `n_threads`) **moved from Advanced**
   (app.R ~464-472) — so all effect-uncertainty lives in one place.
 - *Cross-value metric:* `trait_value_metric`, `uc_variance_source`, `selection_prop` (from *Scoring*)
-  **+ the joint-superiority card moved from Breeding goal**.
+  **+ the joint-superiority card moved from Selection objective**.
 - *Breeding system:* `progeny` (DH/RIL), `assume_inbred`.
 
 **③ Cross vetoes** (renamed from *Trait checks*) — per-cross genetic vetoes/steering together:
@@ -81,7 +97,7 @@ method" card — no orphan bucket remains.
 Unchanged. Results' 15 internal sub-tabs are OUT OF SCOPE this round.
 
 ### 2.4 Rename summary
-Objective→**Breeding goal**; Scoring→**Prediction & scoring**; QC→**Data quality** (under Data);
+Objective→**Selection objective**; Scoring→**Prediction & scoring**; QC→**Data quality** (under Data);
 Trait checks→**Cross vetoes**; Allocation→**Mate allocation (OCS)**; Advanced→**dissolved**;
 Output→**Export options**. Top-level "Configure" — acceptable; the 6→5 sub-labels carry the meaning.
 
@@ -101,7 +117,7 @@ Output→**Export options**. Top-level "Configure" — acceptable; the 6→5 sub
   claim "10" when the bar shows 4 stages.
 - **Retitle** each guide to the new section name; **add the missing Cross-vetoes guide box**; fix the
   "Next →" `next_hint` chaining to the new pipeline order:
-  Data → Data quality → Breeding goal → Prediction & scoring → Cross vetoes → Mate allocation →
+  Data → Data quality → Selection objective → Prediction & scoring → Cross vetoes → Mate allocation →
   Export options → Run → Results.
 
 ## 5. Stale-reference sweep (user-facing text)
