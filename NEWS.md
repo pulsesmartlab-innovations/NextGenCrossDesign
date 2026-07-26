@@ -1,3 +1,13 @@
+# nextgenCrossWorkbench 0.16.0
+
+* Surface the backend cross-priority **risk & portfolio** decision layer (backend
+  0.13.0): a 'Portfolio & risk' tab plotting genetic level x within-family SD
+  (colour = estimation risk) with iso-genetic-usefulness contours, and priority-risk /
+  portfolio run notes in the Report. Single-trait runs only; hidden otherwise.
+* Surface the per-trait **check-threshold veto** (backend 0.14.0): a 'Trait checks'
+  panel with a per-trait check-line picker (GEBV or phenotype basis), optional
+  hard-exclude, an Excel per-trait mid-parent GEBV toggle, and trait-check run notes.
+
 # nextgenCrossWorkbench 0.15.1
 
 * Documentation: the vignette now covers the diminishing-returns chart, crop
