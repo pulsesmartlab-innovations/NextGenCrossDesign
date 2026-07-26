@@ -240,6 +240,15 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::checkboxInput("assume_inbred", "Assume inbred parents", TRUE),
             shiny::numericInput("min_effect_reliability", "Min marker-effect reliability", 0.35, min = 0, max = 1, step = 0.05)))),
 
+      bslib::nav_panel("Trait checks",
+        shiny::helpText("Flag/exclude crosses whose mid-parent for a trait is on the worse side of a check line."),
+        shiny::helpText(class = "help-hint",
+          "Applies only in Trait-by-trait prediction mode (Scoring tab); ignored for Index-as-trait runs."),
+        shiny::selectInput("check_basis", "Comparison basis", c("GEBV" = "gebv", "Phenotype" = "phenotype")),
+        shiny::checkboxInput("exclude_threshold_violators", "Exclude violating crosses from the plan", FALSE),
+        shiny::checkboxInput("include_trait_gebv", "Include per-trait mid-parent GEBV in the Excel workbook", FALSE),
+        shiny::uiOutput("trait_check_pickers")),
+
       bslib::nav_panel("QC",
         ngcd_section("Data QC & duplicate handling", "Preflight runs in the backend; blocker issues stop the run."),
         ngcd_guide(5, 10, "QC", shiny::tagList(
@@ -929,6 +938,25 @@ workbench_server <- function(cfg) {
         shiny::checkboxGroupInput("traits_to_use", "Traits to use", choices = traits, selected = traits),
         shiny::div(class = "help-hint", "Leave all checked to use every trait. Uncheck only to run a subset."))
     })
+    # Per-trait check-line pickers (Trait checks tab): one row per active trait, letting the
+    # breeder pick a genotyped check line, reject direction, and comparison basis. Candidate ids
+    # come from the loaded genotype table (same id-column resolution as elsewhere in the app).
+    output$trait_check_pickers <- shiny::renderUI({
+      traits <- full_trait_set()
+      shiny::validate(shiny::need(length(traits) > 0, "Load a phenotype/direction file to pick trait checks."))
+      g <- rv$data$genotype
+      shiny::validate(shiny::need(!is.null(g), "Load a genotype file to choose check lines."))
+      gid <- input$genotype_id_col %||% ngcd_guess_col(names(g), c("NAME","parent","id","line"))
+      if (is.null(gid) || !gid %in% names(g)) gid <- names(g)[1]
+      ids <- as.character(g[[gid]])
+      shiny::tagList(lapply(traits, function(t) shiny::fluidRow(
+        shiny::column(4, shiny::selectInput(paste0("chk_", t), paste("Check for", t),
+                        choices = c("(none)" = "", stats::setNames(ids, ids)))),
+        shiny::column(4, shiny::selectInput(paste0("dir_", t), "Reject if",
+                        choices = c("auto (from breeding direction)" = "auto", "above check" = "above", "below check" = "below"))),
+        shiny::column(4, shiny::selectInput(paste0("basis_", t), "Basis",
+                        choices = c("(run default)" = "", "GEBV" = "gebv", "Phenotype" = "phenotype"))))))
+    })
     output$index_col_ui <- shiny::renderUI({
       c <- cols()
       idg <- input$phenotype_id_col %||% ngcd_guess_col(c$pheno, c("NAME","parent","id","line"))
@@ -1045,6 +1073,20 @@ workbench_server <- function(cfg) {
         progeny = input$progeny, recomb_model = input$recomb_model,
         grm_method = input$grm_method, assume_inbred = input$assume_inbred,
         min_effect_reliability = input$min_effect_reliability,
+        # Per-trait check-line veto (Trait checks tab); backend requires trait_by_trait mode.
+        trait_checks = local({
+          if (!identical(input$prediction_mode, "trait_by_trait")) return(NULL)
+          traits <- full_trait_set()
+          if (!length(traits)) return(NULL)
+          ngcd_build_trait_checks(traits,
+            checks = stats::setNames(lapply(traits, function(t) input[[paste0("chk_", t)]]), traits),
+            directions = stats::setNames(lapply(traits, function(t) input[[paste0("dir_", t)]]), traits),
+            bases = stats::setNames(lapply(traits, function(t) {
+              b <- input[[paste0("basis_", t)]]; if (nzchar(b %||% "")) b else input$check_basis }), traits))
+        }),
+        check_basis = input$check_basis %||% "gebv",
+        exclude_threshold_violators = isTRUE(input$exclude_threshold_violators),
+        include_trait_gebv = isTRUE(input$include_trait_gebv),
         duplicate_action = input$duplicate_action, duplicate_threshold = input$duplicate_threshold,
         duplicate_maf_min = input$duplicate_maf_min, duplicate_max_missing_prop = input$duplicate_max_missing_prop,
         duplicate_min_compared_markers = input$duplicate_min_compared_markers,
