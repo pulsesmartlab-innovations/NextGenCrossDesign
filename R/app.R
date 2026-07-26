@@ -534,6 +534,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           bslib::nav_panel("Report", shiny::uiOutput("res_report")),
           bslib::nav_panel("Selected crosses", DT::DTOutput("res_selected")),
           bslib::nav_panel("Candidate scores", DT::DTOutput("res_candidate")),
+          bslib::nav_panel("Portfolio & risk", plotly::plotlyOutput("res_portfolio", height = "520px")),
           bslib::nav_panel("Parent use", DT::DTOutput("res_parentuse")),
           bslib::nav_panel("Family sizes", shiny::uiOutput("res_family_ui")),
           bslib::nav_panel("Robust plan", shiny::uiOutput("res_robust_ui")),
@@ -1530,6 +1531,13 @@ workbench_server <- function(cfg) {
       ngcd_dt(df[, unique(c(keep, extra)), drop = FALSE], page = 15, priority_col = "priority_tier")
     })
     output$res_candidate <- DT::renderDT({ r <- res(); shiny::req(r); ngcd_dt(r$candidate_crosses, page = 15) })
+    output$res_portfolio <- plotly::renderPlotly({
+      r <- res(); shiny::req(r)
+      p <- ngcd_portfolio_plotly(r)
+      shiny::validate(shiny::need(!is.null(p),
+        "Portfolio view is available for single-trait runs (needs cross_level / cross_upside / risk_bin)."))
+      p
+    })
     output$res_parentuse <- DT::renderDT({
       r <- res(); shiny::req(r); df <- r$selected_crosses
       pu <- table(c(df$parent1, df$parent2))

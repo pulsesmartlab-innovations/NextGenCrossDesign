@@ -264,6 +264,39 @@ ngcd_ply_scatter <- function(res) {
   plotly::layout(p, title = "Selected vs all candidates",
     xaxis = list(title = "Pair kinship"), yaxis = list(title = "Multi-trait score"))
 }
+# Portfolio scatter: level (y) x upside (x), colour = risk_bin, with iso-genetic-usefulness
+# contours (UC-VPM = mu + i*sigma; lines mu = U - i*sigma). Returns NULL if columns absent.
+ngcd_portfolio_plotly <- function(res) {
+  sc <- res$selected_crosses
+  need <- c("cross_level", "cross_upside", "risk_bin")
+  if (!is.data.frame(sc) || !all(need %in% names(sc)) || !nrow(sc)) return(NULL)
+  p <- suppressWarnings(as.numeric(res$settings$selection_prop %||% 0.1))
+  if (!is.finite(p) || p <= 0 || p >= 1) p <- 0.1
+  i <- stats::dnorm(stats::qnorm(1 - p)) / p                 # selection intensity
+  cols <- c(low = "#1f7a4d", med = "#8a6d1a", high = "#a3341f")
+  lab <- if ("cross" %in% names(sc)) sc$cross else seq_len(nrow(sc))
+  hov <- sprintf("%s<br>tier: %s<br>profile: %s<br>confidence: %s",
+                 lab, as.character(sc$priority_tier %||% NA),
+                 as.character(sc$portfolio_profile %||% NA),
+                 ngcd_diag_num(sc$cross_confidence %||% NA, 2))
+  fig <- plotly::plot_ly()
+  # iso-usefulness contour lines across the plotted range
+  xr <- range(sc$cross_upside, na.rm = TRUE); yr <- range(sc$cross_level, na.rm = TRUE)
+  Us <- seq(min(yr) + i * min(xr), max(yr) + i * max(xr), length.out = 4)
+  for (U in Us) fig <- plotly::add_lines(fig, x = xr, y = U - i * xr,
+      line = list(dash = "dot", color = "#bbbbbb"), showlegend = FALSE, hoverinfo = "skip")
+  for (rb in c("low","med","high")) {
+    idx <- as.character(sc$risk_bin) == rb
+    if (any(idx)) fig <- plotly::add_markers(fig, x = sc$cross_upside[idx], y = sc$cross_level[idx],
+      name = paste0(rb, " risk"), text = hov[idx], hoverinfo = "text",
+      marker = list(color = cols[[rb]], size = 9))
+  }
+  plotly::layout(fig, title = "Portfolio: genetic level x upside (colour = estimation risk)",
+    xaxis = list(title = "within-family genetic SD (upside)"),
+    yaxis = list(title = "expected mean (level)"),
+    annotations = list(list(text = "dotted = iso-genetic-usefulness", showarrow = FALSE,
+      xref = "paper", yref = "paper", x = 1, y = 1.05)))
+}
 ngcd_ply_parent_use <- function(res) {
   sc <- res$selected_crosses
   pu <- sort(table(c(sc$parent1, sc$parent2)))
