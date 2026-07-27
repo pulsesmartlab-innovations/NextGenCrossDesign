@@ -3,9 +3,10 @@
 **NextGenCrossDesign** — a point-and-click Shiny front-end for the
 [`nextgenCrossDesign`](#the-backend) genomic cross-prediction and mate-allocation
 engine. It turns a genomic-selection cross-design pipeline into a guided,
-ten-step web app over plain CSV inputs, with NDSU branding, editable input
-tables, an interactive cross-linked HTML report, an automatic cross-number
-optimizer, robust (posterior) allocation, and a full polyploid design workflow.
+four-stage web app (Data · Configure · Run · Results) over plain CSV inputs, with
+NDSU branding, editable input tables, an interactive cross-linked HTML report, an
+automatic cross-number optimizer, robust (posterior) allocation, and a full
+polyploid design workflow.
 
 The backend runs in a *separate*, user-configured R process, so this front-end
 installs and runs cleanly on its own.
@@ -61,11 +62,16 @@ covers the whole decision, from raw CSVs to a shareable report:
 - **Genomic cross prediction** — marker-effect estimation, per-cross progeny
   mean and variance, and the *usefulness criterion* (mean + selection intensity ×
   progeny standard deviation) as the default merit metric.
-- **Multi-trait objectives** — trait-by-trait or index-as-trait, with explicit,
-  direction-aware selection (yield up, disease down) and several combination
-  methods (auto, weighted, economic index, desired gain). Optionally score each
-  cross by its **joint probability of superior progeny** — the chance a cross
-  yields offspring that clear the target on *all* traits at once.
+- **Flexible selection objective** — pick a **single trait**, **multiple traits**
+  combined into a selection index, or **your own pre-computed index column**, with
+  explicit direction-aware selection (yield up, disease down) and several
+  combination methods (auto, weighted, economic index, desired gain). Optionally
+  score each cross by its **joint probability of superior progeny** — the chance a
+  cross yields offspring that clear the target on *all* traits at once.
+- **Breeder decision controls** — a per-trait **check-line veto** (screen crosses
+  against a reference line before allocation), a unified **mate-relatedness** dial,
+  and a single-trait **portfolio & risk** view (genetic level × within-family
+  upside × estimation risk) layered on the priority tiers.
 - **Optimal mate allocation** — optimum-contribution-style selection that
   balances mean gain against group coancestry, with greedy/evolutionary/MIP
   optimizers and constraints on parent use, kinship, and group quotas.
@@ -119,17 +125,18 @@ backend in the same R library.
 ```r
 # 1. the backend (compiles native code — needs Rtools/Xcode/build-essential)
 #    Floor is nextgenCrossDesign >= 0.7.0 (required_backend_version in config.yml);
-#    0.9.0+ adds the recombination-aware allopolyploid subgenome path.
-remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.9.0")
+#    0.14.0 adds the per-trait check-line veto, portfolio/risk and constraint
+#    diagnostics, and the unified mate-relatedness control surfaced by this app.
+remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.14.0")
 
 #    …or from a local source tarball:
-R CMD INSTALL nextgenCrossDesign_0.9.0.tar.gz
+R CMD INSTALL nextgenCrossDesign_0.14.0.tar.gz
 
 # 2. this front-end — from CRAN once published:
 install.packages("nextgenCrossWorkbench", dependencies = TRUE)
 
 #    …or from a local source tarball:
-install.packages("nextgenCrossWorkbench_0.15.2.tar.gz",
+install.packages("nextgenCrossWorkbench_0.17.0.tar.gz",
                  repos = NULL, type = "source", dependencies = TRUE)
 ```
 
@@ -208,19 +215,24 @@ the app URL, or setting `NGCD_DEVELOPER_MODE=true`.
 
 ## Guided walkthrough
 
-The workbench is organized as a ten-step navbar. Each screen below is shown with
-the bundled demo (10 inbred parents, 12 markers, traits *yield* ↑ and *disease* ↓).
+The workbench is organized as **four workflow stages** in the top navbar —
+**Data · Configure · Run · Results** (plus a developer-only Setup) — that follow
+the order you actually work in. Each panel below is shown with the bundled demo
+(10 inbred parents, 12 markers, traits *yield* ↑ and *disease* ↓).
 
-### 1. Setup — connect to your R & backend
+> The screenshots show the individual configuration **panels**; version 0.17
+> regrouped the navigation from a flat ten-tab bar into the four stages described
+> here, so a panel's controls are unchanged but now live under the stage noted in
+> each heading.
 
-Confirm the app can reach your R installation and the `nextgenCrossDesign`
-engine before doing anything else. Green badges mean Rscript, the runner, the
-backend package, and its version are all in order; an optional-capabilities panel
-shows which extra features (lpSolve, AlphaSimR, openxlsx, …) are available.
+**Setup** *(developer-only, hidden in production)* confirms the app can reach your
+R installation and the `nextgenCrossDesign` engine — green badges for Rscript, the
+runner, the backend package and its version, plus an optional-capabilities panel
+(lpSolve, AlphaSimR, openxlsx, …).
 
 ![Setup screen](man/figures/screen-01-setup.png)
 
-### 2. Data — load, map, and edit inputs
+### Data — load, check, and edit inputs
 
 Load the bundled demo or upload your own CSVs (comma/semicolon/tab separated; a
 UTF-8 byte-order mark from Excel is handled automatically). Column mapping is
@@ -230,57 +242,58 @@ re-run.
 
 ![Data screen](man/figures/screen-02-data.png)
 
-### 3. Objective — what you are selecting for
+A **Data quality** sub-tab holds duplicate-parent detection, marker-missingness and
+MAF filters, optional LD pruning, and a residual-heterozygosity audit that mirrors
+the backend's inbred model — heterozygous parents that would break a DH/RIL model
+are flagged with a one-click exclusion.
 
-Choose trait-by-trait or index-as-trait prediction, tick the traits to include,
-and pick a multi-trait combination method. Trait directions are explicit, so risk
-traits can be selected *downward*.
+![Data quality (QC) sub-tab](man/figures/screen-05-qc.png)
 
-![Objective screen](man/figures/screen-03-objective.png)
+### Configure — every design choice, in five sections
 
-### 4. Scoring — merit metric & breeding system
+**1. Selection objective.** The breeder question "what does *good* mean?" as a
+three-way choice: a **single trait**, **multiple traits (build a selection index)**,
+or **use my selection-index column** (a pre-computed index already in your
+phenotype file). Single- and multiple-trait modes both run full trait-by-trait
+prediction; for multiple traits you pick the combination method (automatic,
+relative weights, economic weights, desired gains) and can add a **joint
+P(superior progeny)** column. Trait directions are explicit, so risk traits are
+selected *downward*.
 
-Select the trait-value metric (default `var_complex`, the usefulness criterion),
-the breeding system (DH or RIL), recombination and GRM methods, and the selection
+![Selection objective screen](man/figures/screen-03-objective.png)
+
+**2. Prediction & scoring.** The effect & variance model (recombination and GRM
+methods, marker-effect reliability floor, optional training-set augmentation and
+posterior engine), the **cross-value metric** (default `var_complex`, the
+usefulness criterion), and the breeding system (DH or RIL) with the selection
 proportion. "Assume inbred parents" can be toggled for non-inbred material.
 
-![Scoring screen](man/figures/screen-04-scoring.png)
+![Prediction & scoring screen](man/figures/screen-04-scoring.png)
 
-### 5. QC — clean the data before running
+**3. Cross filters & genetic constraints.** Candidate-level screens applied
+*before* allocation: the **per-trait check-line veto** (flag or remove crosses
+whose mid-parent for a trait is worse than a reference line, on GEBV or phenotype
+basis), lethal-allele guarding, and marker-target steering.
 
-Duplicate-parent detection, marker-missingness and MAF filters, optional LD
-pruning, and a residual-heterozygosity audit that mirrors the backend's inbred
-model. Heterozygous parents that would break a DH/RIL model are flagged with a
-one-click exclusion.
+![Cross filters & genetic constraints screen](man/figures/screen-07-advanced.png)
 
-![QC screen](man/figures/screen-05-qc.png)
+**4. Mate allocation.** The **number of crosses** (fixed, or let the automatic
+optimizer sweep K and recommend a value), the gain-vs-coancestry dial, the unified
+**mate-relatedness** control (avoid inbreeding / favor complementarity), the
+optimizer (greedy / evolutionary / MIP / AlphaMate-style), constraints on parent
+use, kinship and quotas, a family-size budget, the Pareto explorer, and a
+robust-allocation card that re-optimizes on posterior quantiles for stability
+under uncertainty.
 
-### 6. Allocation — build the mating plan
+![Mate allocation screen](man/figures/screen-06-allocation.png)
 
-Set the **number of crosses** (fixed, or let the automatic optimizer sweep K and
-recommend a value), the diversity balance (a gain-vs-coancestry dial), the
-optimizer (greedy / evolutionary / MIP / AlphaMate-style), and constraints on
-parent use, kinship, quotas, and progeny inbreeding. A robust-allocation card
-re-optimizes on posterior quantiles for stability under uncertainty.
+**5. Export options.** Whether to write an Excel crossing-plan workbook (needs
+`openxlsx`) and static PNG figures (needs `ggplot2`), and the random seed for
+reproducibility.
 
-![Allocation screen](man/figures/screen-06-allocation.png)
+![Export options screen](man/figures/screen-08-output.png)
 
-### 7. Advanced — fine control
-
-Marker-target steering, lethal-allele handling, cost/logistic penalties, budget
-constraints, and posterior-prediction (MCMC) options for programs that need them.
-
-![Advanced screen](man/figures/screen-07-advanced.png)
-
-### 8. Output — what to write
-
-Choose whether to write an Excel crossing-plan workbook (needs `openxlsx`) and
-static PNG figures (needs `ggplot2`), set the random seed for reproducibility, and
-name the output files.
-
-![Output screen](man/figures/screen-08-output.png)
-
-### 9. Run — execute
+### Run — execute
 
 One click assembles a JSON config, materializes any edited tables, and drives the
 backend in its configured R process. Errors are surfaced in a debug panel with
@@ -288,12 +301,12 @@ plain-language hints for the most common failures.
 
 ![Run screen](man/figures/screen-09-run.png)
 
-### 10. Results — the plan and the evidence
+### Results — the plan and the evidence
 
 A KPI row (crosses, mean gain, group coancestry, unique parents, max parent use,
 mean progeny inbreeding) sits above sub-tabs for the ranked plan, candidate
-scores, parent use, the gain-diversity frontier, QC audit, input matching, marker
-effects, and method/settings provenance.
+scores, parent use, the **Portfolio & risk** view, the gain-diversity frontier,
+QC audit, input matching, marker effects, and method/settings provenance.
 
 Selected crosses (ranked, priority-tiered):
 
@@ -330,6 +343,15 @@ appears in the interactive report. In R this is `ng_optimize_mating_plan_curve()
 Parent-use distribution across the plan:
 
 ![Parent use](man/figures/screen-13-parent-use.png)
+
+**Portfolio & risk** *(single-trait runs).* Two crosses with the same score can be
+very different bets. This tab decomposes each cross into its genetic **level**
+(mid-parent breeding value) and **upside** (within-family genetic SD, √VPM),
+coloured by an **estimation-risk** bin, so you can read each cross's *profile* —
+a high-level **workhorse**, a high-upside **breakthrough**, a **long shot**, or a
+cross to **deprioritize** — instead of a single opaque ranking. It is a
+decision-support view on top of the priority tiers and never changes how crosses
+are scored or allocated.
 
 **Family-size allocation.** Turn a fixed total-progeny budget into a per-cross
 seed plan: the best crosses get proportionally more progeny, bounded by per-family
@@ -382,9 +404,12 @@ the data. The workbench detects this and tells you exactly what to do:
 Typical diagnostics include: the cross-number recommendation sitting at the top
 or bottom of the swept range (widen it), a binding pairwise-kinship or
 parent-use cap (loosen or tighten it), a trait with very low marker-effect
-reliability dominating the score (down-weight or drop it), robust and
-point-estimate plans disagreeing (move the robustness quantile or gather more
-training data), and blocking QC issues (resolve them and re-run).
+reliability dominating the score (down-weight or drop it), how many candidate
+crosses a **trait-check veto** flagged or removed, the mix of **portfolio
+profiles** and estimation-risk bins in the plan, robust and point-estimate plans
+disagreeing (move the robustness quantile or gather more training data), and
+blocking QC issues (resolve them and re-run). These are backed by the backend's
+`constraint_diagnostics` and (single-trait) `priority_risk_diagnostics`.
 
 ---
 
@@ -441,11 +466,13 @@ entry point and its optimization, robustness, and polyploid routines:
 
 | Area | What's exposed |
 |------|----------------|
-| Prediction | trait-by-trait / index-as-trait; marker-effect reliability floor; posterior (MCMC) prediction |
+| Selection objective | single trait / multiple traits (built into an index) / your own pre-computed index column; marker-effect reliability floor; posterior (MCMC) prediction |
 | Merit | `var_complex` (usefulness), `uc`, `pmv`, `vpm`, `mean`, `var_simple`; UC variance source; PMV method |
 | Multi-trait | auto / weighted / economic-index / desired-gain; soft/strict thresholds with autoscaled penalties; joint probability of superior progeny across all traits |
+| Cross filters | per-trait check-line veto (GEBV/phenotype basis, flag or exclude); lethal-allele guarding; marker-target steering |
+| Decision support | single-trait portfolio & risk profile (level × upside × estimation risk); `constraint_diagnostics` / `priority_risk_diagnostics` run notes |
 | Breeding system | DH / RIL (infinite or finite selfing); Haldane/Kosambi; VanRaden/Yang GRM |
-| Allocation | OCS / greedy / evolutionary / MIP / AlphaMate-style; parent-use, kinship, quota, inbreeding constraints |
+| Allocation | OCS / greedy / evolutionary / MIP / AlphaMate-style; parent-use, kinship, quota constraints; unified mate-relatedness control |
 | Cross number | fixed, or automatic sweep with elbow / kneedle / Ne-floor / coancestry-budget selection |
 | Pareto explorer | walk the gain–diversity frontier and adopt any optimal plan along it |
 | Family size | split a total-progeny budget across selected crosses by merit, with per-family min/max |
@@ -461,7 +488,7 @@ entry point and its optimization, robustness, and polyploid routines:
 The package ships an extensive `testthat` suite (Config/testthat/edition 3) and
 passes `R CMD check` with **status OK** (no errors, warnings, or notes).
 
-- **370+ assertions across 14 test files.** Unit tests cover the IO/formatting
+- **430+ assertions across 20 test files.** Unit tests cover the IO/formatting
   helpers (delimiter and BOM auto-detection, quoted fields, Latin-1 fallback,
   number formatting, column guessing, the heterozygosity audit at diploid and
   tetraploid ploidy), the report layer (figure-registry integrity, applicability
@@ -571,7 +598,7 @@ If you use this workbench in published work, please cite both components:
 > (R package). North Dakota State University.
 >
 > Morales, M. *nextgenCrossWorkbench: NextGenCrossDesign — a Shiny
-> front-end for nextgenCrossDesign* (R package, v0.15.2). North Dakota State
+> front-end for nextgenCrossDesign* (R package, v0.17.0). North Dakota State
 > University, PulseSmartLab - PI: Dr. Sikiru Atanda.
 
 ---
