@@ -34,7 +34,7 @@ test_that("het parents are flagged and the one-click exclusion recovers the run"
       pos_unit = "bp", map_pos_bp_col = "Position_BP",
       direction_trait_col = "Trait", direction_column_col = "Trait",
       direction_direction_col = "Selection_direction",
-      prediction_mode = "trait_by_trait", trait_value_metric = "mean",
+      objective_mode = "multi", trait_value_metric = "mean",
       progeny = "DH", assume_inbred = TRUE, n_crosses = 7, max_crosses_per_parent = 4,
       allocation_method = "ocs", optimizer = "auto",
       drop_noninbred_parents = FALSE, seed = 1)

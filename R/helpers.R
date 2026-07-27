@@ -365,3 +365,25 @@ ngcd_build_trait_checks <- function(traits, checks, directions, bases) {
   if (!length(rows)) return(NULL)
   do.call(rbind, rows)
 }
+
+# Pure derivation from the breeder-facing 3-way "Selection objective" choice
+# (objective_mode: single/multi/index) to the backend's prediction_mode +
+# traits_to_use + whether the multi-trait combination method applies. Kept
+# free of shiny so it can be unit-tested directly (see test-objective-mode.R).
+#   single -> trait_by_trait, one trait, no combination method needed
+#   multi  -> trait_by_trait, the trait set, combination method applies
+#   index  -> index_as_trait, no trait set, no combination method
+# objective_mode defaults to "single" (the radio's own default) when unset -
+# e.g. the very first reactive tick, before the client has sent its initial
+# input values.
+ngcd_objective_backend <- function(objective_mode, single_trait, traits, index_col) {
+  objective_mode <- objective_mode %||% "single"
+  switch(objective_mode,
+    single = list(prediction_mode = "trait_by_trait", traits_to_use = single_trait,
+                  multi_trait_method_applies = FALSE),
+    multi  = list(prediction_mode = "trait_by_trait", traits_to_use = traits,
+                  multi_trait_method_applies = TRUE),
+    index  = list(prediction_mode = "index_as_trait", traits_to_use = NULL,
+                  multi_trait_method_applies = FALSE),
+    stop("Unknown objective_mode: ", objective_mode))
+}

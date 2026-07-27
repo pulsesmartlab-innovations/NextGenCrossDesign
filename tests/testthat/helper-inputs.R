@@ -28,7 +28,7 @@ demo_inputs <- function(...) {
     crop = "Wheat (spring)", ploidy = "2", ril_mode = "infinite",
     local_iter = 2000, ocs_iter = 5, n_threads = NA, alphamate_n_threads = 1,
     direction_trait_col = "Trait", direction_column_col = "Trait", direction_direction_col = "Selection_direction",
-    prediction_mode = "trait_by_trait", traits_to_use = c("yield", "disease"),
+    objective_mode = "multi", single_trait = "yield", traits_to_use = c("yield", "disease"),
     index_col = "yield", index_direction = "increase",
     multi_trait_method = "auto", threshold_policy = "soft",
     threshold_penalty_weight = 1, threshold_penalty_autoscale = TRUE, trait_weights = "",

@@ -202,31 +202,43 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
       bslib::nav_panel("Configure",
         bslib::navset_tab(
           bslib::nav_panel("Selection objective",
-        ngcd_section("Prediction mode & multi-trait objective",
+        ngcd_section("Selection objective",
           "Trait directions are explicit - risk traits may decrease."),
         ngcd_guide(3, 10, "Objective", shiny::tagList(
           shiny::tags$p("Tell the app what \"good\" means for your program."),
           shiny::tags$ul(
-            shiny::tags$li(shiny::tags$b("Trait-by-trait"), " (usual choice): the app scores each trait and combines them. ", shiny::tags$b("Index-as-trait"), ": use only if your phenotype file already has one trusted selection-index column."),
-            shiny::tags$li("Tick the traits to include (leave all ticked to use every trait)."),
-            shiny::tags$li(shiny::tags$b("Multi-trait method"), ": start with ", shiny::tags$code("auto"), ". Use ", shiny::tags$code("weighted"), " if you have relative trait weights; ", shiny::tags$code("economic_index"), " / ", shiny::tags$code("desired_gain"), " if your direction file carries economic weights.")),
+            shiny::tags$li(shiny::tags$b("Single trait"), ": score and rank crosses on one trait. ",
+                            shiny::tags$b("Multiple traits"), " (usual choice for more than one trait): the app scores each trait and combines them into a computed selection index. ",
+                            shiny::tags$b("Use my selection-index column"), ": use only if your phenotype file already has one pre-built, trusted selection-index column - not the same as the index this app computes for you."),
+            shiny::tags$li("For multiple traits, tick the traits to include (leave all ticked to use every trait)."),
+            shiny::tags$li(shiny::tags$b("Multi-trait method"), ": start with ", shiny::tags$code("Automatic"), ". Use ", shiny::tags$code("Relative weights"), " if you have relative trait weights; ", shiny::tags$code("Economic weights"), " / ", shiny::tags$code("Desired gains"), " if your direction file carries economic weights.")),
           shiny::tags$p(class = "help-hint", "Direction is set in your trait-direction file - e.g. yield increases, disease decreases.")),
           next_hint = "Scoring - how each cross is valued."),
         bslib::layout_columns(col_widths = c(6, 6),
-          bslib::card(bslib::card_header("Prediction mode"),
-            shiny::radioButtons("prediction_mode", NULL,
-              ngcd_control_choices(cfg$backend_registry, "prediction_mode", c("Trait-by-trait" = "trait_by_trait", "Index-as-trait" = "index_as_trait")),
-              selected = "trait_by_trait"),
-            shiny::conditionalPanel("input.prediction_mode == 'trait_by_trait'", shiny::uiOutput("traits_to_use_ui")),
-            shiny::conditionalPanel("input.prediction_mode == 'index_as_trait'",
+          bslib::card(bslib::card_header("Selection objective"),
+            shiny::radioButtons("objective_mode", NULL,
+              c("Single trait" = "single",
+                "Multiple traits (build a selection index)" = "multi",
+                "Use my selection-index column" = "index"),
+              selected = "single"),
+            shiny::conditionalPanel("input.objective_mode == 'single'",
+              shiny::selectInput("single_trait", "Trait", choices = NULL)),
+            shiny::conditionalPanel("input.objective_mode == 'multi'", shiny::uiOutput("traits_to_use_ui")),
+            shiny::conditionalPanel("input.objective_mode == 'index'",
               shiny::uiOutput("index_col_ui"),
               shiny::selectInput("index_direction", "Index direction", c("increase","decrease")))),
           bslib::card(bslib::card_header("Multi-trait method"),
-            shiny::selectInput("multi_trait_method", "Method",
-              ngcd_control_choices(cfg$backend_registry, "multi_trait_method", c("auto","weighted","economic_index","desired_gain")), selected = "auto"),
-            shiny::conditionalPanel("input.multi_trait_method == 'weighted'",
-              shiny::textAreaInput("trait_weights", "Trait weights ('trait: value' per line)",
-                                   placeholder = "yield: 0.5\ndisease: 0.5", height = "90px")),
+            shiny::conditionalPanel("input.objective_mode == 'multi'",
+              shiny::selectInput("multi_trait_method", "Method",
+                ngcd_control_choices(cfg$backend_registry, "multi_trait_method",
+                  c("Automatic" = "auto", "Relative weights" = "weighted",
+                    "Economic weights" = "economic_index", "Desired gains" = "desired_gain")), selected = "auto"),
+              shiny::conditionalPanel("input.multi_trait_method == 'weighted'",
+                shiny::textAreaInput("trait_weights", "Trait weights ('trait: value' per line)",
+                                     placeholder = "yield: 0.5\ndisease: 0.5", height = "90px"))),
+            shiny::tags$p(class = "help-hint",
+              "Economic weights and desired-gain VALUES are read from your trait-direction file, not entered here."),
+            shiny::tags$b("Threshold handling"),
             shiny::selectInput("threshold_policy", "Threshold policy", ngcd_control_choices(cfg$backend_registry, "threshold_policy", c("soft","strict"))),
             shiny::numericInput("threshold_penalty_weight", "Threshold penalty weight", 1, min = 0, step = 0.1),
             shiny::checkboxInput("threshold_penalty_autoscale", "Autoscale threshold penalty", TRUE)))),
@@ -925,6 +937,15 @@ workbench_server <- function(cfg) {
       if (is.null(tcol) || !tcol %in% names(d)) tcol <- names(d)[1]
       unique(trimws(as.character(d[[tcol]])))
     })
+    # Single-trait picker (Selection objective: "single" mode) - choices track
+    # full_trait_set() the same way traits_to_use_ui does; keep the current
+    # selection if it is still valid, otherwise fall back to the first trait.
+    shiny::observe({
+      traits <- full_trait_set()
+      cur <- input$single_trait
+      sel <- if (!is.null(cur) && cur %in% traits) cur else if (length(traits)) traits[[1]] else character(0)
+      shiny::updateSelectInput(session, "single_trait", choices = traits, selected = sel)
+    })
     output$traits_to_use_ui <- shiny::renderUI({
       traits <- full_trait_set()
       shiny::tagList(
@@ -1031,6 +1052,7 @@ workbench_server <- function(cfg) {
 
     build_params <- shiny::reactive({
       mapcfg <- resolve_map()
+      obj <- ngcd_objective_backend(input$objective_mode, input$single_trait, full_trait_set(), input$index_col)
       p <- list(schema = "ng_run_config.v1",
         crop = input$crop,  # drives the crop-aware method recommendation in the runner
         genotype_id_col = input$genotype_id_col, phenotype_id_col = input$phenotype_id_col,
@@ -1044,20 +1066,23 @@ workbench_server <- function(cfg) {
         ld_ploidy = as.integer(input$ploidy %||% "2"),
         direction_trait_col = input$direction_trait_col, direction_column_col = input$direction_column_col,
         direction_direction_col = input$direction_direction_col,
-        prediction_mode = input$prediction_mode,
+        prediction_mode = obj$prediction_mode,
         traits_to_use = local({
-          if (!identical(input$prediction_mode, "trait_by_trait")) return(NULL)
-          sel <- input$traits_to_use; all_traits <- full_trait_set()
-          # Omit when the user wants all traits (or hasn't subset) so the
-          # backend uses its full trait set - avoids empty-intersection errors.
-          if (is.null(sel) || !length(sel) || setequal(sel, all_traits)) NULL else sel
+          if (identical(input$objective_mode, "multi")) {
+            sel <- input$traits_to_use; all_traits <- full_trait_set()
+            # Omit when the user wants all traits (or hasn't subset) so the
+            # backend uses its full trait set - avoids empty-intersection errors.
+            return(if (is.null(sel) || !length(sel) || setequal(sel, all_traits)) NULL else sel)
+          }
+          obj$traits_to_use  # single -> the one trait; index -> NULL
         }),
-        index_col = if (identical(input$prediction_mode,"index_as_trait")) input$index_col else NULL,
+        index_col = if (identical(input$objective_mode,"index")) input$index_col else NULL,
         index_direction = input$index_direction,
-        # In index_as_trait mode the pre-built index IS the objective, so the
-        # multi-trait method / weights do not apply (and sending them errors).
-        multi_trait_method = if (identical(input$prediction_mode,"index_as_trait")) NULL else input$multi_trait_method,
-        trait_weights = if (identical(input$prediction_mode,"trait_by_trait") &&
+        # Multi-trait combination method / weights only apply when combining
+        # more than one trait (objective_mode == "multi"); single-trait needs
+        # no combination and index-as-trait's pre-built index IS the objective.
+        multi_trait_method = if (obj$multi_trait_method_applies) input$multi_trait_method else NULL,
+        trait_weights = if (obj$multi_trait_method_applies &&
                             identical(input$multi_trait_method,"weighted")) parse_named_num(input$trait_weights) else NULL,
         threshold_policy = input$threshold_policy, threshold_penalty_weight = input$threshold_penalty_weight,
         threshold_penalty_autoscale = input$threshold_penalty_autoscale,
@@ -1066,9 +1091,10 @@ workbench_server <- function(cfg) {
         progeny = input$progeny, recomb_model = input$recomb_model,
         grm_method = input$grm_method, assume_inbred = input$assume_inbred,
         min_effect_reliability = input$min_effect_reliability,
-        # Per-trait check-line veto (Trait checks tab); backend requires trait_by_trait mode.
+        # Per-trait check-line veto (Trait checks tab); backend requires trait_by_trait mode
+        # (both "single" and "multi" objective_mode map to trait_by_trait, so both get the veto).
         trait_checks = local({
-          if (!identical(input$prediction_mode, "trait_by_trait")) return(NULL)
+          if (!identical(obj$prediction_mode, "trait_by_trait")) return(NULL)
           traits <- full_trait_set()
           if (!length(traits)) return(NULL)
           ngcd_build_trait_checks(traits,
@@ -1417,7 +1443,8 @@ workbench_server <- function(cfg) {
         label    <- paste0("polyploid_", input$ploidy %||% "2")
       } else {
         params <- build_params()
-        label  <- paste0(input$prediction_mode, "_", input$optimizer)
+        pm <- ngcd_objective_backend(input$objective_mode, input$single_trait, full_trait_set(), input$index_col)$prediction_mode
+        label  <- paste0(pm, "_", input$optimizer)
         # Optional reconciliation: drop unmapped markers / unphenotyped parents.
         run_data <- rv$data
         d <- align_diag()

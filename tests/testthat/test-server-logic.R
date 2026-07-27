@@ -200,7 +200,7 @@ test_that("training-set files and id columns are carried", {
 
 test_that("index_as_trait omits multi_trait_method and trait_weights", {
   testServer(srv(), {
-    do.call(session$setInputs, demo_inputs(prediction_mode = "index_as_trait", index_col = "yield",
+    do.call(session$setInputs, demo_inputs(objective_mode = "index", index_col = "yield",
                                            multi_trait_method = "weighted",
                                            trait_weights = "yield: 0.5\ndisease: 0.5"))
     p <- build_params()
@@ -213,7 +213,7 @@ test_that("index_as_trait omits multi_trait_method and trait_weights", {
 
 test_that("index-column choices exclude the ID column", {
   testServer(srv(), {
-    do.call(session$setInputs, demo_inputs(prediction_mode = "index_as_trait"))
+    do.call(session$setInputs, demo_inputs(objective_mode = "index"))
     # the index choices must not include NAME (the phenotype ID)
     idc <- nextgenCrossWorkbench:::ngcd_guess_col(cols()$pheno, c("NAME", "parent", "id"))
     choices <- setdiff(cols()$pheno, idc)
