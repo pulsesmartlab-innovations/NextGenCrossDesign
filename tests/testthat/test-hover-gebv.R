@@ -49,3 +49,24 @@ test_that("heatmap shows -- for a trait lacking a mid-parent GEBV column", {
   expect_match(flat, "mid-parent GEBV: --", fixed = TRUE)      # disease column
   expect_match(flat, "mid-parent GEBV: 59.10", fixed = TRUE)   # yield still shown
 })
+
+test_that("ngcd_gebv_text_matrix formats values and fills -- for missing", {
+  sc <- data.frame(a_mean_gebv = c(1.234, NA), stringsAsFactors = FALSE)
+  m <- ng("ngcd_gebv_text_matrix")(sc, c("a", "b"), digits = 2)
+  expect_equal(m[1, 1], "1.23")
+  expect_equal(m[2, 1], "--")            # NA value
+  expect_true(all(m[, 2] == "--"))       # trait b has no _mean_gebv column
+})
+
+test_that("ngcd_gebv_point_label joins per-trait GEBV compactly", {
+  df <- data.frame(yield_mean_gebv = 59.1, disease_mean_gebv = 2.1)
+  expect_equal(ng("ngcd_gebv_point_label")(df, c("yield_mean_gebv", "disease_mean_gebv")), "59.1/2.1")
+  expect_equal(ng("ngcd_gebv_point_label")(df, character(0)), "")
+})
+
+test_that("PDF heatmap and scatter render with GEBV labels without error", {
+  pf <- tempfile(fileext = ".pdf"); grDevices::pdf(pf)
+  on.exit({ grDevices::dev.off(); unlink(pf) }, add = TRUE)
+  expect_no_error(ng("ngcd_fig_trait_heatmap")(mk_res()))
+  expect_no_error(ng("ngcd_fig_scatter")(mk_res()))
+})

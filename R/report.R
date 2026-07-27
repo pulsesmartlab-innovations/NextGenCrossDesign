@@ -15,6 +15,24 @@ NGCD_TIER_COL <- c(highly_priority = "#00583d", priority = "#4a9c78",
                    medium_priority = "#e0a800", low_priority = "#c0562f")
 NGCD_TIER_ORD <- c("highly_priority", "priority", "medium_priority", "low_priority")
 
+# Formatted mid-parent GEBV (<trait>_mean_gebv) per cross (rows) x trait (cols),
+# "--" where a trait has no GEBV column. Shared by the heatmap hover (plotly),
+# the heatmap cell labels (PDF) and the scatter point labels (PDF).
+ngcd_gebv_text_matrix <- function(sc, traits, digits = 2) {
+  g <- vapply(traits, function(tr) {
+    col <- paste0(tr, "_mean_gebv")
+    if (col %in% names(sc)) suppressWarnings(as.numeric(sc[[col]])) else rep(NA_real_, nrow(sc))
+  }, numeric(nrow(sc)))
+  g <- matrix(g, nrow = nrow(sc))
+  matrix(ifelse(is.finite(g), formatC(g, format = "f", digits = digits), "--"), nrow = nrow(sc))
+}
+# Compact per-cross GEBV label (traits joined by "/") for static point labels.
+ngcd_gebv_point_label <- function(df, gebv_cols) {
+  if (!length(gebv_cols) || !nrow(df)) return(rep("", nrow(df)))
+  m <- ngcd_gebv_text_matrix(df, sub("_mean_gebv$", "", gebv_cols), digits = 1)
+  apply(m, 1, paste, collapse = "/")
+}
+
 # --- PulseSmartLab lab logo (Dr. Sikiru Atanda) ----------------------------
 # Returns the inline <svg> markup so the report is self-contained. Falls back
 # to the packaged file if present; otherwise a compact built-in copy.
@@ -213,12 +231,22 @@ ngcd_fig_scatter <- function(res) {
        xlab = "Pair kinship", ylab = "Multi-trait score",
        main = "Selected priority tiers versus all candidate crosses")
   if (is.data.frame(sc) && all(c("multi_trait_score","pair_kinship","priority_tier") %in% names(sc))) {
+    gebv_cols <- grep("_mean_gebv$", names(sc), value = TRUE)
     for (t in NGCD_TIER_ORD) {
       s <- sc[sc$priority_tier == t, , drop = FALSE]
-      if (nrow(s)) points(s$pair_kinship, s$multi_trait_score, pch = 19, cex = 1.1, col = NGCD_TIER_COL[t])
+      if (!nrow(s)) next
+      points(s$pair_kinship, s$multi_trait_score, pch = 19, cex = 1.1, col = NGCD_TIER_COL[t])
+      # Label each selected point with its mid-parent GEBV per trait (compact).
+      lab <- ngcd_gebv_point_label(s, gebv_cols)
+      if (any(nzchar(lab)))
+        text(s$pair_kinship, s$multi_trait_score, labels = lab, pos = 3, cex = 0.5,
+             col = NGCD_TIER_COL[t], xpd = NA)
     }
     legend("topright", legend = c("All candidate crosses", gsub("_", " ", NGCD_TIER_ORD)),
            pch = 19, col = c("#9aa5a0", NGCD_TIER_COL[NGCD_TIER_ORD]), bty = "n", pt.cex = c(0.6, rep(1.1, 4)))
+    if (length(gebv_cols))
+      mtext(paste0("point label = mid-parent GEBV (", paste(sub("_mean_gebv$", "", gebv_cols), collapse = "/"), ")"),
+            side = 1, line = 4, cex = 0.6, col = "#666666")
   }
 }
 ngcd_fig_trait_heatmap <- function(res) {
@@ -233,6 +261,14 @@ ngcd_fig_trait_heatmap <- function(res) {
         xlab = "", ylab = "", main = "Selected crosses by direction-aware trait rank")
   axis(1, at = seq_len(ncol(m)), labels = sub("_value$", "", vcols), las = 2, cex.axis = 0.7)
   axis(2, at = seq_len(nrow(m)), labels = rev(labs), las = 1, cex.axis = 0.5)
+  # Overlay each cell's mid-parent GEBV. image() flips rows (m[nrow:1, ]), so cross
+  # r sits at y = nrow - r + 1; dark cells get white text for contrast.
+  gtxt <- ngcd_gebv_text_matrix(sc, sub("_value$", "", vcols), digits = 1)
+  cellcex <- max(0.3, min(0.6, 18 / nrow(m)))
+  for (r in seq_len(nrow(m))) for (j in seq_len(ncol(m)))
+    text(j, nrow(m) - r + 1, labels = gtxt[r, j], cex = cellcex,
+         col = if (abs(m[r, j]) > 1.3) "white" else "#222222")
+  mtext("cell label = mid-parent GEBV", side = 1, line = 5.5, cex = 0.6, col = "#666666")
 }
 ngcd_fig_dup_heatmap <- function(res) {
   pairs <- ngcd_dup_pairs(res)
@@ -386,12 +422,7 @@ ngcd_ply_trait_heatmap <- function(res) {
   # as a formatted character matrix in customdata (shape matches z); traits without
   # a mid-parent GEBV column show "--".
   traits <- sub("_value$", "", vcols)
-  gebv <- vapply(traits, function(tr) {
-    col <- paste0(tr, "_mean_gebv")
-    if (col %in% names(sc)) suppressWarnings(as.numeric(sc[[col]])) else rep(NA_real_, nrow(sc))
-  }, numeric(nrow(sc)))
-  gebv <- matrix(gebv, nrow = nrow(sc))
-  gtxt <- matrix(ifelse(is.finite(gebv), formatC(gebv, format = "f", digits = 2), "--"), nrow = nrow(sc))
+  gtxt <- ngcd_gebv_text_matrix(sc, traits, digits = 2)
   # A per-cell hover string (plotly R drops 2D customdata on heatmaps, so carry the
   # full label in `text` and render it verbatim). Matrix shape matches z.
   htext <- matrix("", nrow = nrow(m), ncol = ncol(m))

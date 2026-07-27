@@ -1,3 +1,12 @@
+# nextgenCrossWorkbench 0.17.3
+
+* **Mid-parent GEBV labels in the PDF report too.** The static PDF versions of the
+  trait-rank heatmap and the priority-tier scatter now print each cross's
+  mid-parent GEBV directly on the figure — the value in every heatmap cell
+  (white-on-dark for contrast) and beside every selected scatter point — matching
+  the hover tooltips added to the interactive report in 0.17.2. Both figures note
+  that the label is the mid-parent GEBV.
+
 # nextgenCrossWorkbench 0.17.2
 
 * **Report plots now tie back to real parent values on hover.** The
