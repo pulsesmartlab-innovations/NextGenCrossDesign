@@ -141,7 +141,7 @@ ngcd_het_violators <- function(geno_df, id_col, marker_cols, ploidy = 2,
 # ("save settings") and restore ("load settings") the whole configuration.
 ngcd_settings_registry <- function() {
   c(
-    data_source = "radio", prediction_mode = "radio", diversity_mode = "radio",
+    data_source = "radio", objective_mode = "radio", diversity_mode = "radio",
     selection_prop = "slider", diversity_emphasis = "slider",
     traits_to_use = "checkboxgroup", crop = "selectize",
     trait_weights = "textarea", committed_crosses = "textarea", parent_group = "textarea",
@@ -164,7 +164,7 @@ ngcd_settings_registry <- function() {
     genotype_id_col = "select", phenotype_id_col = "select", map_marker_col = "select",
     map_chr_col = "select", map_pos_bp_col = "select", map_pos_cm_col = "select",
     direction_trait_col = "select", direction_column_col = "select", direction_direction_col = "select",
-    index_col = "select", cost_col = "select", logistic_col = "select",
+    index_col = "select", cost_col = "select", logistic_col = "select", single_trait = "select",
     bp_per_cm = "num", map_pos_cm_divisor = "num", threshold_penalty_weight = "num",
     min_effect_reliability = "num", duplicate_threshold = "num", duplicate_maf_min = "num",
     duplicate_max_missing_prop = "num", duplicate_min_compared_markers = "num", ld_window = "num",

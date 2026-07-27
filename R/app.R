@@ -267,7 +267,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::tags$li(shiny::tags$b("Merit metric"), ": keep ", shiny::tags$code("var_complex"), " (usefulness) for most cases. Switch to ", shiny::tags$code("mean"), " for highly polygenic traits or small training sets."),
             shiny::tags$li(shiny::tags$b("Breeding system"), ": ", shiny::tags$code("DH"), " for doubled haploids, ", shiny::tags$code("RIL"), " for recombinant inbred lines. Leave ", shiny::tags$b("Assume inbred parents"), " ticked unless your parents carry heterozygosity."),
             shiny::tags$li(shiny::tags$b("Selection proportion"), " is the top fraction of progeny you expect to keep (e.g. 0.10 = top 10%).")),
-          shiny::tags$p(class = "help-hint", "If Setup/Data flagged non-inbred parents, either drop them (Data tab) or uncheck Assume inbred here.")),
+          shiny::tags$p(class = "help-hint", "If Data flagged non-inbred parents, either drop them (Data tab) or uncheck Assume inbred here.")),
           next_hint = "Cross filters & genetic constraints - screen crosses before allocation."),
         bslib::layout_columns(col_widths = c(4, 4, 4),
           bslib::card(bslib::card_header("Effect & variance model"),
@@ -318,14 +318,14 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
         ngcd_guide("Configure", "Cross filters & genetic constraints", shiny::tagList(
           shiny::tags$p("Screen candidate crosses before allocation - flag or drop weak ones, steer toward useful alleles, and guard against lethal combinations."),
           shiny::tags$ul(
-            shiny::tags$li(shiny::tags$b("Trait-check veto"), ": flags (or excludes) crosses whose mid-parent value for a trait falls on the worse side of your check line, on either GEBV or phenotype basis. Trait-by-trait mode only."),
+            shiny::tags$li(shiny::tags$b("Trait-check veto"), ": flags (or excludes) crosses whose mid-parent value for a trait falls on the worse side of your check line, on either GEBV or phenotype basis. Active for Single-trait and Multiple-trait modes only."),
             shiny::tags$li(shiny::tags$b("Marker steering"), ": nudge the plan toward or away from target allele frequencies at named markers."),
             shiny::tags$li(shiny::tags$b("Lethal-allele guard"), ": excludes carrier x carrier matings for named recessive-lethal markers.")),
           shiny::tags$p(class = "help-hint", "Leave everything off/default if you don't have check lines or marker targets to apply.")),
           next_hint = "Mate allocation - turn scores into a mating plan."),
         shiny::helpText("Flag/exclude crosses whose mid-parent for a trait is on the worse side of a check line."),
         shiny::helpText(class = "help-hint",
-          "Applies only in Trait-by-trait prediction mode (Scoring tab); ignored for Index-as-trait runs."),
+          "Active for Single-trait and Multiple-trait modes; ignored when you use your own selection-index column."),
         shiny::selectInput("check_basis", "Comparison basis", c("GEBV" = "gebv", "Phenotype" = "phenotype")),
         shiny::checkboxInput("exclude_threshold_violators", "Exclude violating crosses from the plan", FALSE),
         shiny::checkboxInput("include_trait_gebv", "Include per-trait mid-parent GEBV in the Excel workbook", FALSE),
@@ -342,7 +342,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           shiny::tags$p("The heart of the tool: how many crosses to make, how hard to push for gain vs. diversity, and which engine picks them."),
           shiny::tags$ul(
             shiny::tags$li(shiny::tags$b("Number of crosses (K)"), " and ", shiny::tags$b("Max uses per parent"), " set the plan size. Watch for a feasibility warning here or on Run - K can't exceed parents x max-uses / 2."),
-            shiny::tags$li(shiny::tags$b("Optimizer"), ": ", shiny::tags$code("auto"), " is safe; ", shiny::tags$code("evolution"), " is recommended for real recurrent programs. MIP options need lpSolve (see Setup)."),
+            shiny::tags$li(shiny::tags$b("Optimizer"), ": ", shiny::tags$code("auto"), " is safe; ", shiny::tags$code("evolution"), " is recommended for real recurrent programs. MIP options need the lpSolve package installed."),
             shiny::tags$li(shiny::tags$b("Gain-diversity dial"), ": pick a preset (High gain / Balanced / Diversity), or use the slider, or cap coancestry directly - choose just one."),
             shiny::tags$li("OCS penalties and AlphaMate-style controls are advanced; the defaults are fine to start.")),
           shiny::tags$p(class = "help-hint", "Moving the dial toward diversity spreads parents out; toward gain concentrates on the best.")),
@@ -506,7 +506,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           shiny::tags$p("Decide how the selected crosses are tiered and what files to produce."),
           shiny::tags$ul(
             shiny::tags$li(shiny::tags$b("Priority tiers"), " group the plan into bands (highly priority -> low). The defaults split 100 crosses into 10/25/35/30."),
-            shiny::tags$li("Tick ", shiny::tags$b("Write workbook"), " for an Excel crossing plan (needs openxlsx) and ", shiny::tags$b("Write figures"), " for the priority chart (needs ggplot2). Both are checked on Setup's requirements panel."),
+            shiny::tags$li("Tick ", shiny::tags$b("Write workbook"), " for an Excel crossing plan (needs openxlsx) and ", shiny::tags$b("Write figures"), " for the priority chart (needs ggplot2). Both need their packages installed (openxlsx for the workbook, ggplot2 for figures)."),
             shiny::tags$li("Keep the ", shiny::tags$b("Random seed"), " fixed to make runs reproducible.")),
           shiny::tags$p(class = "help-hint", "Leave workbook/figures off for a quick look; turn them on for the final plan.")),
           next_hint = "Run - launch the design."),
@@ -563,7 +563,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           shiny::tags$ul(
             shiny::tags$li("The ", shiny::tags$b("KPI row"), " summarizes the plan: crosses, mean gain, group coancestry, unique parents, progeny inbreeding."),
             shiny::tags$li(shiny::tags$b("Selected crosses"), " is your ranked plan by priority tier; ", shiny::tags$b("Candidate scores"), " is every pair it chose from."),
-            shiny::tags$li(shiny::tags$b("Gain-diversity frontier"), " shows the trade-off with your plan marked - move the Allocation dial and re-run to shift it."),
+            shiny::tags$li(shiny::tags$b("Gain-diversity frontier"), " shows the trade-off with your plan marked - move the Mate allocation dial and re-run to shift it."),
             shiny::tags$li(shiny::tags$b("QC audit / Input matching / Marker effects"), " show the provenance; ", shiny::tags$b("Downloads"), " has the workbook and figures if you enabled them.")),
           shiny::tags$p(class = "help-hint", "Change a setting on any tab and click Run again to compare."))),
         shiny::uiOutput("results_banner"),
@@ -673,8 +673,8 @@ workbench_server <- function(cfg) {
         shiny::tags$table(class = "table table-sm",
           shiny::tags$tbody(
             row("lpSolve", "MIP optimizers (mip_linear, mip_contribution); absent -> greedy/repair"),
-            row("openxlsx", "Excel crossing-plan workbook export (Output screen)"),
-            row("ggplot2", "Figure export (Output screen)"),
+            row("openxlsx", "Excel crossing-plan workbook export (Export options)"),
+            row("ggplot2", "Figure export (Export options)"),
             row("PopVar", "Exact PopVar external baseline (native var_complex is the default)"),
             row("SimpleMating", "SimpleMating external baseline (native proxy otherwise)"),
             row("genomicMateSelectR", "genomicMateSelectR external comparison"),
@@ -865,7 +865,7 @@ workbench_server <- function(cfg) {
           shiny::tags$div(class = "help-hint",
             "The DH/RIL model assumes inbred parents. Either tick ",
             shiny::tags$b("'Exclude non-inbred parents'"), " below to drop them, or uncheck ",
-            shiny::tags$b("'Assume inbred parents'"), " on the Scoring screen to keep them (results for those parents will be approximate).")))
+            shiny::tags$b("'Assume inbred parents'"), " in Prediction & scoring to keep them (results for those parents will be approximate).")))
     })
 
     # editable tables
@@ -1278,7 +1278,7 @@ workbench_server <- function(cfg) {
       b <- rv$backend
       if (is_poly()) {
         if (!data_ready()) msgs <- c(msgs, "A dosage file and a phenotype file must be loaded.")
-        if (is.null(b) || !isTRUE(b$backend_installed)) msgs <- c(msgs, "Backend is not ready (see Setup).")
+        if (is.null(b) || !isTRUE(b$backend_installed)) msgs <- c(msgs, "Backend is not ready (backend package not installed - check your deployment/config.yml).")
         # dosages must fit within the selected ploidy
         g <- rv$data$genotype
         if (is.data.frame(g)) {
@@ -1293,7 +1293,7 @@ workbench_server <- function(cfg) {
         return(ngcd_callout("Ready to run the polyploid design. Click the button above."))
       }
       if (!data_ready()) msgs <- c(msgs, "All four data tables must be loaded.")
-      if (is.null(b) || !isTRUE(b$backend_installed)) msgs <- c(msgs, "Backend is not ready (see Setup).")
+      if (is.null(b) || !isTRUE(b$backend_installed)) msgs <- c(msgs, "Backend is not ready (backend package not installed - check your deployment/config.yml).")
       d <- align_diag()
       if (!is.null(d) && (length(d$miss_map) || length(d$extra_map)) && !isTRUE(input$restrict_shared_markers))
         msgs <- c(msgs, paste0("Genotype and map marker sets do not match (",
@@ -1302,7 +1302,7 @@ workbench_server <- function(cfg) {
       if (!is.null(d) && isTRUE(input$assume_inbred) && d$het_n > 0 &&
           !isTRUE(input$drop_noninbred_parents))
         msgs <- c(msgs, paste0(d$het_n,
-          " parents are not fully inbred - the DH/RIL model will block the run. Tick 'Exclude non-inbred parents' on the Data screen, or uncheck 'Assume inbred parents' on Scoring."))
+          " parents are not fully inbred - the DH/RIL model will block the run. Tick 'Exclude non-inbred parents' on the Data screen, or uncheck 'Assume inbred parents' in Prediction & scoring."))
       # Feasibility: distinct crosses can't exceed n_parents * max_uses / 2.
       if (!is.null(d)) {
         n_par <- if (isTRUE(input$restrict_shared_ids)) d$n_shared_ids else length(d$gids)
@@ -1688,7 +1688,7 @@ workbench_server <- function(cfg) {
       if (is.null(fs)) return(ngcd_callout(kind = "info",
         shiny::tags$b("No family-size allocation for this run."),
         shiny::tags$p("Set a ", shiny::tags$b("Total progeny"), " budget in the Family sizes card on the ",
-          shiny::tags$b("Allocation"), " screen, then re-run. It distributes that budget across the ",
+          shiny::tags$b("Mate allocation"), " screen, then re-run. It distributes that budget across the ",
           "selected crosses in proportion to their merit (score-weighted).")))
       if (!is.null(fs$error)) return(ngcd_callout(kind = "warn",
         shiny::tags$b("Family-size allocation could not be computed: "), fs$error))
@@ -1725,7 +1725,7 @@ workbench_server <- function(cfg) {
       if (is.null(rp)) return(ngcd_callout(kind = "info",
         shiny::tags$b("Robust posterior allocation was not run."),
         shiny::tags$p("Enable ", shiny::tags$b("Robust posterior allocation"), " on the ",
-          shiny::tags$b("Allocation"), " screen (it also turns on posterior prediction), then re-run. ",
+          shiny::tags$b("Mate allocation"), " screen (it also turns on posterior prediction), then re-run. ",
           "It re-optimizes the plan on a pessimistic posterior quantile so the chosen crosses hold up under marker-effect uncertainty.")))
       if (!is.null(rp$error)) return(ngcd_callout(kind = "warn",
         shiny::tags$b("Robust allocation could not be computed: "), rp$error))
@@ -1787,7 +1787,7 @@ workbench_server <- function(cfg) {
       if (is.null(pa)) return(ngcd_callout(kind = "info",
         shiny::tags$b("Pareto frontier not explored."),
         shiny::tags$p("Turn on ", shiny::tags$b("Explore the Pareto frontier"), " on the ",
-          shiny::tags$b("Allocation"), " screen and set a lambda grid, then re-run. It sweeps the ",
+          shiny::tags$b("Mate allocation"), " screen and set a lambda grid, then re-run. It sweeps the ",
           "whole gain-vs-diversity trade-off so you can see and pick a point yourself.")))
       if (!is.null(pa$error)) return(ngcd_callout(kind = "warn",
         shiny::tags$b("Pareto frontier could not be computed: "), pa$error))
@@ -1830,7 +1830,7 @@ workbench_server <- function(cfg) {
             shiny::tags$code("alphamate_target_degree"), " (20 = gain-heavy, 45 = balanced, 70 = diversity-heavy) rather than sweeping a frontier.")
           else ", which did not sweep a frontier (e.g. a fixed lambda_group with no dial)."),
         shiny::tags$p("To get the frontier chart, set ", shiny::tags$b("Allocation method = ocs"),
-          " on the Allocation screen and keep the dial on a strategy / emphasis / coancestry-cap setting."))
+          " on the Mate allocation screen and keep the dial on a strategy / emphasis / coancestry-cap setting."))
     })
     output$res_frontier <- shiny::renderPlot({
       r <- res(); shiny::req(r); fr <- r$plan_summary$frontier
@@ -1873,7 +1873,7 @@ workbench_server <- function(cfg) {
       r <- res(); shiny::req(r); rd <- rv$run_dir
       files <- if (!is.null(rd) && dir.exists(rd)) list.files(rd, recursive = FALSE) else character(0)
       files <- setdiff(files, "inputs")
-      if (!length(files)) return(ngcd_callout("No output files. Enable 'Write workbook/figures' on Output to generate them."))
+      if (!length(files)) return(ngcd_callout("No output files. Enable 'Write workbook/figures' in Export options to generate them."))
       shiny::tagList(shiny::tags$p("Files in this run's folder:"),
         shiny::tags$ul(lapply(files, function(fn) shiny::tags$li(shiny::downloadLink(paste0("dl_", make.names(fn)), fn)))),
         shiny::div(class = "help-hint", paste0("Run folder: ", rd)))

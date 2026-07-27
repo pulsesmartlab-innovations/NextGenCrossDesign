@@ -49,7 +49,7 @@ ngcd_diag_cross_number <- function(res) {
       paste0("The ", crit_lab, " rule never crossed its stopping point inside the range, so the ",
              "true optimum is probably larger than ", kmax, ". The recommendation is capped by the ",
              "range, not by the data."),
-      sprintf("Increase 'K max' on the Allocation screen (e.g. to %d) and re-run. If K keeps landing at the top, your parents support many useful crosses.",
+      sprintf("Increase 'K max' on the Mate allocation screen (e.g. to %d) and re-run. If K keeps landing at the top, your parents support many useful crosses.",
               as.integer(kmax * 2)))))
   } else if (!is.na(kmin) && K <= kmin) {
     out <- c(out, list(ngcd_diag_item("cross_number", "note",
@@ -117,7 +117,7 @@ ngcd_diag_allocation <- function(res) {
       out <- c(out, list(ngcd_diag_item("allocation", "warn",
         sprintf("The pairwise-kinship cap is binding (max_pair_kinship = %s)", ngcd_diag_num(cap)),
         sprintf("At least one selected cross sits right at the cap (max pair kinship in the plan = %s). Higher-merit but more-related crosses were excluded.", ngcd_diag_num(mx)),
-        "Raise 'Max pairwise kinship' on Allocation to admit higher-merit related crosses, or lower it to force more diversity.")))
+        "Raise 'Max pairwise kinship' on Mate allocation to admit higher-merit related crosses, or lower it to force more diversity.")))
   }
 
   # parent-use cap binding?
@@ -147,7 +147,7 @@ ngcd_diag_robust <- function(res) {
   if (!is.null(rp$error))
     return(list(ngcd_diag_item("robust", "warn",
       "Robust posterior allocation could not be computed", rp$error,
-      "Enable 'Robust posterior allocation' on Allocation (it turns on posterior prediction). If scores were empty, raise the posterior draws (n_iter) on the Advanced screen.")))
+      "Enable 'Robust posterior allocation' on Mate allocation (it turns on posterior prediction). If scores were empty, raise the posterior draws (n_iter) in Prediction & scoring.")))
   nch <- suppressWarnings(as.integer(rp$n_changed %||% NA))
   nk  <- suppressWarnings(as.integer(rp$n_crosses %||% NA))
   sm  <- rp$summary %||% list()
@@ -180,7 +180,7 @@ ngcd_diag_reliability <- function(res) {
     out <- c(out, list(ngcd_diag_item("reliability", "warn",
       sprintf("Trait '%s' has very low marker-effect reliability (%s)", tr, ngcd_diag_num(rel[i], 3)),
       "Its predicted cross values are mostly noise, which can dominate a multi-trait score and distort the plan.",
-      sprintf("Down-weight or drop '%s' on the Objective screen, or raise 'Min marker-effect reliability' (currently %s) to exclude unreliable traits automatically.", tr, ngcd_diag_num(floor, 2)))))
+      sprintf("Down-weight or drop '%s' in Selection objective, or raise 'Min marker-effect reliability' (currently %s) to exclude unreliable traits automatically.", tr, ngcd_diag_num(floor, 2)))))
   }
   out
 }
@@ -200,7 +200,7 @@ ngcd_diag_qc <- function(res) {
     out <- c(out, list(ngcd_diag_item("qc", "note",
       sprintf("Data QC reported %d warning(s)", warns),
       "The run proceeded, but flagged data-quality warnings may bias the plan.",
-      "Review the 'QC audit' tab; consider the missingness / MAF filters and the residual-heterozygosity exclusion on the QC screen.")))
+      "Review the 'QC audit' tab; consider the missingness / MAF filters and the residual-heterozygosity exclusion in Data quality.")))
   out
 }
 
@@ -347,7 +347,7 @@ ngcd_diag_cost <- function(res) {
   if (is.finite(lam_c) && lam_c != 0)
     out <- c(out, list(ngcd_diag_item("cost", "note",
       sprintf("Cost is penalized in the objective (weight = %s)", ngcd_diag_num(lam_c, 2)),
-      "Allocation trades predicted merit against per-cross cost, so cheaper crosses are favored even at slightly lower merit.",
+      "Mate allocation trades predicted merit against per-cross cost, so cheaper crosses are favored even at slightly lower merit.",
       "Lower the cost weight to prioritize merit, or raise it to lean harder on cheaper crosses.")))
   lam_l <- suppressWarnings(as.numeric(cd$logistic_emphasis %||% 0))
   if (is.finite(lam_l) && lam_l != 0)
