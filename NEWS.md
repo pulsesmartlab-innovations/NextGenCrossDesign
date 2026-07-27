@@ -1,3 +1,14 @@
+# nextgenCrossWorkbench 0.17.2
+
+* **Report plots now tie back to real parent values on hover.** The
+  direction-aware trait-rank heatmap (the z-score plot) and the "Selected vs all
+  candidates" priority-tier scatter now show each cross's **mid-parent GEBV**
+  (`<trait>_mean_gebv`) in the hover tooltip, so an abstract z-score or priority
+  tier reads against the actual predicted trait value. A heatmap cell shows the
+  cross, trait, z-score, and mid-parent GEBV; a scatter point shows the cross, its
+  multi-trait score, and the mid-parent GEBV for every trait. Traits without a
+  mid-parent GEBV column fall back to "--".
+
 # nextgenCrossWorkbench 0.17.1
 
 * **Disomic-subgenome results no longer show blank fields.** The subgenome design

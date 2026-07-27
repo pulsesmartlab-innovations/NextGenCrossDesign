@@ -293,8 +293,22 @@ ngcd_ply_score_dist <- function(res) {
     title = "Multi-trait score distribution", xaxis = list(title = "Multi-trait score"),
     yaxis = list(title = "Count"))
 }
+# Per-cross hover text tying a selected cross to its real parent values: the
+# multi-trait score plus each trait's mid-parent GEBV (<trait>_mean_gebv).
+ngcd_cross_hover <- function(df, gebv_cols) {
+  txt <- paste0(df$parent1, " x ", df$parent2)
+  if ("multi_trait_score" %in% names(df))
+    txt <- paste0(txt, "<br>score: ", formatC(suppressWarnings(as.numeric(df$multi_trait_score)), format = "f", digits = 2))
+  for (gc in gebv_cols) {
+    tr <- sub("_mean_gebv$", "", gc)
+    v <- suppressWarnings(as.numeric(df[[gc]]))
+    txt <- paste0(txt, "<br>", tr, " mid-parent GEBV: ", ifelse(is.finite(v), formatC(v, format = "f", digits = 2), "--"))
+  }
+  txt
+}
 ngcd_ply_scatter <- function(res) {
   cc <- res$candidate_crosses; sc <- res$selected_crosses
+  gebv_cols <- if (is.data.frame(sc)) grep("_mean_gebv$", names(sc), value = TRUE) else character(0)
   p <- plotly::plot_ly()
   p <- plotly::add_trace(p, x = cc$pair_kinship, y = cc$multi_trait_score, type = "scattergl", mode = "markers",
     marker = list(color = "rgba(154,165,160,0.35)", size = 4), name = "candidates", hoverinfo = "none")
@@ -302,7 +316,7 @@ ngcd_ply_scatter <- function(res) {
     s <- sc[sc$priority_tier == t, , drop = FALSE]; if (!nrow(s)) next
     p <- plotly::add_trace(p, x = s$pair_kinship, y = s$multi_trait_score, type = "scatter", mode = "markers",
       marker = list(color = unname(NGCD_TIER_COL[t]), size = 9), name = gsub("_"," ",t),
-      text = paste0(s$parent1, " x ", s$parent2), hoverinfo = "text")
+      text = ngcd_cross_hover(s, gebv_cols), hoverinfo = "text")
   }
   plotly::layout(p, title = "Selected vs all candidates",
     xaxis = list(title = "Pair kinship"), yaxis = list(title = "Multi-trait score"))
@@ -367,9 +381,27 @@ ngcd_ply_trait_heatmap <- function(res) {
   m <- as.matrix(sc[, vcols, drop = FALSE]); storage.mode(m) <- "double"
   m <- base::scale(m); m[!is.finite(m)] <- 0
   labs <- if ("parent1" %in% names(sc)) paste0(sc$parent1, " x ", sc$parent2) else paste0("cross ", seq_len(nrow(sc)))
-  plotly::layout(plotly::plot_ly(z = m, x = sub("_value$", "", vcols), y = labs, type = "heatmap",
+  # Tie each z-scored cell back to its real mid-parent GEBV (<trait>_mean_gebv), so
+  # the hover shows both the rank (colour) and the value it was ranked on. Carried
+  # as a formatted character matrix in customdata (shape matches z); traits without
+  # a mid-parent GEBV column show "--".
+  traits <- sub("_value$", "", vcols)
+  gebv <- vapply(traits, function(tr) {
+    col <- paste0(tr, "_mean_gebv")
+    if (col %in% names(sc)) suppressWarnings(as.numeric(sc[[col]])) else rep(NA_real_, nrow(sc))
+  }, numeric(nrow(sc)))
+  gebv <- matrix(gebv, nrow = nrow(sc))
+  gtxt <- matrix(ifelse(is.finite(gebv), formatC(gebv, format = "f", digits = 2), "--"), nrow = nrow(sc))
+  # A per-cell hover string (plotly R drops 2D customdata on heatmaps, so carry the
+  # full label in `text` and render it verbatim). Matrix shape matches z.
+  htext <- matrix("", nrow = nrow(m), ncol = ncol(m))
+  for (j in seq_len(ncol(m))) for (ii in seq_len(nrow(m)))
+    htext[ii, j] <- sprintf("%s<br>%s<br>rank (z-score): %.2f<br>mid-parent GEBV: %s",
+                            labs[ii], traits[j], m[ii, j], gtxt[ii, j])
+  plotly::layout(plotly::plot_ly(z = m, x = traits, y = labs, type = "heatmap",
+    text = htext, hoverinfo = "text",
     colorscale = list(c(0,"#3a6ea5"), c(0.5,"#f7f7f7"), c(1,"#b3261e")),
-    colorbar = list(title = "z-score"), hovertemplate = "%{y}<br>%{x}: %{z:.2f}<extra></extra>"),
+    colorbar = list(title = "z-score")),
     title = "Selected crosses by direction-aware trait rank",
     xaxis = list(title = "", tickangle = -40), yaxis = list(title = ""))
 }
