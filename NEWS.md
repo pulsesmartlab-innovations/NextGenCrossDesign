@@ -1,3 +1,11 @@
+# nextgenCrossWorkbench 0.17.4
+
+* **Reverted the static PDF GEBV labels from 0.17.3.** Printing the mid-parent
+  GEBV directly onto the trait-rank heatmap cells and scatter points crowded the
+  static figures. The mid-parent GEBV is instead revealed on **hover** in the
+  interactive report (as added in 0.17.2) — the intended, uncluttered UX — and the
+  PDF figures return to their clean form.
+
 # nextgenCrossWorkbench 0.17.3
 
 * **Mid-parent GEBV labels in the PDF report too.** The static PDF versions of the
