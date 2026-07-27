@@ -28,6 +28,11 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
       shiny::div(class = "ndsu-app-title", "NextGenCrossDesign",
         shiny::tags$small("Genomic cross prediction & mate allocation")),
       shiny::div(class = "ndsu-topbar-spacer"),
+      # Client-side only: expands/collapses every `<details class="ndsu-guide">`
+      # box in the app. Presentation state, not app config, so it is a raw
+      # tags$button (no Shiny input id) rather than actionButton/checkboxInput.
+      shiny::tags$button(type = "button", class = "guide-toggle", "data-open" = "0",
+        onclick = "ngcdToggleGuides(this)", "Show guided tour"),
       lab_logo,
       shiny::div(class = "ndsu-topbar-meta", shiny::textOutput("topbar_status", inline = TRUE)))
   }
@@ -37,7 +42,19 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
     heading_font = bslib::font_collection(bslib::font_google("Antonio", local = FALSE), "Oswald"))
 
   shiny::tagList(
-    shiny::tags$head(shiny::tags$link(rel = "stylesheet", href = "ngcd_www/ndsu.css")),
+    shiny::tags$head(
+      shiny::tags$link(rel = "stylesheet", href = "ngcd_www/ndsu.css"),
+      # Toggles every guided-tour <details> box open/closed; pure presentation,
+      # so it lives client-side with no Shiny input wiring (see brandbar()).
+      shiny::tags$script(shiny::HTML(
+        "function ngcdToggleGuides(btn) {
+           var wasOpen = btn.getAttribute('data-open') === '1';
+           document.querySelectorAll('details.ndsu-guide').forEach(function(d) {
+             if (wasOpen) d.removeAttribute('open'); else d.setAttribute('open', 'open');
+           });
+           btn.setAttribute('data-open', wasOpen ? '0' : '1');
+           btn.textContent = wasOpen ? 'Show guided tour' : 'Hide guided tour';
+         }"))),
     brandbar(),
     shiny::div(class = "ndsu-statusbar",
       shiny::span("Data: ", shiny::tags$b(shiny::textOutput("sb_data", inline = TRUE))),
@@ -49,14 +66,14 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
 
       if (isTRUE(dev)) bslib::nav_panel("Setup",
         ngcd_section("Local R & backend", "Point the app at your R install in config.yml, then verify here."),
-        ngcd_guide(1, 10, "Setup", shiny::tagList(
+        ngcd_guide("Setup", "Setup", shiny::tagList(
           shiny::tags$p("Confirm the app can reach your R and the analysis engine before you do anything else."),
           shiny::tags$ul(
             shiny::tags$li("Look at ", shiny::tags$b("Connection status"), " - you want four green badges (Rscript, Runner, backend package, version)."),
             shiny::tags$li("If any badge is red, open ", shiny::tags$code("config.yml"), " (path shown on the right), fix ", shiny::tags$code("rscript_path"), " / ", shiny::tags$code("package_library"), ", then click ", shiny::tags$b("Re-check backend"), "."),
             shiny::tags$li("The ", shiny::tags$b("Optional capabilities"), " panel shows extra features and whether the packages they need are installed - missing ones are fine.")),
           shiny::tags$p(class = "help-hint", "You only need to do this once per machine.")),
-          next_hint = "go to the Data tab to load your CSV files."),
+          next_hint = "Data - load your CSV files."),
         bslib::layout_columns(col_widths = c(7, 5),
           bslib::card(bslib::card_header("Connection status"),
             shiny::uiOutput("setup_status"),
@@ -77,7 +94,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
       bslib::nav_panel("Data",
         ngcd_section("Data import, column mapping & on-the-fly editing",
           "Load four CSVs (or the demo). Tables are editable - fix a value or change a direction, and the edited data is used on the next run."),
-        ngcd_guide(2, 10, "Data", shiny::tagList(
+        ngcd_guide("Data", "Load your data", shiny::tagList(
           shiny::tags$p("Give the app your four data files and tell it which column means what."),
           shiny::tags$ul(
             shiny::tags$li("Pick ", shiny::tags$b("Bundled demo data"), " to try it immediately, or ", shiny::tags$b("Upload my CSV files"), " for your own: genotype, phenotype, marker map, and trait direction."),
@@ -85,7 +102,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::tags$li("Read the ", shiny::tags$b("Data checks"), " badges: markers and parents should say \"aligned\". If not, the callout tells you what to fix (or tick a reconcile box)."),
             shiny::tags$li("Need a quick fix? Double-click any cell in the tables to edit it; the change is used on your next run.")),
           shiny::tags$p(class = "help-hint", "Genotype dosages are 0/1/2; inbred parents should be 0 or 2.")),
-          next_hint = "Objective - choose what you're selecting for."),
+          next_hint = "Data quality - check your data before configuring."),
         bslib::layout_columns(col_widths = c(4, 8),
           bslib::card(bslib::card_header("Data source"),
             shiny::radioButtons("workflow", "Analysis type",
@@ -172,13 +189,13 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             bslib::nav_panel("Trait direction", DT::DTOutput("edit_dir")),
             bslib::nav_panel("Data quality",
         ngcd_section("Data QC & duplicate handling", "Preflight runs in the backend; blocker issues stop the run."),
-        ngcd_guide(5, 10, "QC", shiny::tagList(
+        ngcd_guide("Data", "Data quality", shiny::tagList(
           shiny::tags$p("Decide how to handle duplicate genotypes and optional marker thinning. The backend also runs its own preflight when you hit Run."),
           shiny::tags$ul(
             shiny::tags$li(shiny::tags$b("Duplicate action"), ": ", shiny::tags$code("remove"), " drops near-identical genotypes (recommended for real data), ", shiny::tags$code("report"), " only flags them, ", shiny::tags$code("none"), " skips the check."),
             shiny::tags$li(shiny::tags$b("LD pruning"), " is optional - turn it on only if you have many correlated markers and want to thin them.")),
           shiny::tags$p(class = "help-hint", "You can leave everything at defaults for a first run.")),
-          next_hint = "Allocation - build the crossing plan."),
+          next_hint = "Selection objective - tell the app what 'good' means."),
         shiny::conditionalPanel("input.workflow == 'polyploid'",
           ngcd_callout(kind = "info",
             "Polyploid runs are cleaned by the ",
@@ -204,7 +221,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           bslib::nav_panel("Selection objective",
         ngcd_section("Selection objective",
           "Trait directions are explicit - risk traits may decrease."),
-        ngcd_guide(3, 10, "Objective", shiny::tagList(
+        ngcd_guide("Configure", "Selection objective", shiny::tagList(
           shiny::tags$p("Tell the app what \"good\" means for your program."),
           shiny::tags$ul(
             shiny::tags$li(shiny::tags$b("Single trait"), ": score and rank crosses on one trait. ",
@@ -213,7 +230,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::tags$li("For multiple traits, tick the traits to include (leave all ticked to use every trait)."),
             shiny::tags$li(shiny::tags$b("Multi-trait method"), ": start with ", shiny::tags$code("Automatic"), ". Use ", shiny::tags$code("Relative weights"), " if you have relative trait weights; ", shiny::tags$code("Economic weights"), " / ", shiny::tags$code("Desired gains"), " if your direction file carries economic weights.")),
           shiny::tags$p(class = "help-hint", "Direction is set in your trait-direction file - e.g. yield increases, disease decreases.")),
-          next_hint = "Scoring - how each cross is valued."),
+          next_hint = "Prediction & scoring - how each cross is valued."),
         bslib::layout_columns(col_widths = c(6, 6),
           bslib::card(bslib::card_header("Selection objective"),
             shiny::radioButtons("objective_mode", NULL,
@@ -244,14 +261,14 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::checkboxInput("threshold_penalty_autoscale", "Autoscale threshold penalty", TRUE)))),
           bslib::nav_panel("Prediction & scoring",
         ngcd_section("Trait value, variance & breeding system"),
-        ngcd_guide(4, 10, "Scoring", shiny::tagList(
+        ngcd_guide("Configure", "Prediction & scoring", shiny::tagList(
           shiny::tags$p("Choose how a cross's merit is scored and what kind of progeny you'll make. The defaults are good for most programs."),
           shiny::tags$ul(
             shiny::tags$li(shiny::tags$b("Merit metric"), ": keep ", shiny::tags$code("var_complex"), " (usefulness) for most cases. Switch to ", shiny::tags$code("mean"), " for highly polygenic traits or small training sets."),
             shiny::tags$li(shiny::tags$b("Breeding system"), ": ", shiny::tags$code("DH"), " for doubled haploids, ", shiny::tags$code("RIL"), " for recombinant inbred lines. Leave ", shiny::tags$b("Assume inbred parents"), " ticked unless your parents carry heterozygosity."),
             shiny::tags$li(shiny::tags$b("Selection proportion"), " is the top fraction of progeny you expect to keep (e.g. 0.10 = top 10%).")),
           shiny::tags$p(class = "help-hint", "If Setup/Data flagged non-inbred parents, either drop them (Data tab) or uncheck Assume inbred here.")),
-          next_hint = "QC - clean the data before running."),
+          next_hint = "Cross filters & genetic constraints - screen crosses before allocation."),
         bslib::layout_columns(col_widths = c(4, 4, 4),
           bslib::card(bslib::card_header("Effect & variance model"),
             shiny::selectInput("grm_method", "GRM method", ngcd_control_choices(cfg$backend_registry, "grm_method", c("vanraden","yang"))),
@@ -298,6 +315,14 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::uiOutput("ril_note")),
             shiny::checkboxInput("assume_inbred", "Assume inbred parents", TRUE)))),
           bslib::nav_panel("Cross filters & genetic constraints",
+        ngcd_guide("Configure", "Cross filters & genetic constraints", shiny::tagList(
+          shiny::tags$p("Screen candidate crosses before allocation - flag or drop weak ones, steer toward useful alleles, and guard against lethal combinations."),
+          shiny::tags$ul(
+            shiny::tags$li(shiny::tags$b("Trait-check veto"), ": flags (or excludes) crosses whose mid-parent value for a trait falls on the worse side of your check line, on either GEBV or phenotype basis. Trait-by-trait mode only."),
+            shiny::tags$li(shiny::tags$b("Marker steering"), ": nudge the plan toward or away from target allele frequencies at named markers."),
+            shiny::tags$li(shiny::tags$b("Lethal-allele guard"), ": excludes carrier x carrier matings for named recessive-lethal markers.")),
+          shiny::tags$p(class = "help-hint", "Leave everything off/default if you don't have check lines or marker targets to apply.")),
+          next_hint = "Mate allocation - turn scores into a mating plan."),
         shiny::helpText("Flag/exclude crosses whose mid-parent for a trait is on the worse side of a check line."),
         shiny::helpText(class = "help-hint",
           "Applies only in Trait-by-trait prediction mode (Scoring tab); ignored for Index-as-trait runs."),
@@ -313,7 +338,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::checkboxInput("drop_lethal_carrier_crosses", "Exclude carrier x carrier matings", TRUE)))),
           bslib::nav_panel("Mate allocation",
         ngcd_section("Mate allocation & gain-diversity balance"),
-        ngcd_guide(6, 10, "Allocation", shiny::tagList(
+        ngcd_guide("Configure", "Mate allocation", shiny::tagList(
           shiny::tags$p("The heart of the tool: how many crosses to make, how hard to push for gain vs. diversity, and which engine picks them."),
           shiny::tags$ul(
             shiny::tags$li(shiny::tags$b("Number of crosses (K)"), " and ", shiny::tags$b("Max uses per parent"), " set the plan size. Watch for a feasibility warning here or on Run - K can't exceed parents x max-uses / 2."),
@@ -321,7 +346,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::tags$li(shiny::tags$b("Gain-diversity dial"), ": pick a preset (High gain / Balanced / Diversity), or use the slider, or cap coancestry directly - choose just one."),
             shiny::tags$li("OCS penalties and AlphaMate-style controls are advanced; the defaults are fine to start.")),
           shiny::tags$p(class = "help-hint", "Moving the dial toward diversity spreads parents out; toward gain concentrates on the best.")),
-          next_hint = "Advanced (optional) or skip to Output."),
+          next_hint = "Export options - choose what the run writes out."),
         bslib::accordion(id = "mate_allocation_accordion", open = "Plan size & constraints",
           bslib::accordion_panel("Plan size & constraints",
             bslib::layout_columns(col_widths = c(4, 4, 4),
@@ -477,14 +502,14 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                     shiny::numericInput("alphamate_evol_stop", "Evol stop", 200, min = 1)))))))),
           bslib::nav_panel("Export options",
         ngcd_section("Priority ranking & outputs"),
-        ngcd_guide(8, 10, "Output", shiny::tagList(
+        ngcd_guide("Configure", "Export options", shiny::tagList(
           shiny::tags$p("Decide how the selected crosses are tiered and what files to produce."),
           shiny::tags$ul(
             shiny::tags$li(shiny::tags$b("Priority tiers"), " group the plan into bands (highly priority -> low). The defaults split 100 crosses into 10/25/35/30."),
             shiny::tags$li("Tick ", shiny::tags$b("Write workbook"), " for an Excel crossing plan (needs openxlsx) and ", shiny::tags$b("Write figures"), " for the priority chart (needs ggplot2). Both are checked on Setup's requirements panel."),
             shiny::tags$li("Keep the ", shiny::tags$b("Random seed"), " fixed to make runs reproducible.")),
           shiny::tags$p(class = "help-hint", "Leave workbook/figures off for a quick look; turn them on for the final plan.")),
-          next_hint = "Run - start the analysis."),
+          next_hint = "Run - launch the design."),
         bslib::layout_columns(col_widths = c(6,6),
           bslib::card(bslib::card_header("Priority ranking"),
             shiny::textInput("priority_breaks", "Tier breaks (comma-separated)", "0.10, 0.35, 0.70, 1.00"),
@@ -501,7 +526,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
 
       bslib::nav_panel("Run",
         ngcd_section("Run the analysis", "Assembles your configuration (with any table edits) and calls the backend."),
-        ngcd_guide(9, 10, "Run", shiny::tagList(
+        ngcd_guide("Run", "Run", shiny::tagList(
           shiny::tags$p("Launch the analysis and watch for problems."),
           shiny::tags$ul(
             shiny::tags$li("The box under the button is the ", shiny::tags$b("readiness check"), " - it turns from warnings to \"Ready to run\" when data and backend are set."),
@@ -509,7 +534,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::tags$li("If it fails, a ", shiny::tags$b("debug panel"), " appears with the error, a likely-fix hint, and copyable details - fix the flagged item and run again."),
             if (isTRUE(dev)) shiny::tags$li(shiny::tags$b("Save / load settings"), ": save all your choices as a named profile, then reload it next session and run again without re-entering everything.")),
           shiny::tags$p(class = "help-hint", "Each run is saved under runs/ with its exact config, so results are reproducible.")),
-          next_hint = "Results - read the recommended crosses."),
+          next_hint = "Results - explore the plan."),
         if (isTRUE(dev)) bslib::card(bslib::card_header("Save / load settings"),
           shiny::div(class = "help-hint",
             "Save all your current settings as a named profile to reload and re-run later. (Data files and column edits are not part of a profile - reselect your data, then load a profile.)"),
@@ -533,15 +558,14 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
 
       bslib::nav_panel("Results",
         ngcd_section("Results", "Recommended crosses and the evidence behind them."),
-        ngcd_guide(10, 10, "Results", shiny::tagList(
+        ngcd_guide("Results", "Results", shiny::tagList(
           shiny::tags$p("Read your crossing plan and the evidence behind it."),
           shiny::tags$ul(
             shiny::tags$li("The ", shiny::tags$b("KPI row"), " summarizes the plan: crosses, mean gain, group coancestry, unique parents, progeny inbreeding."),
             shiny::tags$li(shiny::tags$b("Selected crosses"), " is your ranked plan by priority tier; ", shiny::tags$b("Candidate scores"), " is every pair it chose from."),
             shiny::tags$li(shiny::tags$b("Gain-diversity frontier"), " shows the trade-off with your plan marked - move the Allocation dial and re-run to shift it."),
             shiny::tags$li(shiny::tags$b("QC audit / Input matching / Marker effects"), " show the provenance; ", shiny::tags$b("Downloads"), " has the workbook and figures if you enabled them.")),
-          shiny::tags$p(class = "help-hint", "Change a setting on any tab and click Run again to compare.")),
-          next_hint = "adjust settings and re-run to explore alternatives."),
+          shiny::tags$p(class = "help-hint", "Change a setting on any tab and click Run again to compare."))),
         shiny::uiOutput("results_banner"),
         shiny::uiOutput("results_kpis"),
         bslib::navset_tab(

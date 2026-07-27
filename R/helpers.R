@@ -20,12 +20,16 @@ ngcd_section <- function(title, subtitle = NULL)
   shiny::tagList(shiny::div(class = "ndsu-section-title", title),
                  if (!is.null(subtitle)) shiny::div(class = "ndsu-section-sub", subtitle))
 
-# A collapsible, numbered "how to use this step" panel shown atop each screen.
-# `body` is a tagList of guidance; `next_hint` points to the following step.
-ngcd_guide <- function(step, total, title, body, next_hint = NULL, open = TRUE) {
+# A collapsible "how to use this section" panel shown atop each screen, labeled
+# by its stage in the Data | Configure | Run | Results navbar (not a flat step
+# count - the app has stages with sub-sections, not one linear sequence).
+# `body` is a tagList of guidance; `next_hint` points to the following section.
+# Collapsed by default; the "Show guided tour" toggle (see workbench_ui) expands
+# every guide box client-side.
+ngcd_guide <- function(stage, title, body, next_hint = NULL, open = FALSE) {
   args <- list(class = "ndsu-guide",
-    shiny::tags$summary(shiny::span(class = "g-step", paste0("Step ", step, " of ", total)),
-                        title, " - how to use this step"),
+    shiny::tags$summary(shiny::span(class = "g-step", stage),
+                        title, " - how to use this section"),
     shiny::div(class = "g-body", body,
       if (!is.null(next_hint)) shiny::div(class = "g-next", shiny::tags$b("Next -> "), next_hint)))
   if (isTRUE(open)) args$open <- "open"

@@ -125,8 +125,8 @@ test_that("badge/callout/kpi/section/guide produce renderable Shiny tags", {
   expect_match(render(ng("ngcd_callout")("hi", kind = "warn")), "ndsu-callout")
   expect_match(render(ng("ngcd_kpi")("42", "crosses")), "ndsu-kpi")
   expect_match(render(ng("ngcd_section")("Title", "Sub")), "ndsu-section-title")
-  g <- ng("ngcd_guide")(2, 6, "Scoring", shiny::div("body"), next_hint = "go on")
-  expect_match(render(g), "Step 2 of 6")
+  g <- ng("ngcd_guide")("Configure", "Scoring", shiny::div("body"), next_hint = "go on")
+  expect_match(render(g), "Configure")
   expect_match(render(g), "Next")
 })
 
