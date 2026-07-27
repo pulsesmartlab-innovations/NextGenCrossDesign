@@ -1,3 +1,26 @@
+# nextgenCrossWorkbench 0.17.0
+
+* **Navigation IA redesign.** The flat ~10-tab navbar is reorganized into four
+  workflow stages — **Data · Configure · Run · Results** (plus a developer-only
+  Setup). **Configure** now holds five sections in pipeline order: *Selection
+  objective*, *Prediction & scoring*, *Cross filters & genetic constraints*,
+  *Mate allocation*, *Export options*. The old "Advanced" junk-drawer is dissolved
+  into those sections, the former top-level "QC" becomes a *Data quality* sub-tab
+  under Data, and *Mate allocation* groups its controls into *Plan size &
+  constraints* / *Gain-diversity & relatedness* / *Engine & advanced* panels.
+* **Selection objective is now breeder-framed** with a three-way choice: a
+  single trait, multiple traits (build a selection index), or your own
+  pre-computed selection-index column. Single- and multiple-trait modes both run
+  full trait-by-trait prediction (usefulness/UC, within-family variance,
+  risk/portfolio, and the per-trait check veto); the index-column mode scores the
+  supplied index directly.
+* **Guided tour** boxes are collapsed by default with a single "Show guided tour"
+  toggle, and their stale "Step N of 10" counters are reconciled to the new stage
+  structure.
+* Swept stale tab/mode references out of all help, diagnostic, and report text,
+  and fixed the settings save/restore registry to capture the new objective
+  controls.
+
 # nextgenCrossWorkbench 0.16.0
 
 * Surface the backend cross-priority **risk & portfolio** decision layer (backend
