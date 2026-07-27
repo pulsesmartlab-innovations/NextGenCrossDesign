@@ -1,0 +1,11 @@
+.git
+.gitignore
+**/node_modules
+node_modules
+man/figures
+docs
+.superpowers
+*.Rcheck
+.Rproj.user
+.claude
+ngcd-data
