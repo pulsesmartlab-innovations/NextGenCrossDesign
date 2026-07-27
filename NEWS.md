@@ -1,3 +1,16 @@
+# nextgenCrossWorkbench 0.17.1
+
+* **Disomic-subgenome results no longer show blank fields.** The subgenome design
+  path returns a compact result (no group-coancestry scalar, priority tiers, or
+  standard metric/method settings), which previously left the Results KPI row and
+  the report's executive summary full of `--`/`?` placeholders. The workbench now
+  backfills the derivable values (unique parents, maximum parent use, mean pairwise
+  kinship) from the selected crosses, shows a subgenome-specific KPI row
+  (Subgenomes and Mean pair kinship in place of the inapplicable Group coancestry
+  and Mean progeny F), and renders a dedicated, placeholder-free executive summary
+  describing the subgenome design (subgenomes, markers per subgenome, variance
+  model, GRM, progeny target, and OCS allocation).
+
 # nextgenCrossWorkbench 0.17.0
 
 * **Navigation IA redesign.** The flat ~10-tab navbar is reorganized into four

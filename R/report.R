@@ -34,8 +34,51 @@ ngcd_logo_svg <- function() {
     "font-size='37' font-weight='600' fill='#2E8B2E'>Pulse Breeding, Genetics &amp; Innovation</text></svg>")
 }
 
+# --- disomic-subgenome executive summary --------------------------------------
+# The subgenome design path returns a poly-style result (plan_summary = n_crosses
+# + mean_gain, subgenome-specific settings) that does not carry the standard
+# metric / allocation / coancestry / priority-tier / QC fields, so the generic
+# summary below would print placeholders for all of them. This branch writes an
+# accurate summary from the fields the subgenome path actually reports.
+ngcd_exec_summary_subgenome_html <- function(res, figs = NULL) {
+  ps <- res$plan_summary %||% list(); st <- res$settings %||% list()
+  sg <- res$subgenome %||% list(); sc <- res$selected_crosses
+  fmt <- function(x, d = 3) if (is.null(x) || !is.finite(suppressWarnings(as.numeric(x[1])))) "&ndash;" else formatC(as.numeric(x[1]), format = "f", digits = d)
+  cnt <- function(x) if (length(x) != 1L || is.na(suppressWarnings(as.numeric(x)))) "&ndash;" else as.character(x)
+  n_sel <- if (is.data.frame(sc)) nrow(sc) else (ps$n_crosses %||% NA)
+  sg_names <- unlist(sg$names)
+  markers_txt <- if (!is.null(sg$markers_per_subgenome))
+    paste(sprintf("%s=%s", names(sg$markers_per_subgenome), unlist(sg$markers_per_subgenome)), collapse = ", ") else "&ndash;"
+  vmodel <- sg$variance_model %||% st$variance_model %||% "recombination_aware"
+  vmodel_txt <- if (grepl("recomb", vmodel, ignore.case = TRUE))
+    "recombination-aware (exact per-subgenome, summed)" else "an unlinked-loci approximation"
+  grm <- st$grm_method %||% sg$grm_method %||% "vanraden"
+  progeny_target <- sg$progeny_target %||% st$progeny_target %||% "DH"
+  fig_caption <- if (!is.null(figs) && length(figs))
+    paste0("<p class='cap'>Figures in this report: ",
+           paste(vapply(figs, function(f) f$title, character(1)), collapse = ", "), ".</p>") else ""
+  paste0(
+    "<h2 id='summary'>Executive summary</h2>",
+    "<p>This report summarises a genomic cross-prediction and mate-allocation run performed with the ",
+    "<b>nextgenCrossDesign</b> backend (v", res$package_version %||% "?", "), using the ",
+    "<b>disomic-subgenome</b> design path for a true allopolyploid with <b>", length(sg_names),
+    "</b> subgenomes (", paste(sg_names, collapse = ", "), "). Each subgenome is inherited diploidly and is ",
+    "QC'd, effect-fit and scored as a diploid; markers per subgenome: ", markers_txt, ".</p>",
+
+    "<p>Within-family usefulness variance is <b>", vmodel_txt, "</b>, the relationship matrix uses the <b>",
+    grm, "</b> GRM computed per subgenome, and progeny are modelled as <b>", progeny_target,
+    "</b>. Mate allocation used coancestry-constrained OCS (mode: <b>", sg$mode %||% "ocs", "</b>).</p>",
+
+    "<p>The plan recommends <b>", cnt(n_sel), "</b> crosses with a mean direction-aware gain of <b>",
+    fmt(ps$mean_gain), "</b>. It uses <b>", cnt(ps$unique_parents), "</b> unique parents, with no parent used ",
+    "more than <b>", cnt(ps$max_parent_use), "</b> times, and a mean pairwise kinship of <b>",
+    fmt(ps$mean_pair_kinship), "</b> (lower = more diverse).</p>", fig_caption)
+}
+
 # --- executive scientific summary (returns an HTML string) -----------------
 ngcd_exec_summary_html <- function(res, figs = NULL) {
+  if (identical(res$prediction_mode, "subgenome_design") || !is.null(res$subgenome))
+    return(ngcd_exec_summary_subgenome_html(res, figs))
   ps <- res$plan_summary %||% list(); st <- res$settings %||% list()
   sc <- res$selected_crosses; cc <- res$candidate_crosses
   n_sel <- if (is.data.frame(sc)) nrow(sc) else (ps$n_crosses %||% NA)

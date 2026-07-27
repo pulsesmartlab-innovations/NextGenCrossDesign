@@ -1501,6 +1501,7 @@ workbench_server <- function(cfg) {
       rv$run_dir <- out$run_dir; rv$runlog <- out$log
 
       if (isTRUE(out$ok)) {
+        out$result <- ngcd_enrich_result(out$result)   # backfill derivable KPI fields (poly/subgenome paths)
         rv$result <- out$result; rv$error <- NULL
         rv$last <- format(Sys.time(), "%H:%M:%S")
         # Generate the run report (HTML + PDF) for the Report tab / link.
@@ -1598,6 +1599,18 @@ workbench_server <- function(cfg) {
           sprintf(" (%s rule%s). See the diminishing-returns chart below.",
                   crit_lab[[sw$criterion %||% "elbow_relative"]] %||% "diminishing returns",
                   if (length(sw$k_range)) sprintf(", swept K = %d-%d", min(sw$k_range), max(sw$k_range)) else "")),
+        # The disomic-subgenome path does not export a group-coancestry scalar or
+        # progeny-inbreeding; swap those two cards for subgenome-relevant reads so
+        # the row shows real numbers instead of blanks.
+        if (!is.null(r$subgenome))
+          bslib::layout_columns(col_widths = c(2,2,2,2,2,2),
+            bslib::card(ngcd_kpi(ngcd_num(ps$n_crosses, 0), "Crosses")),
+            bslib::card(ngcd_kpi(ngcd_num(ps$mean_gain), "Mean gain")),
+            bslib::card(ngcd_kpi(ngcd_num(ps$unique_parents, 0), "Unique parents")),
+            bslib::card(ngcd_kpi(ngcd_num(ps$max_parent_use, 0), "Max parent use")),
+            bslib::card(ngcd_kpi(as.character(length(unlist(r$subgenome$names))), "Subgenomes")),
+            bslib::card(ngcd_kpi(ngcd_num(ps$mean_pair_kinship), "Mean pair kinship")))
+        else
         bslib::layout_columns(col_widths = c(2,2,2,2,2,2),
           bslib::card(ngcd_kpi(ngcd_num(ps$n_crosses, 0), "Crosses")),
           bslib::card(ngcd_kpi(ngcd_num(ps$mean_gain), "Mean gain")),

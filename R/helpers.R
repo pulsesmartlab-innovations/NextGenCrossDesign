@@ -91,6 +91,29 @@ ngcd_num <- function(x, digits = 3) {
   formatC(as.numeric(x[1]), format = "f", digits = digits, big.mark = ",")
 }
 
+# Backfill plan-summary fields the polyploid / disomic-subgenome backend paths do
+# not export (their plan_summary carries only n_crosses + mean_gain), so the KPI
+# row and report show real numbers instead of blanks. Everything here is derived
+# from the selected-crosses table, never invented: unique parents and maximum
+# parent use are counts, and mean pairwise kinship is a diversity read for paths
+# that don't return a group-coancestry scalar. Existing values are left untouched.
+ngcd_enrich_result <- function(res) {
+  if (is.null(res) || !is.list(res)) return(res)
+  ps <- res$plan_summary %||% list()
+  sc <- res$selected_crosses
+  if (is.data.frame(sc) && all(c("parent1", "parent2") %in% names(sc)) && nrow(sc) > 0) {
+    par <- c(as.character(sc$parent1), as.character(sc$parent2))
+    if (is.null(ps$unique_parents)) ps$unique_parents <- length(unique(par))
+    if (is.null(ps$max_parent_use)) ps$max_parent_use <- max(as.integer(table(par)))
+    if (is.null(ps$mean_pair_kinship) && "pair_kinship" %in% names(sc)) {
+      mpk <- mean(suppressWarnings(as.numeric(sc$pair_kinship)), na.rm = TRUE)
+      if (is.finite(mpk)) ps$mean_pair_kinship <- mpk
+    }
+  }
+  res$plan_summary <- ps
+  res
+}
+
 # Read-only DT with NDSU styling.
 ngcd_dt <- function(df, ..., page = 10, priority_col = NULL) {
   if (is.null(df) || !is.data.frame(df) || !nrow(df))
