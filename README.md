@@ -353,6 +353,8 @@ cross to **deprioritize** — instead of a single opaque ranking. It is a
 decision-support view on top of the priority tiers and never changes how crosses
 are scored or allocated.
 
+![Portfolio & risk](man/figures/screen-27-portfolio-risk.png)
+
 **Family-size allocation.** Turn a fixed total-progeny budget into a per-cross
 seed plan: the best crosses get proportionally more progeny, bounded by per-family
 minimum and maximum sizes. In R this is `ng_allocate_family_sizes()`.
@@ -389,19 +391,18 @@ Method & settings provenance — the full configuration that produced the plan:
 
 Every procedure — the automatic cross-number optimizer, mate allocation, robust
 posterior re-optimization, trait reliability, and QC — can leave a plan looking
-"off". The **Diagnostics & tuning** tab (and a matching section in the report)
-explains *why* each procedure produced its result and *which parameter to
-change* to steer it. Each item is graded **CHECK** (act on it), **NOTE** (worth
-knowing), or **OK** (stable).
+"off". A **Diagnostics & tuning** section in the interactive report — together
+with inline run notes on the **Results** screen (e.g. the crop-suitability,
+joint-superiority, and "number of crosses chosen automatically" callouts above) —
+explains *why* each procedure produced its result and *which parameter to change*
+to steer it. Each item is graded **CHECK** (act on it), **NOTE** (worth knowing),
+or **OK** (stable).
 
 For example, the single most common reason an automatic cross-number
-recommendation looks wrong is that it hit the edge of the swept range — the
-elbow was never actually reached, so the number is capped by your range, not by
-the data. The workbench detects this and tells you exactly what to do:
-
-![Diagnostics and tuning](man/figures/screen-21-diagnostics.png)
-
-Typical diagnostics include: the cross-number recommendation sitting at the top
+recommendation looks wrong is that it hit the edge of the swept range — the elbow
+was never actually reached, so the number is capped by your range, not by the
+data. The workbench detects this and tells you exactly what to do. Typical
+diagnostics include: the cross-number recommendation sitting at the top
 or bottom of the swept range (widen it), a binding pairwise-kinship or
 parent-use cap (loosen or tighten it), a trait with very low marker-effect
 reliability dominating the score (down-weight or drop it), how many candidate
