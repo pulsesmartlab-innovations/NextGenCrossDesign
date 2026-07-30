@@ -1,7 +1,10 @@
 test_that("config loads defaults and resolves package resources", {
   cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
   expect_equal(cfg$rscript_path, "Rscript")
-  expect_equal(cfg$required_backend_version, "0.4.0")
+  # Compare against the same dynamic source config.R uses, not a hardcoded
+  # literal, so this test can't itself drift from inst/BACKEND_VERSION.
+  expect_equal(cfg$required_backend_version,
+               nextgenCrossWorkbench:::ngcd_default_backend_version())
   expect_true(file.exists(cfg$runner_script))
   expect_true(dir.exists(cfg$demo_data_dir))
   expect_true(dir.exists(cfg$runs_dir))

@@ -14,6 +14,20 @@ PKG <- "nextgenCrossWorkbench"
 # Path to a resource shipped inside the installed package.
 ngcd_res <- function(...) system.file("app", ..., package = PKG)
 
+# Single source of truth for the minimum backend (nextgenCrossDesign) version
+# this front-end requires, kept in inst/BACKEND_VERSION so it is bundled with
+# every install and can be bumped in exactly one place (no more drifting
+# copies in config.R defaults, the Dockerfile, docs, etc.). Falls back to a
+# baked-in constant only if the resource file is ever missing, so the app
+# never hard-fails just because of this lookup.
+ngcd_default_backend_version <- function() {
+  path <- system.file("BACKEND_VERSION", package = PKG)
+  ver <- if (nzchar(path) && file.exists(path))
+    tryCatch(trimws(readLines(path, n = 1L, warn = FALSE)), error = function(e) "")
+  else ""
+  if (nzchar(ver)) ver else "0.9.0"
+}
+
 # Load user config from <dir>/config.yml, applying NGCD_* env overrides and
 # resolving package resource paths. `dir` is a writable folder for config +
 # runs (defaults to the working directory).
@@ -43,7 +57,7 @@ ngcd_load_config <- function(dir = getwd()) {
   defaults <- list(
     rscript_path             = "Rscript",
     package_library          = "",
-    required_backend_version = "0.7.0",
+    required_backend_version = ngcd_default_backend_version(),
     alphamate_executable     = "",
     run_timeout_seconds      = 1800,
     max_upload_mb            = 200,

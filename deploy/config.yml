@@ -10,8 +10,12 @@ default:
   rscript_path: "Rscript"
   package_library: ""
 
-  # Must match the backend version installed in the image.
-  required_backend_version: "0.7.0"
+  # required_backend_version is intentionally NOT set here. Leaving it unset
+  # means the app falls back to inst/BACKEND_VERSION (the single source of
+  # truth the Dockerfile also checks against at build time), so this file
+  # never needs manual edits when the required backend version changes.
+  # Only set NGCD_REQUIRED_BACKEND_VERSION / this key if a specific deployment
+  # deliberately needs to pin a different floor than the package default.
 
   # This is a hosted, multi-user deployment: ephemeral per-session data_dir and
   # the within-session "download before you leave" note.

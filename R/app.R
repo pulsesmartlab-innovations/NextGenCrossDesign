@@ -585,13 +585,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           bslib::nav_panel("Method & settings", shiny::verbatimTextOutput("res_settings")),
           bslib::nav_panel("Downloads", shiny::uiOutput("res_downloads")))),
 
-      bslib::nav_spacer(),
-      bslib::nav_item(shiny::tags$span(class = "help-hint", "nextgenCrossWorkbench"))),
-
-    shiny::div(class = "ndsu-footer",
-      "NextGenCrossDesign. ",
-      shiny::tags$b("Backend (nextgenCrossDesign): Dr. Sikiru Atanda."), " ",
-      shiny::tags$b("Front-end (workbench): Mario Morales."))
+      bslib::nav_spacer())
   )
 }
 
