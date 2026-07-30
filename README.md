@@ -14,7 +14,7 @@ installs and runs cleanly on its own.
 **Authors**
 
 - **Backend** (`nextgenCrossDesign`, the breeding-genetics engine): **Dr. Sikiru Atanda**
-- **Front-end** (`nextgenCrossWorkbench`, this Shiny workbench): **Mario Morales**
+- **Front-end** (`nextgenCrossWorkbench`): **Dr. Sikiru Atanda** and **Mario Morales**
 
 Developed at North Dakota State University (PulseSmartLab).
 
@@ -598,7 +598,7 @@ If you use this workbench in published work, please cite both components:
 > Atanda, S. *nextgenCrossDesign: genomic cross prediction and mate allocation*
 > (R package). North Dakota State University.
 >
-> Morales, M. *nextgenCrossWorkbench: NextGenCrossDesign — a Shiny
+> Atanda, S., and Morales, M. *nextgenCrossWorkbench: NextGenCrossDesign — a Shiny
 > front-end for nextgenCrossDesign* (R package, v0.17.0). North Dakota State
 > University, PulseSmartLab - PI: Dr. Sikiru Atanda.
 
