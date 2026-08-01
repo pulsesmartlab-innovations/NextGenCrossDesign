@@ -350,39 +350,22 @@ run_subgenome_design <- function(raw, result_path) {
   cat("OK: wrote", result_path, "(subgenome design)\n")
 }
 
-run <- function() {
-  if (!file.exists(config_path)) {
-    stop("Config file not found: ", config_path, call. = FALSE)
-  }
-
-  # ---- load backend --------------------------------------------------------
-  if (!requireNamespace("nextgenCrossDesign", quietly = TRUE)) {
-    stop("The 'nextgenCrossDesign' package is not installed / not on the library path. ",
-         "Install it into the library this Rscript uses, or set 'package_library' in config.yml.",
-         call. = FALSE)
-  }
-  suppressWarnings(suppressMessages(library(nextgenCrossDesign)))
-
-  # ---- read + coerce config -----------------------------------------------
-  raw <- jsonlite::fromJSON(config_path, simplifyVector = TRUE,
-                            simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
-  if (!is.list(raw)) stop("Config JSON must be a single object of parameters.", call. = FALSE)
-
-  # Polyploid design is a separate entry point (ng_polyploid_design_crosses): any
-  # ploidy, dosage 0..ploidy, optional additive+dominance scoring, no map.
-  if (identical(raw$workflow %||% "cross_prediction", "polyploid_design")) {
-    run_polyploid_design(raw, result_path)
-    return(invisible())
-  }
-  # Disomic-subgenome (true allopolyploid): each subgenome diploid, split by a map column.
-  if (identical(raw$workflow %||% "cross_prediction", "subgenome_design")) {
-    run_subgenome_design(raw, result_path)
-    return(invisible())
-  }
-
+# ===========================================================================
+# ngcd_coerce_backend_args(): the wrapper's config -> backend-arg translation.
+# Drops meta keys (fields the UI/dispatcher may include that are NOT
+# ng_run_cross_prediction() formals) and unknown formals (with a warning),
+# coerces "Inf"/"-Inf" strings, and reshapes the advanced object-params
+# (committed_crosses, marker_target_spec, lethal_spec, trait_checks,
+# parent_group, group_quota, trait_weights, cross_cost, group_permission)
+# from JSON-native lists into the data.frame / named-vector / matrix shapes
+# the backend expects. Shared by the full ng_run_cross_prediction() path and
+# the workflow="stage" (ng_run_stage()) path so both dispatch through
+# identical arg handling.
+# ===========================================================================
+ngcd_coerce_backend_args <- function(raw) {
   formals_list <- names(formals(nextgenCrossDesign::ng_run_cross_prediction))
 
-  # Meta keys the UI may include that are NOT backend formals.
+  # Meta keys the UI/dispatcher may include that are NOT backend formals.
   meta_keys <- c("schema", "entrypoint", "runner", "note", "run_label", "run_id", "crop",
                  "cross_number_mode", "cross_sweep_k_min", "cross_sweep_k_max",
                  "cross_sweep_k_step", "cross_sweep_criterion",
@@ -392,7 +375,8 @@ run <- function() {
                  "robust_top_n_target",
                  "family_size_total_progeny", "family_size_min", "family_size_max",
                  "multitrait_joint_prob", "multitrait_targets",
-                 "pareto_explore", "pareto_lambdas")
+                 "pareto_explore", "pareto_lambdas",
+                 "workflow", "run_dir", "stage")
   supplied  <- setdiff(names(raw), meta_keys)
   unknown   <- setdiff(supplied, formals_list)
   if (length(unknown)) {
@@ -405,6 +389,12 @@ run <- function() {
   args_in <- args_in[!vapply(args_in, function(v) {
     is.null(v) || (is.character(v) && length(v) == 1L && !nzchar(v))
   }, logical(1))]
+  # NOTE: keys omitted from args_in here are meant to be resolved by R's own
+  # default-argument mechanism when args_in is passed to
+  # do.call(nextgenCrossDesign::ng_run_cross_prediction, args_in) -- this
+  # function intentionally returns a *sparse* list. See
+  # ngcd_full_backend_config() below for the staged-pipeline path, which
+  # needs every formal filled in explicitly.
 
   # Numeric infinities may arrive as the string "Inf".
   for (nm in names(args_in)) {
@@ -469,83 +459,54 @@ run <- function() {
     args_in$group_permission <- m
   }
 
-  # ---- ensure an output directory exists when writing artifacts ------------
-  wants_outputs <- isTRUE(args_in$write_outputs) || isTRUE(args_in$write_figures)
-  if (wants_outputs && is.null(args_in$output_dir)) {
-    args_in$output_dir <- dirname(normalizePath(result_path, mustWork = FALSE))
-  }
-  if (!is.null(args_in$output_dir) && !dir.exists(args_in$output_dir)) {
-    dir.create(args_in$output_dir, recursive = TRUE, showWarnings = FALSE)
-  }
+  args_in
+}
 
-  # ---- run backend ---------------------------------------------------------
-  # Cross-number mode: "fixed" (default) uses n_crosses as given. "auto" sweeps a
-  # range of K with ng_optimize_mating_plan_curve(), picks the diminishing-returns
-  # elbow, and returns the final plan at that recommended K plus the whole curve.
-  cross_mode <- raw$cross_number_mode %||% "fixed"
-  have_sweep <- exists("ng_optimize_mating_plan_curve", where = asNamespace("nextgenCrossDesign")) &&
-                exists("ng_parent_kinship", where = asNamespace("nextgenCrossDesign"))
-  sweep_out <- NULL
-  sweep_err <- NULL
+# ===========================================================================
+# ngcd_full_backend_config(): expand a sparse ngcd_coerce_backend_args() list
+# into a FULLY populated ng_run_cross_prediction() formal list (one entry per
+# formal, defaults filled in for anything the caller omitted).
+#
+# ng_run_cross_prediction() itself does this internally
+# (config <- mget(names(formals()))) before handing the config to the
+# staged-pipeline machinery (ng_cp__build_ctx() etc.), relying on R's normal
+# default-argument resolution: do.call(ng_run_cross_prediction, args_in) fills
+# in any formal args_in omits. But ng_run_stage()'s "qc" entry point calls
+# ng_cp__build_ctx(config) directly on whatever config is handed to it -- it
+# does NOT fall back to ng_run_cross_prediction()'s defaults for missing keys
+# (e.g. a missing method_varPMV fails deep inside with "argument is of length
+# zero" rather than defaulting to "fast"). So the workflow="stage" path needs
+# the fully-expanded config, not the sparse do.call-style list.
+#
+# Implemented via a shim function that literally shares
+# ng_run_cross_prediction()'s formals (so every default expression is
+# whatever that function currently declares -- this can never drift out of
+# sync) and returns mget(names(formals())), exactly mirroring what
+# ng_run_cross_prediction() does in its own first line.
+# ===========================================================================
+ngcd_full_backend_config <- function(args_in) {
+  ff <- formals(nextgenCrossDesign::ng_run_cross_prediction)
+  shim <- function() NULL
+  formals(shim) <- ff
+  body(shim) <- quote(mget(names(formals()), envir = environment()))
+  environment(shim) <- environment(nextgenCrossDesign::ng_run_cross_prediction)
+  do.call(shim, args_in)
+}
 
-  if (identical(cross_mode, "auto") && have_sweep) {
-    k_min  <- as.integer(raw$cross_sweep_k_min %||% 3L)
-    k_max  <- as.integer(raw$cross_sweep_k_max %||% max(k_min + 2L, as.integer(args_in$n_crosses %||% 20L)))
-    k_step <- max(1L, as.integer(raw$cross_sweep_k_step %||% 1L))
-    if (k_max < k_min) { tmp <- k_min; k_min <- k_max; k_max <- tmp }
-    K_range <- as.integer(seq(k_min, k_max, by = k_step))
-    if (length(K_range) < 2L) K_range <- as.integer(unique(c(k_min, k_max)))
-
-    # 1. Full run at K_max scores every candidate cross.
-    args_full <- args_in; args_full$n_crosses <- max(K_range)
-    run_full  <- do.call(nextgenCrossDesign::ng_run_cross_prediction, args_full)
-
-    # 2. Sweep the mating-plan portfolio over K and locate the elbow.
-    parent_kinship <- tryCatch(nextgenCrossDesign::ng_parent_kinship(run_full$cleaned_data$genotype),
-                         error = function(e) NULL)
-    curve <- tryCatch(nextgenCrossDesign::ng_optimize_mating_plan_curve(
-      scores                 = run_full$candidate_crosses,
-      K_range                = K_range,
-      gain_col               = "multi_trait_score",
-      parent_kinship               = parent_kinship,
-      max_crosses_per_parent = args_in$max_crosses_per_parent %||% 6L,  # match ng_run_cross_prediction's default; NULL breaks the allocator
-      max_pair_kinship       = args_in$max_pair_kinship %||% Inf,
-      lambda_group           = args_in$lambda_group %||% 0.05,
-      lambda_mating          = args_in$lambda_mating %||% 0.02,
-      lambda_parent_use      = args_in$lambda_parent_use %||% 0,
-      lambda_parent_use_mode = args_in$lambda_parent_use_mode %||% "absolute",
-      method                 = "greedy_local",
-      local_iter             = args_in$local_iter %||% 2000,
-      ocs_iter               = args_in$ocs_iter %||% 5,
-      criterion              = raw$cross_sweep_criterion %||% "elbow_relative",
-      relative_threshold     = as.numeric(raw$cross_sweep_relative_threshold %||% 0.05),
-      ne_min                 = as.numeric(raw$cross_sweep_ne_min %||% 30),
-      coancestry_max         = as.numeric(raw$cross_sweep_coancestry_max %||% 0.05)),
-      error = function(e) { sweep_err <<- conditionMessage(e); NULL })
-
-    if (!is.null(curve)) {
-      elbow_K <- attr(curve, "elbow_K")
-      if (is.null(elbow_K) || !is.finite(elbow_K)) elbow_K <- max(K_range)
-      elbow_K <- as.integer(elbow_K)
-      sweep_out <- list(
-        curve         = as.data.frame(curve),
-        recommended_k = elbow_K,
-        criterion     = attr(curve, "criterion") %||% (raw$cross_sweep_criterion %||% "elbow_relative"),
-        k_range       = K_range)
-      # 3. Final plan at the recommended K (reuse the K_max run if they match).
-      if (identical(elbow_K, as.integer(max(K_range)))) {
-        result <- run_full
-      } else {
-        args_final <- args_in; args_final$n_crosses <- elbow_K
-        result <- do.call(nextgenCrossDesign::ng_run_cross_prediction, args_final)
-      }
-    } else {
-      result <- run_full   # sweep failed: fall back to the K_max plan
-      if (!is.null(sweep_err)) sweep_out <- list(error = sweep_err, k_range = K_range)
-    }
-  } else {
-    result <- do.call(nextgenCrossDesign::ng_run_cross_prediction, args_in)
-  }
+# ===========================================================================
+# emit_run_result(): given an assembled backend result list (the shape
+# ng_run_cross_prediction() / ng_cp__assemble_result() return), the raw
+# config, and the destination path -- runs the post-run add-ons (robust
+# posterior re-optimization, crop-aware recommendation, family-size
+# allocation, multi-trait joint probability, Pareto frontier explorer),
+# assembles the ng_run_result.v1 envelope, and writes it (plus the optional
+# capability registry) to disk. Shared by the full-run path and the
+# workflow="stage" path's terminal stage="rank" call so both emit an
+# identical envelope shape for the same underlying result.
+# ===========================================================================
+emit_run_result <- function(result, raw, result_path) {
+  args_in <- ngcd_coerce_backend_args(raw)
+  sweep_out <- attr(result, "cross_number_sweep")
 
   # ---- optional robust posterior re-optimization ---------------------------
   # When posterior prediction ran, re-optimize the plan on a pessimistic
@@ -790,6 +751,144 @@ run <- function() {
   }
 
   cat("OK: wrote", result_path, "\n")
+}
+
+run <- function() {
+  if (!file.exists(config_path)) {
+    stop("Config file not found: ", config_path, call. = FALSE)
+  }
+
+  # ---- load backend --------------------------------------------------------
+  if (!requireNamespace("nextgenCrossDesign", quietly = TRUE)) {
+    stop("The 'nextgenCrossDesign' package is not installed / not on the library path. ",
+         "Install it into the library this Rscript uses, or set 'package_library' in config.yml.",
+         call. = FALSE)
+  }
+  suppressWarnings(suppressMessages(library(nextgenCrossDesign)))
+
+  # ---- read + coerce config -----------------------------------------------
+  raw <- jsonlite::fromJSON(config_path, simplifyVector = TRUE,
+                            simplifyDataFrame = FALSE, simplifyMatrix = FALSE)
+  if (!is.list(raw)) stop("Config JSON must be a single object of parameters.", call. = FALSE)
+
+  # Polyploid design is a separate entry point (ng_polyploid_design_crosses): any
+  # ploidy, dosage 0..ploidy, optional additive+dominance scoring, no map.
+  if (identical(raw$workflow %||% "cross_prediction", "polyploid_design")) {
+    run_polyploid_design(raw, result_path)
+    return(invisible())
+  }
+  # Disomic-subgenome (true allopolyploid): each subgenome diploid, split by a map column.
+  if (identical(raw$workflow %||% "cross_prediction", "subgenome_design")) {
+    run_subgenome_design(raw, result_path)
+    return(invisible())
+  }
+  # Staged pipeline: drive a single stage (qc/predict/index/allocate/rank) over
+  # a shared run_dir. The terminal "rank" stage carries the fully assembled
+  # result (as an attribute -- see ng_run_stage()'s source), which is emitted
+  # through the exact same envelope path as a full run so the two are
+  # byte-identical for the same config. Non-terminal stages just echo the
+  # backend's per-stage status/manifest JSON as-is.
+  if (identical(raw$workflow %||% "cross_prediction", "stage")) {
+    args_in <- ngcd_coerce_backend_args(raw)
+    stage_config <- ngcd_full_backend_config(args_in)
+    out <- nextgenCrossDesign::ng_run_stage(raw$stage, raw$run_dir, stage_config)
+    if (identical(raw$stage, "rank")) {
+      emit_run_result(attr(out, "result") %||% out$result, raw, result_path)
+    } else {
+      jsonlite::write_json(out, result_path, auto_unbox = TRUE, null = "null",
+                           na = "null", dataframe = "rows", pretty = TRUE, digits = 10)
+      cat("OK: wrote", result_path, "(stage:", raw$stage, ")\n")
+    }
+    return(invisible())
+  }
+
+  args_in <- ngcd_coerce_backend_args(raw)
+
+  # ---- ensure an output directory exists when writing artifacts ------------
+  wants_outputs <- isTRUE(args_in$write_outputs) || isTRUE(args_in$write_figures)
+  if (wants_outputs && is.null(args_in$output_dir)) {
+    args_in$output_dir <- dirname(normalizePath(result_path, mustWork = FALSE))
+  }
+  if (!is.null(args_in$output_dir) && !dir.exists(args_in$output_dir)) {
+    dir.create(args_in$output_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+
+  # ---- run backend ---------------------------------------------------------
+  # Cross-number mode: "fixed" (default) uses n_crosses as given. "auto" sweeps a
+  # range of K with ng_optimize_mating_plan_curve(), picks the diminishing-returns
+  # elbow, and returns the final plan at that recommended K plus the whole curve.
+  cross_mode <- raw$cross_number_mode %||% "fixed"
+  have_sweep <- exists("ng_optimize_mating_plan_curve", where = asNamespace("nextgenCrossDesign")) &&
+                exists("ng_parent_kinship", where = asNamespace("nextgenCrossDesign"))
+  sweep_out <- NULL
+  sweep_err <- NULL
+
+  if (identical(cross_mode, "auto") && have_sweep) {
+    k_min  <- as.integer(raw$cross_sweep_k_min %||% 3L)
+    k_max  <- as.integer(raw$cross_sweep_k_max %||% max(k_min + 2L, as.integer(args_in$n_crosses %||% 20L)))
+    k_step <- max(1L, as.integer(raw$cross_sweep_k_step %||% 1L))
+    if (k_max < k_min) { tmp <- k_min; k_min <- k_max; k_max <- tmp }
+    K_range <- as.integer(seq(k_min, k_max, by = k_step))
+    if (length(K_range) < 2L) K_range <- as.integer(unique(c(k_min, k_max)))
+
+    # 1. Full run at K_max scores every candidate cross.
+    args_full <- args_in; args_full$n_crosses <- max(K_range)
+    run_full  <- do.call(nextgenCrossDesign::ng_run_cross_prediction, args_full)
+
+    # 2. Sweep the mating-plan portfolio over K and locate the elbow.
+    parent_kinship <- tryCatch(nextgenCrossDesign::ng_parent_kinship(run_full$cleaned_data$genotype),
+                         error = function(e) NULL)
+    curve <- tryCatch(nextgenCrossDesign::ng_optimize_mating_plan_curve(
+      scores                 = run_full$candidate_crosses,
+      K_range                = K_range,
+      gain_col               = "multi_trait_score",
+      parent_kinship               = parent_kinship,
+      max_crosses_per_parent = args_in$max_crosses_per_parent %||% 6L,  # match ng_run_cross_prediction's default; NULL breaks the allocator
+      max_pair_kinship       = args_in$max_pair_kinship %||% Inf,
+      lambda_group           = args_in$lambda_group %||% 0.05,
+      lambda_mating          = args_in$lambda_mating %||% 0.02,
+      lambda_parent_use      = args_in$lambda_parent_use %||% 0,
+      lambda_parent_use_mode = args_in$lambda_parent_use_mode %||% "absolute",
+      method                 = "greedy_local",
+      local_iter             = args_in$local_iter %||% 2000,
+      ocs_iter               = args_in$ocs_iter %||% 5,
+      criterion              = raw$cross_sweep_criterion %||% "elbow_relative",
+      relative_threshold     = as.numeric(raw$cross_sweep_relative_threshold %||% 0.05),
+      ne_min                 = as.numeric(raw$cross_sweep_ne_min %||% 30),
+      coancestry_max         = as.numeric(raw$cross_sweep_coancestry_max %||% 0.05)),
+      error = function(e) { sweep_err <<- conditionMessage(e); NULL })
+
+    if (!is.null(curve)) {
+      elbow_K <- attr(curve, "elbow_K")
+      if (is.null(elbow_K) || !is.finite(elbow_K)) elbow_K <- max(K_range)
+      elbow_K <- as.integer(elbow_K)
+      sweep_out <- list(
+        curve         = as.data.frame(curve),
+        recommended_k = elbow_K,
+        criterion     = attr(curve, "criterion") %||% (raw$cross_sweep_criterion %||% "elbow_relative"),
+        k_range       = K_range)
+      # 3. Final plan at the recommended K (reuse the K_max run if they match).
+      if (identical(elbow_K, as.integer(max(K_range)))) {
+        result <- run_full
+      } else {
+        args_final <- args_in; args_final$n_crosses <- elbow_K
+        result <- do.call(nextgenCrossDesign::ng_run_cross_prediction, args_final)
+      }
+    } else {
+      result <- run_full   # sweep failed: fall back to the K_max plan
+      if (!is.null(sweep_err)) sweep_out <- list(error = sweep_err, k_range = K_range)
+    }
+  } else {
+    result <- do.call(nextgenCrossDesign::ng_run_cross_prediction, args_in)
+  }
+
+  # Carry the cross-number sweep result (if any) alongside `result` so
+  # emit_run_result() -- which only takes (result, raw, result_path) and is
+  # shared with the workflow="stage" terminal-rank path -- can still surface
+  # it in the payload without needing its own parameter.
+  attr(result, "cross_number_sweep") <- sweep_out
+
+  emit_run_result(result, raw, result_path)
 }
 
 tryCatch(run(), error = function(e) {
