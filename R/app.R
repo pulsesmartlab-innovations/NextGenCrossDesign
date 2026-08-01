@@ -1661,7 +1661,7 @@ workbench_server <- function(cfg) {
       if (!data_ready()) { shiny::showNotification("Load all four data tables first.", type = "error"); return() }
       b <- rv$backend
       if (is.null(b) || !isTRUE(b$backend_installed)) { shiny::showNotification("Backend not ready.", type = "error"); return() }
-      upstream <- c(predict = "qc", index = "predict")[[stage]]
+      upstream <- switch(stage, predict = "qc", index = "predict", NULL)
       if (!is.null(upstream) && !identical(ngcd_stage_status(upstream), "done")) {
         shiny::showNotification(paste0("Run the ", upstream, " stage first."), type = "error"); return() }
       if (is.null(rv$pipeline$run_dir)) rv$pipeline$run_dir <- ngcd_new_pipeline_dir(cfg)
