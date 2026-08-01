@@ -36,6 +36,23 @@ ngcd_guide <- function(stage, title, body, next_hint = NULL, open = FALSE) {
   do.call(shiny::tags$details, args)
 }
 
+# A collapsible "Figure" disclosure shown at an activity screen, collapsed by
+# default. Sibling of ngcd_guide() above, but styled/classed distinctly
+# (ndsu-figtag, NOT ndsu-guide) so the "Show guided tour" toggle
+# (ngcdToggleGuides(), which targets details.ndsu-guide) leaves it alone.
+# Body is always a uiOutput(output_id) - the server decides plot-vs-note
+# based on the stage's run status, so this helper never has to know whether
+# the stage has actually run yet.
+ngcd_figure_tag <- function(output_id, label = "Figure", height = "340px", desc = NULL, open = FALSE) {
+  args <- list(class = "ndsu-figtag",
+    shiny::tags$summary(shiny::span(class = "figtag-chip", "Figure"), " ", label),
+    shiny::div(class = "figtag-body",
+      if (!is.null(desc)) shiny::div(class = "help-hint", desc),
+      shiny::uiOutput(output_id)))
+  if (isTRUE(open)) args$open <- "open"
+  do.call(shiny::tags$details, args)
+}
+
 ngcd_guess_col <- function(cols, candidates) {
   hit <- which(tolower(cols) %in% tolower(candidates))
   if (length(hit)) cols[hit[1]] else NULL
