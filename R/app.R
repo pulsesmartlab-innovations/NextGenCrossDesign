@@ -214,7 +214,9 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::numericInput("ld_window", "Window", 100, min = 1),
               shiny::numericInput("ld_r2_threshold", "r^2 threshold", 0.9, min = 0, max = 1, step = 0.01),
               shiny::numericInput("ld_maf_threshold", "MAF threshold", 0.01, min = 0, max = 0.5, step = 0.01),
-              shiny::selectInput("ld_backend", "Backend", ngcd_control_choices(cfg$backend_registry, "ld_backend", c("auto","cpp","r")))))))))),
+              shiny::selectInput("ld_backend", "Backend", ngcd_control_choices(cfg$backend_registry, "ld_backend", c("auto","cpp","r")))))),
+        shiny::hr(),
+        shiny::uiOutput("run_qc_ui"))))),
 
       bslib::nav_panel("Configure",
         bslib::navset_tab(
@@ -258,7 +260,9 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::tags$b("Threshold handling"),
             shiny::selectInput("threshold_policy", "Threshold policy", ngcd_control_choices(cfg$backend_registry, "threshold_policy", c("soft","strict"))),
             shiny::numericInput("threshold_penalty_weight", "Threshold penalty weight", 1, min = 0, step = 0.1),
-            shiny::checkboxInput("threshold_penalty_autoscale", "Autoscale threshold penalty", TRUE)))),
+            shiny::checkboxInput("threshold_penalty_autoscale", "Autoscale threshold penalty", TRUE))),
+        shiny::hr(),
+        shiny::uiOutput("run_index_ui")),
           bslib::nav_panel("Prediction & scoring",
         ngcd_section("Trait value, variance & breeding system"),
         ngcd_guide("Configure", "Prediction & scoring", shiny::tagList(
@@ -313,7 +317,9 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::conditionalPanel("input.ril_mode == 'finite'",
                 shiny::numericInput("nselfing", "Number of selfing generations", 8, min = 1, step = 1)),
               shiny::uiOutput("ril_note")),
-            shiny::checkboxInput("assume_inbred", "Assume inbred parents", TRUE)))),
+            shiny::checkboxInput("assume_inbred", "Assume inbred parents", TRUE))),
+        shiny::hr(),
+        shiny::uiOutput("run_predict_ui")),
           bslib::nav_panel("Cross filters & genetic constraints",
         ngcd_guide("Configure", "Cross filters & genetic constraints", shiny::tagList(
           shiny::tags$p("Screen candidate crosses before allocation - flag or drop weak ones, steer toward useful alleles, and guard against lethal combinations."),
@@ -550,7 +556,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::div(shiny::actionButton("load_preset", "Load profile", class = "btn-ndsu"))),
             shiny::fileInput("upload_settings", "...or load a .json file", accept = ".json"))),
         bslib::card(
-          shiny::actionButton("run", "Run cross prediction", class = "btn-run", width = "260px"),
+          shiny::uiOutput("run_button_ui"),
           shiny::uiOutput("run_gate"),
           shiny::uiOutput("error_panel"),
           shiny::tags$hr(), shiny::tags$b("Runner log"),
@@ -1312,6 +1318,15 @@ workbench_server <- function(cfg) {
         if (length(msgs)) return(ngcd_callout(kind = "warn", shiny::tags$ul(lapply(msgs, shiny::tags$li))))
         return(ngcd_callout("Ready to run the polyploid design. Click the button above."))
       }
+      # Staged pipeline (Task 3): a QC blocker hard-stops the standard workflow.
+      # Surface the blocker issues here; the Run/downstream buttons render
+      # disabled while qc is blocked (warnings do NOT block).
+      if (identical(rv$pipeline$stages$qc$status, "blocked")) {
+        iss <- rv$pipeline$stages$qc$json$issues
+        return(ngcd_callout(kind = "error",
+          shiny::tags$b("QC blocked the run - resolve these before continuing:"),
+          ngcd_qc_issue_list(iss)))
+      }
       if (!data_ready()) msgs <- c(msgs, "All four data tables must be loaded.")
       if (is.null(b) || !isTRUE(b$backend_installed)) msgs <- c(msgs, "Backend is not ready (backend package not installed - check your deployment/config.yml).")
       d <- align_diag()
@@ -1467,6 +1482,40 @@ workbench_server <- function(cfg) {
         seed = input$seed, write_outputs = FALSE, write_figures = FALSE)
     }
 
+    # Reconcile the loaded standard-workflow tables for a run: restrict to
+    # markers/ids shared across genotype/map/phenotype and drop non-inbred
+    # parents, per the Data-screen toggles. Factored out of do_run() so the
+    # staged-pipeline "Run QC" button materializes the SAME data the one-shot
+    # standard run does. Poly/subgenome keep their own reconciliation inside
+    # do_run(). Emits the same breeder-facing notifications as before.
+    reconciled_run_data <- function(force_drop_het = FALSE) {
+      run_data <- rv$data
+      d <- align_diag()
+      if (is.null(d)) return(run_data)
+      if (isTRUE(input$restrict_shared_markers) && (length(d$miss_map) || length(d$extra_map))) {
+        shared <- intersect(d$gmark, d$mmark)
+        run_data$genotype <- run_data$genotype[, c(d$gid, intersect(names(run_data$genotype), shared)), drop = FALSE]
+        run_data$map <- run_data$map[trimws(as.character(run_data$map[[d$mcol]])) %in% shared, , drop = FALSE]
+        shiny::showNotification(
+          paste0("Restricted to ", length(shared), " shared markers (dropped ",
+                 length(d$miss_map), " from genotype, ", length(d$extra_map), " from map)."),
+          type = "warning")
+      }
+      if (isTRUE(input$restrict_shared_ids) && length(d$miss_pheno)) {
+        shared <- intersect(d$gids, d$pids)
+        run_data$genotype  <- run_data$genotype[trimws(as.character(run_data$genotype[[d$gid]])) %in% shared, , drop = FALSE]
+        run_data$phenotype <- run_data$phenotype[trimws(as.character(run_data$phenotype[[d$pid]])) %in% shared, , drop = FALSE]
+        shiny::showNotification(paste0("Restricted to ", length(shared), " shared parents for this run."), type = "warning")
+      }
+      if ((isTRUE(input$drop_noninbred_parents) || isTRUE(force_drop_het)) && length(d$het_ids)) {
+        drop <- d$het_ids
+        run_data$genotype  <- run_data$genotype[!trimws(as.character(run_data$genotype[[d$gid]])) %in% drop, , drop = FALSE]
+        run_data$phenotype <- run_data$phenotype[!trimws(as.character(run_data$phenotype[[d$pid]])) %in% drop, , drop = FALSE]
+        shiny::showNotification(paste0("Dropped ", length(drop), " non-inbred parents for this run."), type = "warning")
+      }
+      run_data
+    }
+
     do_run <- function(force_drop_het = FALSE) {
       if (!data_ready()) {
         shiny::showNotification(if (is_poly()) "Load a dosage file and a phenotype file first."
@@ -1489,32 +1538,10 @@ workbench_server <- function(cfg) {
         params <- build_params()
         pm <- ngcd_objective_backend(input$objective_mode, input$single_trait, full_trait_set(), input$index_col)$prediction_mode
         label  <- paste0(pm, "_", input$optimizer)
-        # Optional reconciliation: drop unmapped markers / unphenotyped parents.
-        run_data <- rv$data
-        d <- align_diag()
-        if (!is.null(d)) {
-          if (isTRUE(input$restrict_shared_markers) && (length(d$miss_map) || length(d$extra_map))) {
-            shared <- intersect(d$gmark, d$mmark)
-            run_data$genotype <- run_data$genotype[, c(d$gid, intersect(names(run_data$genotype), shared)), drop = FALSE]
-            run_data$map <- run_data$map[trimws(as.character(run_data$map[[d$mcol]])) %in% shared, , drop = FALSE]
-            shiny::showNotification(
-              paste0("Restricted to ", length(shared), " shared markers (dropped ",
-                     length(d$miss_map), " from genotype, ", length(d$extra_map), " from map)."),
-              type = "warning")
-          }
-          if (isTRUE(input$restrict_shared_ids) && length(d$miss_pheno)) {
-            shared <- intersect(d$gids, d$pids)
-            run_data$genotype  <- run_data$genotype[trimws(as.character(run_data$genotype[[d$gid]])) %in% shared, , drop = FALSE]
-            run_data$phenotype <- run_data$phenotype[trimws(as.character(run_data$phenotype[[d$pid]])) %in% shared, , drop = FALSE]
-            shiny::showNotification(paste0("Restricted to ", length(shared), " shared parents for this run."), type = "warning")
-          }
-          if ((isTRUE(input$drop_noninbred_parents) || isTRUE(force_drop_het)) && length(d$het_ids)) {
-            drop <- d$het_ids
-            run_data$genotype  <- run_data$genotype[!trimws(as.character(run_data$genotype[[d$gid]])) %in% drop, , drop = FALSE]
-            run_data$phenotype <- run_data$phenotype[!trimws(as.character(run_data$phenotype[[d$pid]])) %in% drop, , drop = FALSE]
-            shiny::showNotification(paste0("Dropped ", length(drop), " non-inbred parents for this run."), type = "warning")
-          }
-        }
+        # Optional reconciliation: drop unmapped markers / unphenotyped parents /
+        # non-inbred parents. Shared with the staged-pipeline qc run (see
+        # reconciled_run_data()).
+        run_data <- reconciled_run_data(force_drop_het)
       }
 
       out <- ngcd_run_backend(cfg, params, data = run_data, label = label, progress = prog)
@@ -1559,7 +1586,220 @@ workbench_server <- function(cfg) {
         shiny::showNotification("Run failed - see the debug panel on the Run screen.", type = "error", duration = NULL)
       }
     }
-    shiny::observeEvent(input$run, do_run())
+    # =====================================================================
+    # Staged pipeline (Phase 2, Task 3): MANUAL per-stage run buttons + the
+    # standard-workflow "Allocate & rank" driver (do_run_pipeline). Nothing
+    # auto-runs: each button is enabled only once its upstream stage is done.
+    # =====================================================================
+
+    # ngcd_run_stage() gives us out$status ("blocker" only for qc; "done" for
+    # the rest) + out$ok; collapse to the pipeline's own status vocabulary.
+    pipeline_status_of <- function(out) {
+      if (!isTRUE(out$ok)) return("error")
+      if (identical(out$status, "blocker")) return("blocked")
+      "done"
+    }
+
+    ngcd_stage_status <- function(stage) rv$pipeline$stages[[stage]]$status %||% "stale"
+
+    # done/stale/blocked/error badge for a stage's status line.
+    stage_status_badge <- function(stage) {
+      spec <- switch(ngcd_stage_status(stage),
+        done    = list("done ✓",    "ok"),
+        blocked = list("blocked ✗", "error"),
+        error   = list("error ✗",   "error"),
+        running = list("running…",  "info"),
+        list("stale ↻", "warn"))
+      ngcd_badge(spec[[1]], kind = spec[[2]])
+    }
+
+    # Render a button disabled (no shinyjs) when the condition holds. The
+    # actionButton() calls themselves stay inline in each renderUI below so the
+    # run_qc / run_predict / run_index input IDs are literally declared once.
+    disable_if <- function(btn, disabled)
+      if (isTRUE(disabled)) shiny::tagAppendAttributes(btn, disabled = NA) else btn
+
+    # QC issues (a data.frame of rows, or a list) -> a bullet list of messages.
+    ngcd_qc_issue_list <- function(iss) {
+      msgs <- character(0)
+      if (is.data.frame(iss) && "message" %in% names(iss)) msgs <- as.character(iss$message)
+      else if (is.list(iss) && length(iss))
+        msgs <- vapply(iss, function(x) as.character((x$message %||% "")[1]), character(1))
+      msgs <- msgs[nzchar(msgs)]
+      if (!length(msgs)) return(NULL)
+      shiny::tags$ul(lapply(msgs, shiny::tags$li))
+    }
+
+    # Record a stage outcome onto rv$pipeline (status + the cfg subset it ran
+    # under, so the staleness observer keeps it "done" + the backend stage json).
+    record_stage_outcome <- function(stage, out, params) {
+      rv$pipeline$stages[[stage]] <- list(
+        status = pipeline_status_of(out),
+        cfg    = ngcd_stage_cfg_subset(params, stage),
+        json   = out$stage_json,
+        ran_at = Sys.time())
+      rv$runlog <- out$log
+    }
+
+    # Build the rich rv$error record used by the debug panel from a failed stage.
+    stage_error_record <- function(out) {
+      emsg <- out$error_message %||% "Unknown error."
+      dd <- tryCatch(align_diag(), error = function(e) NULL)
+      log_lines <- strsplit(out$log %||% "", "\n")[[1]]
+      list(message = emsg, hint = ngcd_error_hint(emsg),
+           het_fix = grepl("residual-heterozygosity|assume_inbred|inbred", tolower(emsg)) &&
+                     !is.null(dd) && length(dd$het_ids) > 0,
+           het_ids = if (!is.null(dd)) dd$het_ids else character(0),
+           command = "", config_path = "", run_dir = out$run_dir %||% "",
+           log_tail = paste(utils::tail(log_lines, 25), collapse = "\n"))
+    }
+
+    # Generic MANUAL single-stage runner (qc / predict / index). qc mints the
+    # persistent pipeline dir + materializes the reconciled tables; downstream
+    # stages require their upstream to be "done" and resume from the artifacts.
+    run_stage_manual <- function(stage) {
+      if (!data_ready()) { shiny::showNotification("Load all four data tables first.", type = "error"); return() }
+      b <- rv$backend
+      if (is.null(b) || !isTRUE(b$backend_installed)) { shiny::showNotification("Backend not ready.", type = "error"); return() }
+      upstream <- c(predict = "qc", index = "predict")[[stage]]
+      if (!is.null(upstream) && !identical(ngcd_stage_status(upstream), "done")) {
+        shiny::showNotification(paste0("Run the ", upstream, " stage first."), type = "error"); return() }
+      if (is.null(rv$pipeline$run_dir)) rv$pipeline$run_dir <- ngcd_new_pipeline_dir(cfg)
+      prog <- shiny::Progress$new(session); on.exit(prog$close())
+      params <- build_params()
+      data_arg <- if (identical(stage, "qc")) reconciled_run_data() else NULL
+      out <- ngcd_run_stage(cfg, stage, rv$pipeline$run_dir, params, data = data_arg, progress = prog)
+      record_stage_outcome(stage, out, params)
+      status <- ngcd_stage_status(stage)
+      if (identical(status, "blocked"))
+        shiny::showNotification("QC found blocking issues - resolve them before predicting.", type = "error", duration = NULL)
+      else if (identical(status, "error")) {
+        rv$error <- stage_error_record(out)
+        shiny::showNotification(paste0(stage, " stage failed - see the debug panel on the Run screen."), type = "error", duration = NULL)
+      } else {
+        rv$error <- NULL
+        shiny::showNotification(paste0(switch(stage, qc = "QC", predict = "Prediction & scoring", index = "Selection index"),
+                                       " complete."), type = "message")
+      }
+    }
+
+    shiny::observeEvent(input$run_qc,      run_stage_manual("qc"))
+    shiny::observeEvent(input$run_predict, run_stage_manual("predict"))
+    shiny::observeEvent(input$run_index,   run_stage_manual("index"))
+
+    # ---- per-stage button UIs (the ONLY place run_qc/run_predict/run_index
+    # input IDs are declared) ----
+    output$run_qc_ui <- shiny::renderUI({
+      b <- rv$backend
+      en <- data_ready() && !is.null(b) && isTRUE(b$backend_installed)
+      hint <- if (!en) shiny::span(class = "help-hint", "  Load data and connect the backend first.") else NULL
+      j <- rv$pipeline$stages$qc$json
+      detail <- NULL
+      if (!is.null(j)) {
+        jstatus <- j$status %||% ngcd_stage_status("qc")
+        kind <- if (identical(ngcd_stage_status("qc"), "blocked") || identical(jstatus, "blocker")) "error"
+                else if (identical(jstatus, "warning")) "warn" else "info"
+        detail <- ngcd_callout(kind = kind,
+          if (identical(kind, "info")) "QC passed - no blocking issues. Prediction is unlocked."
+          else shiny::tagList(
+            shiny::tags$b(if (identical(kind, "error")) "QC blocker(s) - fix before continuing:"
+                          else "QC warnings (you can still proceed):"),
+            ngcd_qc_issue_list(j$issues)))
+      }
+      shiny::tagList(
+        disable_if(shiny::actionButton("run_qc", "Run QC", class = "btn-ndsu"), !en),
+        shiny::div(class = "help-hint", style = "margin-top:6px;", stage_status_badge("qc"), hint),
+        detail)
+    })
+
+    output$run_predict_ui <- shiny::renderUI({
+      en <- identical(ngcd_stage_status("qc"), "done")
+      hint <- if (!en) shiny::span(class = "help-hint", "  Run QC first.") else NULL
+      shiny::tagList(
+        disable_if(shiny::actionButton("run_predict", "Fit effects & score", class = "btn-ndsu"), !en),
+        shiny::div(class = "help-hint", style = "margin-top:6px;", stage_status_badge("predict"), hint))
+    })
+
+    output$run_index_ui <- shiny::renderUI({
+      en <- identical(ngcd_stage_status("predict"), "done")
+      hint <- if (!en) shiny::span(class = "help-hint", "  Fit effects & score first.") else NULL
+      shiny::tagList(
+        disable_if(shiny::actionButton("run_index", "Build selection index", class = "btn-ndsu"), !en),
+        shiny::div(class = "help-hint", style = "margin-top:6px;", stage_status_badge("index"), hint))
+    })
+
+    # ---- the Run-screen button: one-shot for poly/subgenome, staged
+    # "Allocate & rank" for the standard workflow (disabled until index is
+    # done, and while qc is blocked). Same input id ("run") in every branch. ----
+    output$run_button_ui <- shiny::renderUI({
+      if (is_poly() || is_subgenome())
+        return(shiny::actionButton("run", "Run cross prediction", class = "btn-run", width = "260px"))
+      en <- identical(ngcd_stage_status("index"), "done") &&
+            !identical(ngcd_stage_status("qc"), "blocked")
+      btn <- shiny::actionButton("run", "Allocate & rank", class = "btn-run", width = "260px")
+      if (!en) btn <- shiny::tagAppendAttributes(btn, disabled = NA)
+      shiny::tagList(btn,
+        if (!en) shiny::div(class = "help-hint", style = "margin-top:6px;",
+          "Run QC → Fit effects & score → Build selection index first."))
+    })
+
+    # Standard-workflow driver: walk the stages that still need running (from
+    # the first non-done through rank), skipping done stages (compute-once).
+    # Stops immediately if qc is blocked; on rank success, enrich + report +
+    # navigate exactly like do_run().
+    do_run_pipeline <- function() {
+      if (!data_ready()) { shiny::showNotification("Load all four data tables first.", type = "error"); return() }
+      b <- rv$backend
+      if (is.null(b) || !isTRUE(b$backend_installed)) { shiny::showNotification("Backend not ready.", type = "error"); return() }
+      if (is.null(rv$pipeline$run_dir)) rv$pipeline$run_dir <- ngcd_new_pipeline_dir(cfg)
+      ns <- ngcd_next_stages(rv$pipeline)
+      if (isTRUE(ns$blocked)) {
+        shiny::showNotification("QC blocked the run - resolve the flagged issues first.", type = "error", duration = NULL); return() }
+      if (!length(ns$stages)) { bslib::nav_select("nav", "Results"); return() }  # already complete
+
+      prog <- shiny::Progress$new(session); on.exit(prog$close())
+      prog$set(message = "Assembling configuration...", value = 0.1)
+      params <- build_params()
+      rv$run_dir <- rv$pipeline$run_dir
+      final <- NULL
+      for (stage in ns$stages) {
+        data_arg <- if (identical(stage, "qc")) reconciled_run_data() else NULL
+        out <- ngcd_run_stage(cfg, stage, rv$pipeline$run_dir, params, data = data_arg, progress = prog)
+        record_stage_outcome(stage, out, params)
+        status <- ngcd_stage_status(stage)
+        if (identical(status, "blocked")) {
+          shiny::showNotification("QC blocked the run - see the Data quality screen.", type = "error", duration = NULL); return() }
+        if (identical(status, "error")) {
+          rv$result <- NULL; rv$error <- stage_error_record(out)
+          shiny::showNotification("Run failed - see the debug panel on the Run screen.", type = "error", duration = NULL); return() }
+        if (identical(stage, "rank")) final <- out
+      }
+      if (is.null(final)) return()
+
+      # ---- rank success: same path as do_run() ----
+      result <- ngcd_enrich_result(final$result)
+      rv$result <- result; rv$error <- NULL
+      rv$last <- format(Sys.time(), "%H:%M:%S")
+      rdir <- cfg$report_dir
+      if (!dir.exists(rdir)) dir.create(rdir, recursive = TRUE, showWarnings = FALSE)
+      rv$report_ts <- as.integer(Sys.time())
+      rv$report_error <- NULL
+      tryCatch({
+        ngcd_report_html(result, file.path(rdir, "report.html"))
+        ngcd_report_pdf(result, file.path(rdir, "report.pdf"))
+      }, error = function(e) {
+        rv$report_error <- conditionMessage(e)
+        shiny::showNotification(paste0("Run finished, but the report could not be built: ",
+          conditionMessage(e)), type = "warning", duration = NULL)
+      })
+      shiny::showNotification("Run complete.", type = "message")
+      bslib::nav_select("nav", "Results")
+    }
+
+    # Standard workflow uses the staged pipeline; poly/subgenome keep do_run().
+    shiny::observeEvent(input$run, {
+      if (is_poly() || is_subgenome()) do_run() else do_run_pipeline()
+    })
     # One-click recovery from the residual-heterozygosity block: drop the
     # flagged parents (also ticking the Data-screen box) and re-run immediately.
     shiny::observeEvent(input$fix_exclude_het, {

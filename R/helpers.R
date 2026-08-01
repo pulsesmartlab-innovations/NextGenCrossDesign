@@ -562,6 +562,26 @@ ngcd_pipeline_mark <- function(pipeline, params, data_version,
   pipeline
 }
 
+# PURE stage-walk for do_run_pipeline() (Task 3's standard "Run" button). Given
+# the current pipeline, return the ordered list of stages that must be (re)run:
+# every stage from the FIRST one whose status != "done" through "rank". Stages
+# already "done" upstream of that point are skipped (compute-once). If qc is
+# "blocked", nothing may run - return list(blocked = TRUE, stages = character(0))
+# so the caller can surface the blocker instead. If every stage is already
+# "done", stages is character(0) (nothing to do). No shiny, no I/O - unit-tested
+# in test-pipeline-run.R.
+ngcd_next_stages <- function(pipeline, stage_order = ngcd_pipeline_stage_names) {
+  stat <- function(s) (pipeline$stages[[s]]$status %||% "stale")
+  if (identical(stat("qc"), "blocked"))
+    return(list(blocked = TRUE, stages = character(0)))
+  first <- NA_integer_
+  for (i in seq_along(stage_order)) {
+    if (!identical(stat(stage_order[i]), "done")) { first <- i; break }
+  }
+  if (is.na(first)) return(list(blocked = FALSE, stages = character(0)))
+  list(blocked = FALSE, stages = stage_order[first:length(stage_order)])
+}
+
 # Record the outcome of an actual stage run (Task 3 uses this after invoking
 # ngcd_run_stage()). Not required by the pure invalidation contract above, but
 # keeps the "how do I mark a stage done" logic in one place.
