@@ -601,7 +601,12 @@ workbench_server <- function(cfg) {
     rv <- shiny::reactiveValues(backend = NULL, result = NULL, last = NULL,
                                 run_dir = NULL, runlog = NULL, error = NULL,
                                 data = list(genotype = NULL, phenotype = NULL, map = NULL, direction = NULL),
-                                edited = FALSE)
+                                edited = FALSE,
+                                # Staged pipeline (Phase 2): compute-once state + staleness. data_version
+                                # is bumped every time the input tables mutate (load/reset/cell-edit) so
+                                # ngcd_pipeline_mark() can invalidate qc..rank on a real data change
+                                # without hashing rv$data (see R/helpers.R for why: no digest/rlang dep).
+                                pipeline = ngcd_pipeline_init(), data_version = 0L)
 
     refresh_backend <- function() rv$backend <- ngcd_check_backend(cfg)
     refresh_backend()
@@ -711,6 +716,7 @@ workbench_server <- function(cfg) {
       rv$data <- list(genotype = rd(f$genotype), phenotype = rd(f$phenotype),
                       map = rd(f$map), direction = rd(f$direction))
       rv$edited <- FALSE
+      rv$data_version <- rv$data_version + 1L   # input tables mutated -> qc..rank invalidate
     }
     shiny::observeEvent(src_files(), load_data(), ignoreNULL = FALSE)
     shiny::observeEvent(input$reset_data, load_data())
@@ -878,6 +884,7 @@ workbench_server <- function(cfg) {
       df <- rv$data[[key]]; if (is.null(df)) return()
       rv$data[[key]] <- DT::editData(df, info, rownames = FALSE)
       rv$edited <- TRUE
+      rv$data_version <- rv$data_version + 1L   # input tables mutated -> qc..rank invalidate
     }
     shiny::observeEvent(input$edit_geno_cell_edit, apply_edit("genotype", input$edit_geno_cell_edit))
     shiny::observeEvent(input$edit_pheno_cell_edit, apply_edit("phenotype", input$edit_pheno_cell_edit))
@@ -1271,6 +1278,19 @@ workbench_server <- function(cfg) {
         p$alphamate_evol_stop <- input$alphamate_evol_stop
       }
       p
+    })
+
+    # Staged pipeline (Phase 2): recompute per-stage staleness whenever the
+    # standard-workflow config (build_params()) or the input-table version
+    # changes - compute-once bookkeeping consumed by Task 3's per-stage run
+    # buttons. Reads only build_params()/rv$data_version/is_poly()/is_subgenome(),
+    # never rv$pipeline itself, so assigning rv$pipeline here cannot re-trigger
+    # this same observer (no reactive loop). The poly/subgenome workflows don't
+    # use the staged pipeline, so they're skipped entirely - rv$pipeline is
+    # simply left at whatever it last was for those workflows.
+    shiny::observe({
+      if (is_poly() || is_subgenome()) return()
+      rv$pipeline <- ngcd_pipeline_mark(rv$pipeline, build_params(), rv$data_version)
     })
 
     output$run_gate <- shiny::renderUI({

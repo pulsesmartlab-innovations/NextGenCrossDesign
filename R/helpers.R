@@ -414,3 +414,146 @@ ngcd_objective_backend <- function(objective_mode, single_trait, traits, index_c
                   multi_trait_method_applies = FALSE),
     stop("Unknown objective_mode: ", objective_mode))
 }
+
+# ===========================================================================
+# Staged pipeline (Phase 2): pipeline state + config-subset invalidation.
+#
+# Deliberately dependency-light: NO hashing package (digest/rlang are not
+# declared deps for this frontend, and adding one ripples into the Docker
+# CRAN list). Staleness is decided two ways instead:
+#   - per-stage config change: identical() on the stage's own named param
+#     subset vs. the subset stored the last time that stage ran. identical()
+#     is exact for the char/number/small-vector/NULL/data.frame values that
+#     come out of build_params(), so no hash is needed.
+#   - input-table change: an integer version counter (rv$data_version in
+#     app.R) bumped whenever the loaded/edited tables mutate, compared to the
+#     version stored when a stage last ran.
+# ===========================================================================
+
+ngcd_pipeline_stage_names <- c("qc", "predict", "index", "allocate", "rank")
+
+# Stage -> vector of parameter-name patterns whose change should invalidate
+# that stage. A pattern containing "*" is a glob (matched against the whole
+# key, anchored); anything else is an exact key name. Deliberately more
+# specific than a blanket prefix in a couple of spots so a key never silently
+# lands in more than the ONE stage it actually belongs to:
+#   - lambda_marker is index-only, so allocate spells out its own lambda_*
+#     keys individually rather than using a "lambda_*" glob that would also
+#     catch lambda_marker.
+#   - min_effect_reliability is predict-only, so allocate spells out
+#     min_unique_parents / min_crosses_per_parent individually rather than a
+#     "min_*" glob that would also catch min_effect_reliability.
+# Only keys actually present in `params` end up in a stage's subset (see
+# ngcd_stage_cfg_subset()) - a pattern matching nothing simply contributes
+# nothing.
+ngcd_stage_key_patterns <- list(
+  qc = c(
+    "genotype_file", "phenotype_file", "map_file", "direction_file",
+    "genotype_id_col", "phenotype_id_col",
+    "map_marker_col", "map_chr_col", "map_pos_bp_col", "map_pos_cm_col",
+    "map_pos_cm_divisor", "map_position_unit", "bp_per_cm",
+    "direction_trait_col", "direction_column_col", "direction_direction_col",
+    "prediction_mode", "traits_to_use", "index_col", "index_direction",
+    "duplicate_*", "ld_*", "marker_ploidy", "ploidy"),
+  predict = c(
+    "training_*",
+    "trait_value_metric", "uc_variance_source", "method_varPMV",
+    "progeny", "recomb_model", "grm_method", "assume_inbred",
+    "min_effect_reliability", "selection_prop", "seed",
+    "run_posterior_prediction", "posterior_method", "n_iter", "burn_in"),
+  index = c(
+    "multi_trait_method", "trait_weights",
+    "threshold_policy", "threshold_penalty_*",
+    "lethal_spec", "drop_lethal_carrier_crosses",
+    "trait_checks", "check_basis", "exclude_threshold_violators",
+    "marker_target_spec", "lambda_marker"),
+  allocate = c(
+    "n_crosses", "max_crosses_per_parent",
+    "min_unique_parents", "min_crosses_per_parent", "max_pair_kinship",
+    "optimizer", "allocation_method", "use_ocs",
+    "lambda_group", "lambda_mating", "lambda_parent_use", "lambda_parent_use_mode",
+    "lambda_cost", "lambda_logistic",
+    "strategy", "diversity_emphasis", "target_coancestry",
+    "committed_crosses", "parent_group", "group_*",
+    "cross_cost", "cost_col", "budget", "logistic_*",
+    "alphamate_*", "evol_*", "local_iter", "ocs_iter",
+    "mate_relatedness", "mate_relatedness_weight"),
+  rank = c(
+    "priority_breaks", "priority_labels", "priority_*_weight"))
+
+# Match `keys` against a vector of glob patterns ("*" = any chars; anything
+# without "*" must match exactly). Internal helper for ngcd_stage_cfg_subset().
+ngcd_glob_match <- function(keys, patterns) {
+  hit <- rep(FALSE, length(keys))
+  for (p in patterns) {
+    if (grepl("*", p, fixed = TRUE)) {
+      rx <- paste0("^", gsub("*", ".*", p, fixed = TRUE), "$")
+      hit <- hit | grepl(rx, keys)
+    } else {
+      hit <- hit | (keys == p)
+    }
+  }
+  keys[hit]
+}
+
+# The named sub-list of `params` whose change should invalidate `stage`
+# (qc/predict/index/allocate/rank). Pure - no shiny, no I/O.
+ngcd_stage_cfg_subset <- function(params, stage) {
+  patterns <- ngcd_stage_key_patterns[[stage]]
+  if (is.null(patterns)) stop("Unknown pipeline stage: ", stage)
+  keys <- ngcd_glob_match(names(params), patterns)
+  params[keys]
+}
+
+# Initial rv$pipeline: nothing has run yet, every stage starts stale.
+ngcd_pipeline_init <- function() {
+  mk_stage <- function() list(status = "stale", cfg = NULL, json = NULL, ran_at = NULL)
+  list(run_dir = NULL, input_version = NULL,
+       stages = stats::setNames(lapply(ngcd_pipeline_stage_names, function(s) mk_stage()),
+                                 ngcd_pipeline_stage_names))
+}
+
+# PURE: recompute staleness for every stage given the CURRENT params and
+# input data_version, without ever upgrading a stage to "done" here - only an
+# actual stage RUN (ngcd_pipeline_set(), driven by Task 3's run buttons) sets
+# "done". A stage becomes (or stays) "stale" if any of:
+#   - its own config subset changed since it was last recorded (identical()
+#     against the stored `cfg`);
+#   - the input tables changed (data_version != the pipeline's stored
+#     input_version - this invalidates every stage, qc through rank);
+#   - any upstream stage is not "done" (covers stale/blocked/error alike, so
+#     a failure or edit anywhere upstream cascades downstream).
+# A stage that is currently "done", whose own subset is unchanged, with every
+# upstream stage "done", stays "done" untouched. A stage that is already
+# "stale"/"blocked"/"error" and nothing changed simply keeps that status -
+# this function never assigns "done".
+ngcd_pipeline_mark <- function(pipeline, params, data_version,
+                                stage_order = c("qc", "predict", "index", "allocate", "rank")) {
+  input_changed <- !identical(data_version, pipeline$input_version)
+  upstream_bad <- FALSE
+  for (stage in stage_order) {
+    st <- pipeline$stages[[stage]]
+    if (is.null(st)) st <- list(status = "stale", cfg = NULL, json = NULL, ran_at = NULL)
+    subset <- ngcd_stage_cfg_subset(params, stage)
+    cfg_changed <- !identical(subset, st$cfg)
+    if (cfg_changed || input_changed || upstream_bad) st$status <- "stale"
+    st$cfg <- subset
+    pipeline$stages[[stage]] <- st
+    if (!identical(st$status, "done")) upstream_bad <- TRUE
+  }
+  pipeline$input_version <- data_version
+  pipeline
+}
+
+# Record the outcome of an actual stage run (Task 3 uses this after invoking
+# ngcd_run_stage()). Not required by the pure invalidation contract above, but
+# keeps the "how do I mark a stage done" logic in one place.
+ngcd_pipeline_set <- function(pipeline, stage, status, json = NULL) {
+  st <- pipeline$stages[[stage]]
+  if (is.null(st)) st <- list(status = "stale", cfg = NULL, json = NULL, ran_at = NULL)
+  st$status <- status
+  st$json <- json
+  st$ran_at <- Sys.time()
+  pipeline$stages[[stage]] <- st
+  pipeline
+}
