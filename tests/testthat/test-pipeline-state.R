@@ -129,6 +129,70 @@ test_that("ngcd_pipeline_mark: unchanged params + same data_version keeps done s
     expect_identical(pipeline2$stages[[s]]$status, "done", info = s)
 })
 
+test_that("ngcd_pipeline_mark: changing ril_mode/nselfing marks predict+index+allocate+rank stale, qc stays done", {
+  init <- ng("ngcd_pipeline_init"); mark <- ng("ngcd_pipeline_mark")
+  p0 <- c(sample_params(), list(ril_mode = "infinite"))
+  pipeline <- done_pipeline(init, mark, p0, data_version = 1L)
+
+  p1 <- c(sample_params(), list(ril_mode = "finite", nselfing = 8L))
+  pipeline2 <- mark(pipeline, p1, data_version = 1L)
+
+  expect_identical(pipeline2$stages$qc$status, "done")
+  expect_identical(pipeline2$stages$predict$status, "stale")
+  expect_identical(pipeline2$stages$index$status, "stale")
+  expect_identical(pipeline2$stages$allocate$status, "stale")
+  expect_identical(pipeline2$stages$rank$status, "stale")
+})
+
+test_that("ngcd_pipeline_mark: changing a rank-only meta key marks ONLY rank stale", {
+  init <- ng("ngcd_pipeline_init"); mark <- ng("ngcd_pipeline_mark")
+  p0 <- c(sample_params(), list(robust_allocation = FALSE, cross_number_mode = "fixed",
+                                 multitrait_joint_prob = FALSE))
+  pipeline <- done_pipeline(init, mark, p0, data_version = 1L)
+
+  p1 <- c(sample_params(), list(robust_allocation = TRUE, cross_number_mode = "auto",
+                                 multitrait_joint_prob = TRUE))
+  pipeline2 <- mark(pipeline, p1, data_version = 1L)
+
+  expect_identical(pipeline2$stages$qc$status, "done")
+  expect_identical(pipeline2$stages$predict$status, "done")
+  expect_identical(pipeline2$stages$index$status, "done")
+  expect_identical(pipeline2$stages$allocate$status, "done")
+  expect_identical(pipeline2$stages$rank$status, "stale")
+})
+
+test_that("ngcd_stage_key_patterns: the 5-stage partition is collision-free", {
+  sub <- ng("ngcd_stage_cfg_subset")
+  # Representative full params list mirroring build_params() output, including
+  # the keys this test file exercises directly (ril_mode/nselfing, and the
+  # rank-only post-run meta keys) so the collision check isn't vacuous.
+  full <- c(sample_params(), list(
+    ril_mode = "finite", nselfing = 8L,
+    crop = "wheat", cross_number_mode = "auto",
+    cross_sweep_k_min = 3L, cross_sweep_k_max = 30L, cross_sweep_k_step = 1L,
+    cross_sweep_criterion = "elbow_relative", cross_sweep_relative_threshold = 0.05,
+    cross_sweep_ne_min = 30, cross_sweep_coancestry_max = 0.05,
+    robust_allocation = TRUE, robust_objective = "posterior_quantile",
+    robustness_quantile = 0.25, robust_top_n_target = 10L,
+    family_size_total_progeny = 200L, family_size_min = 1L, family_size_max = 50L,
+    pareto_explore = TRUE, pareto_lambdas = "0,0.5,1",
+    multitrait_joint_prob = TRUE, multitrait_targets = "yield>=5"))
+
+  stages <- c("qc", "predict", "index", "allocate", "rank")
+  subsets <- lapply(stages, function(s) names(sub(full, s)))
+  names(subsets) <- stages
+
+  all_keys <- unlist(subsets)
+  dupes <- unique(all_keys[duplicated(all_keys)])
+  expect_identical(dupes, character(0))
+
+  # Every key in the representative params list lands in at most one stage.
+  for (k in names(full)) {
+    hits <- vapply(subsets, function(s) k %in% s, logical(1))
+    expect_lte(sum(hits), 1)
+  }
+})
+
 test_that("ngcd_pipeline_mark: never upgrades a stale/blocked stage to done", {
   init <- ng("ngcd_pipeline_init"); mark <- ng("ngcd_pipeline_mark")
   p0 <- sample_params()

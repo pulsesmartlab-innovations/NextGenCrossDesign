@@ -460,7 +460,8 @@ ngcd_stage_key_patterns <- list(
     "trait_value_metric", "uc_variance_source", "method_varPMV",
     "progeny", "recomb_model", "grm_method", "assume_inbred",
     "min_effect_reliability", "selection_prop", "seed",
-    "run_posterior_prediction", "posterior_method", "n_iter", "burn_in"),
+    "run_posterior_prediction", "posterior_method", "n_iter", "burn_in",
+    "ril_mode", "nselfing"),
   index = c(
     "multi_trait_method", "trait_weights",
     "threshold_policy", "threshold_penalty_*",
@@ -478,8 +479,24 @@ ngcd_stage_key_patterns <- list(
     "cross_cost", "cost_col", "budget", "logistic_*",
     "alphamate_*", "evol_*", "local_iter", "ocs_iter",
     "mate_relatedness", "mate_relatedness_weight"),
+  # rank owns priority_* PLUS the post-run "meta" keys that
+  # ngcd_coerce_backend_args() (inst/app/tools/run_cross_prediction_json.R)
+  # strips out of the backend call entirely - they never reach qc/predict/
+  # index/allocate, they only steer the cross-number sweep, robust-allocation
+  # re-optimization, family-size allocation, multi-trait joint-prob add-on,
+  # Pareto explorer, and crop-aware recommendation stamped onto the FINAL
+  # assembled result. Changing one of these therefore invalidates ONLY rank.
   rank = c(
-    "priority_breaks", "priority_labels", "priority_*_weight"))
+    "priority_breaks", "priority_labels", "priority_*_weight",
+    "crop", "cross_number_mode",
+    "cross_sweep_k_min", "cross_sweep_k_max", "cross_sweep_k_step",
+    "cross_sweep_criterion", "cross_sweep_relative_threshold",
+    "cross_sweep_ne_min", "cross_sweep_coancestry_max",
+    "robust_allocation", "robust_objective", "robustness_quantile",
+    "robust_top_n_target",
+    "family_size_total_progeny", "family_size_min", "family_size_max",
+    "pareto_explore", "pareto_lambdas",
+    "multitrait_joint_prob", "multitrait_targets"))
 
 # Match `keys` against a vector of glob patterns ("*" = any chars; anything
 # without "*" must match exactly). Internal helper for ngcd_stage_cfg_subset().
