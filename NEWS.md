@@ -26,6 +26,11 @@
   full one-shot run, so the diminishing-returns sweep chart and the exported
   workbook/figures are produced exactly as before. Polyploid and
   disomic-subgenome designs are unchanged (they keep their single-run path).
+* Raised `required_backend_version` to **0.15.0**. The staged pipeline calls the
+  backend's new `ng_run_stage()` entry point, which does not exist before
+  backend 0.15.0, so the runtime version gate must require it — otherwise an
+  older separately-installed backend would pass the gate and then fail at call
+  time.
 
 # nextgenCrossWorkbench 0.17.4
 
