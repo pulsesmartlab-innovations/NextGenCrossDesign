@@ -54,3 +54,25 @@ test_that("ngcd_next_stages: a qc error (not blocker) restarts at qc", {
   expect_false(out$blocked)
   expect_identical(out$stages, c("qc", "predict", "index", "allocate", "rank"))
 })
+
+# ngcd_run_uses_staged(): the pure predicate routing the standard-workflow Run
+# button between the staged pipeline (TRUE) and the one-shot full run (FALSE).
+test_that("ngcd_run_uses_staged: fixed-K, no-artifact run uses the staged path", {
+  uses <- ng("ngcd_run_uses_staged")
+  expect_true(uses(list(cross_number_mode = "fixed", write_outputs = FALSE, write_figures = FALSE)))
+  expect_true(uses(list()))  # all defaults -> staged
+  expect_true(uses(list(cross_number_mode = "fixed")))
+})
+
+test_that("ngcd_run_uses_staged: auto cross-number mode falls back to the full run", {
+  uses <- ng("ngcd_run_uses_staged")
+  expect_false(uses(list(cross_number_mode = "auto")))
+  expect_false(uses(list(cross_number_mode = "auto", write_outputs = FALSE)))
+})
+
+test_that("ngcd_run_uses_staged: artifact emission (write_outputs/write_figures) falls back to the full run", {
+  uses <- ng("ngcd_run_uses_staged")
+  expect_false(uses(list(cross_number_mode = "fixed", write_outputs = TRUE)))
+  expect_false(uses(list(cross_number_mode = "fixed", write_figures = TRUE)))
+  expect_false(uses(list(write_outputs = TRUE, write_figures = TRUE)))
+})

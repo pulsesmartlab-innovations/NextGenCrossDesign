@@ -24,7 +24,7 @@ ngcd_prune_runs <- function(cfg, protect = NULL) {
   invisible(length(to_remove))
 }
 
-ngcd_new_run_dir <- function(cfg, label = NULL) {
+ngcd_new_run_dir <- function(cfg, label = NULL, protect = NULL) {
   stamp <- format(Sys.time(), "%Y%m%d-%H%M%S")
   slug  <- if (!is.null(label) && nzchar(label)) gsub("[^A-Za-z0-9_-]+", "_", label) else "run"
   # tempfile() guarantees a unique name within the session (counter + PID), so
@@ -32,7 +32,11 @@ ngcd_new_run_dir <- function(cfg, label = NULL) {
   # human-readable prefix.
   dir <- tempfile(pattern = paste0(stamp, "_", slug, "_"), tmpdir = cfg$runs_dir)
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-  ngcd_prune_runs(cfg)   # bound disk; the just-created dir is newest, never pruned
+  # Bound disk; the just-created dir is newest so never pruned. `protect` shields
+  # additional dirs from this prune -- notably an active staged-pipeline run dir,
+  # so a poly/subgenome do_run() (which mints its own dir here) cannot evict the
+  # pipeline dir the user is mid-way through.
+  ngcd_prune_runs(cfg, protect = protect)
   dir
 }
 
@@ -40,9 +44,10 @@ ngcd_new_run_dir <- function(cfg, label = NULL) {
 # stage (qc -> predict -> index -> allocate -> rank), each writing artifacts
 # into the SAME dir so later stages can resume from earlier ones (compute-once).
 # Unlike ngcd_new_run_dir(), this dir must survive the ngcd_prune_runs() call
-# that runs right after its creation (and any later prune triggered by a
-# regular ngcd_new_run_dir() call elsewhere in the session), so it is passed as
-# `protect`.
+# that runs right after its creation, so it is passed as `protect` here. A later
+# prune triggered by a regular ngcd_new_run_dir() call elsewhere in the session
+# only spares it if that call ALSO forwards this dir as `protect` -- the do_run()
+# call site does exactly that (protect = rv$pipeline$run_dir).
 ngcd_new_pipeline_dir <- function(cfg) {
   stamp <- format(Sys.time(), "%Y%m%d-%H%M%S")
   dir <- tempfile(pattern = paste0(stamp, "_pipe_"), tmpdir = cfg$runs_dir)
@@ -79,13 +84,14 @@ ngcd_materialize_inputs <- function(data, run_dir) {
 }
 
 # Run the backend. Returns ok, result, log, command, and the run paths.
-ngcd_run_backend <- function(cfg, params, data = NULL, label = NULL, progress = NULL) {
+ngcd_run_backend <- function(cfg, params, data = NULL, label = NULL, progress = NULL,
+                             protect = NULL) {
   rscript <- ngcd_resolve_rscript(cfg)
   if (is.na(rscript)) return(list(ok = FALSE, result = NULL,
     log = paste0("Rscript not found at '", cfg$rscript_path, "'. Fix rscript_path in config.yml."),
     command = "", run_dir = NA))
 
-  run_dir <- ngcd_new_run_dir(cfg, label)
+  run_dir <- ngcd_new_run_dir(cfg, label, protect = protect)
   config_path       <- file.path(run_dir, "config.json")
   result_path       <- file.path(run_dir, "result.json")
   capabilities_path <- file.path(run_dir, "backend_capabilities.json")

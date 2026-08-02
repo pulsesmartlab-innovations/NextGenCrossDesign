@@ -513,7 +513,15 @@ ngcd_stage_key_patterns <- list(
     "robust_top_n_target",
     "family_size_total_progeny", "family_size_min", "family_size_max",
     "pareto_explore", "pareto_lambdas",
-    "multitrait_joint_prob", "multitrait_targets"))
+    "multitrait_joint_prob", "multitrait_targets",
+    # Terminal output side-effects: the workbook / figures / per-trait GEBV
+    # column are written at emit time (the backend's rank stage,
+    # ng_run_cp_output_files), so changing any of them invalidates ONLY rank.
+    # (When write_outputs/write_figures is ON the Run button actually routes to
+    # the one-shot full path -- see ngcd_run_uses_staged() -- because the staged
+    # invocation never sets output_dir; but they still need a home in the
+    # partition so toggling them is never a silent no-op.)
+    "write_outputs", "write_figures", "output_file", "include_trait_gebv"))
 
 # Match `keys` against a vector of glob patterns ("*" = any chars; anything
 # without "*" must match exactly). Internal helper for ngcd_stage_cfg_subset().
@@ -597,6 +605,30 @@ ngcd_next_stages <- function(pipeline, stage_order = ngcd_pipeline_stage_names) 
   }
   if (is.na(first)) return(list(blocked = FALSE, stages = character(0)))
   list(blocked = FALSE, stages = stage_order[first:length(stage_order)])
+}
+
+# PURE routing predicate for the standard-workflow Run button: does this run go
+# through the staged pipeline (do_run_pipeline), or fall back to the one-shot
+# full run (do_run)? Two cases the staged path cannot reproduce force the full
+# path (returns FALSE):
+#   - cross_number_mode == "auto": the diminishing-returns cross-number sweep
+#     (ng_optimize_mating_plan_curve -> elbow K + the whole curve + the Results
+#     sweep chart) lives ONLY in the wrapper's non-stage full-run branch. The
+#     staged path would silently pin n_crosses at cross_sweep_k_max with no
+#     elbow and no sweep, so auto must use the full one-shot path.
+#   - write_outputs / write_figures: the backend rank stage writes the
+#     workbook/figures via ng_run_cp_output_files(), which ng_stop()s unless
+#     output_dir is set. The staged invocation path (ngcd_run_stage ->
+#     workflow="stage" wrapper branch) never sets output_dir, whereas the full
+#     run path sets output_dir = run_dir. So any run that emits artifacts must
+#     use the full path or it would error / write nothing.
+# No shiny, so the routing decision is unit-testable directly (see
+# test-pipeline-run.R). Returns TRUE for the ordinary fixed-K, no-artifact
+# staged run; FALSE when the one-shot full path is required.
+ngcd_run_uses_staged <- function(params) {
+  if (identical(params$cross_number_mode %||% "fixed", "auto")) return(FALSE)
+  if (isTRUE(params$write_outputs) || isTRUE(params$write_figures)) return(FALSE)
+  TRUE
 }
 
 # Record the outcome of an actual stage run (Task 3 uses this after invoking

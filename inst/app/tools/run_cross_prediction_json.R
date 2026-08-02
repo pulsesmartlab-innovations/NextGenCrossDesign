@@ -504,8 +504,11 @@ ngcd_full_backend_config <- function(args_in) {
 # workflow="stage" path's terminal stage="rank" call so both emit an
 # identical envelope shape for the same underlying result.
 # ===========================================================================
-emit_run_result <- function(result, raw, result_path) {
-  args_in <- ngcd_coerce_backend_args(raw)
+# `args_in` is the already-coerced ngcd_coerce_backend_args(raw) from the caller
+# (run()), passed in so we don't re-run the coercion -- and re-emit its
+# "Dropping config keys" warning -- a second time per run. Defaults to
+# re-coercing for back-compat if a caller omits it.
+emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_backend_args(raw)) {
   sweep_out <- attr(result, "cross_number_sweep")
 
   # ---- optional robust posterior re-optimization ---------------------------
@@ -793,7 +796,7 @@ run <- function() {
     stage_config <- ngcd_full_backend_config(args_in)
     out <- nextgenCrossDesign::ng_run_stage(raw$stage, raw$run_dir, stage_config)
     if (identical(raw$stage, "rank")) {
-      emit_run_result(attr(out, "result") %||% out$result, raw, result_path)
+      emit_run_result(attr(out, "result") %||% out$result, raw, result_path, args_in = args_in)
     } else {
       jsonlite::write_json(out, result_path, auto_unbox = TRUE, null = "null",
                            na = "null", dataframe = "rows", pretty = TRUE, digits = 10)
@@ -888,7 +891,7 @@ run <- function() {
   # it in the payload without needing its own parameter.
   attr(result, "cross_number_sweep") <- sweep_out
 
-  emit_run_result(result, raw, result_path)
+  emit_run_result(result, raw, result_path, args_in = args_in)
 }
 
 tryCatch(run(), error = function(e) {

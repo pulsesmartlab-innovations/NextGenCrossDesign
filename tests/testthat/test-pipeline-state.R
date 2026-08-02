@@ -161,14 +161,48 @@ test_that("ngcd_pipeline_mark: changing a rank-only meta key marks ONLY rank sta
   expect_identical(pipeline2$stages$rank$status, "stale")
 })
 
-test_that("ngcd_stage_key_patterns: the 5-stage partition is collision-free", {
-  sub <- ng("ngcd_stage_cfg_subset")
-  # Representative full params list mirroring build_params() output, including
-  # the keys this test file exercises directly (ril_mode/nselfing, and the
-  # rank-only post-run meta keys) so the collision check isn't vacuous.
-  full <- c(sample_params(), list(
-    ril_mode = "finite", nselfing = 8L,
-    crop = "wheat", cross_number_mode = "auto",
+# A representative FULL build_params() param set (R/app.R): every top-level key
+# build_params() can emit, including the conditional advanced-knob keys. Kept in
+# sync with build_params() so the partition test below fails the moment a NEW
+# config key lands in zero stages without being deliberately allow-listed.
+full_build_params <- function() {
+  c(sample_params(), list(
+    # qc-stage keys not in sample_params()
+    map_pos_cm_col = "cM", map_pos_cm_divisor = 1, ld_ploidy = 2L,
+    index_col = "index", index_direction = "increase",
+    duplicate_maf_min = 0.01, duplicate_max_missing_prop = 0.5,
+    duplicate_min_compared_markers = 50L,
+    ld_window = 100L, ld_r2_threshold = 0.9, ld_maf_threshold = 0.05, ld_backend = "auto",
+    # predict-stage keys
+    ril_mode = "finite", nselfing = 8L, method_varPMV = "fast",
+    run_posterior_prediction = TRUE, posterior_method = "mcmc", n_iter = 1000L, burn_in = 200L,
+    training_genotype_file = "tg.csv", training_phenotype_file = "tp.csv",
+    training_phenotype_id_col = "NAME",
+    # index-stage keys
+    trait_weights = c(yield = 1), threshold_penalty_autoscale = TRUE,
+    trait_checks = data.frame(trait = "yield", check = "chk", stringsAsFactors = FALSE),
+    check_basis = "gebv", exclude_threshold_violators = FALSE,
+    drop_lethal_carrier_crosses = FALSE, marker_target_spec = list(),
+    lethal_spec = list(),
+    # allocate-stage keys
+    lambda_parent_use = 0, lambda_parent_use_mode = "absolute",
+    local_iter = 2000L, ocs_iter = 5L,
+    budget = 1000, lambda_cost = 0, lambda_logistic = 0,
+    strategy = "balanced", diversity_emphasis = 0.5, target_coancestry = 0.05,
+    evol_solutions = 50L, evol_iterations = 100L, evol_stop = 20L, evol_seed = 1L,
+    alphamate_mode = "island", alphamate_target_degree = 30,
+    alphamate_max_contributions = 10L, alphamate_n_threads = 1L,
+    alphamate_runtime_path = "/opt/am", alphamate_workdir = "/tmp/am",
+    alphamate_number_of_parents = 20L, alphamate_lambda_group = 0.5,
+    alphamate_keep_files = FALSE, alphamate_lambda_grid = c(0, 1),
+    alphamate_evol_solutions = 50L, alphamate_evol_iterations = 100L, alphamate_evol_stop = 20L,
+    committed_crosses = list(parent1 = "A", parent2 = "B"),
+    parent_group = list(A = "g1"), group_quota = list(g1 = 1),
+    group_permission = matrix(TRUE, 1, 1), cross_cost = list(cost = 1),
+    cost_col = "cost", logistic_col = "log",
+    # rank-stage keys (post-run meta + terminal output side-effects)
+    crop = "wheat", priority_threshold_weight = 1,
+    cross_number_mode = "auto",
     cross_sweep_k_min = 3L, cross_sweep_k_max = 30L, cross_sweep_k_step = 1L,
     cross_sweep_criterion = "elbow_relative", cross_sweep_relative_threshold = 0.05,
     cross_sweep_ne_min = 30, cross_sweep_coancestry_max = 0.05,
@@ -176,7 +210,27 @@ test_that("ngcd_stage_key_patterns: the 5-stage partition is collision-free", {
     robustness_quantile = 0.25, robust_top_n_target = 10L,
     family_size_total_progeny = 200L, family_size_min = 1L, family_size_max = 50L,
     pareto_explore = TRUE, pareto_lambdas = "0,0.5,1",
-    multitrait_joint_prob = TRUE, multitrait_targets = "yield>=5"))
+    multitrait_joint_prob = TRUE, multitrait_targets = "yield>=5",
+    include_trait_gebv = FALSE, write_outputs = TRUE, write_figures = TRUE,
+    output_file = "crossing_plan.xlsx",
+    # execution-only / meta keys (see allow_list below)
+    use_parallel = TRUE, n_threads = 2L))
+}
+
+# Config keys that GENUINELY invalidate no stage, so may land in zero stage
+# subsets. Explicit + commented so a future new key that maps nowhere FAILS the
+# completeness assertion below instead of silently becoming a no-op.
+#   schema                 - config-schema tag, never a backend arg
+#   use_parallel/n_threads - execution-only knobs; results are deterministic
+#                            (same seed) regardless, so nothing to re-run
+#   workflow/run_dir/stage - staged-runner control keys (not emitted by a
+#                            standard build_params() run; allow-listed defensively)
+partition_allow_list <- c("schema", "use_parallel", "n_threads",
+                          "workflow", "run_dir", "stage")
+
+test_that("ngcd_stage_key_patterns: the 5-stage partition is collision-free", {
+  sub <- ng("ngcd_stage_cfg_subset")
+  full <- full_build_params()
 
   stages <- c("qc", "predict", "index", "allocate", "rank")
   subsets <- lapply(stages, function(s) names(sub(full, s)))
@@ -190,6 +244,31 @@ test_that("ngcd_stage_key_patterns: the 5-stage partition is collision-free", {
   for (k in names(full)) {
     hits <- vapply(subsets, function(s) k %in% s, logical(1))
     expect_lte(sum(hits), 1)
+  }
+})
+
+test_that("ngcd_stage_key_patterns: the partition is COMPLETE (no key invalidates nothing)", {
+  sub <- ng("ngcd_stage_cfg_subset")
+  full <- full_build_params()
+  stages <- c("qc", "predict", "index", "allocate", "rank")
+  subsets <- lapply(stages, function(s) names(sub(full, s)))
+
+  # Every key must invalidate >= 1 stage, unless it's an explicitly allow-listed
+  # non-invalidating key. A new build_params() key that maps to no stage (the
+  # write_outputs / include_trait_gebv class of bug) fails here.
+  for (k in names(full)) {
+    if (k %in% partition_allow_list) next
+    hits <- vapply(subsets, function(s) k %in% s, logical(1))
+    expect_gte(sum(hits), 1)  # informative failure: reports the orphaned key
+    if (sum(hits) < 1) message("orphaned config key (invalidates no stage): ", k)
+  }
+
+  # And the allow-list must stay honest: every allow-listed key that IS present
+  # in the param set really maps to nothing (else it should be dropped from the
+  # allow-list rather than hidden by it).
+  for (k in intersect(partition_allow_list, names(full))) {
+    hits <- vapply(subsets, function(s) k %in% s, logical(1))
+    expect_identical(sum(hits), 0L, info = k)
   }
 })
 

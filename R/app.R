@@ -1294,11 +1294,15 @@ workbench_server <- function(cfg) {
     # Staged pipeline (Phase 2): recompute per-stage staleness whenever the
     # standard-workflow config (build_params()) or the input-table version
     # changes - compute-once bookkeeping consumed by Task 3's per-stage run
-    # buttons. Reads only build_params()/rv$data_version/is_poly()/is_subgenome(),
-    # never rv$pipeline itself, so assigning rv$pipeline here cannot re-trigger
-    # this same observer (no reactive loop). The poly/subgenome workflows don't
-    # use the staged pipeline, so they're skipped entirely - rv$pipeline is
-    # simply left at whatever it last was for those workflows.
+    # buttons. This observer DOES read rv$pipeline (ngcd_pipeline_mark() takes it
+    # as input) and then writes rv$pipeline back, so in principle it depends on
+    # what it assigns. It does not loop because ngcd_pipeline_mark() is an
+    # idempotent fixpoint: for unchanged params + data_version it returns a value
+    # identical() to its input, and reactiveValues suppresses a write of an
+    # identical value (no invalidation is fired). The first tick after a real
+    # change reaches the fixpoint in one step; the write-back is then a no-op.
+    # The poly/subgenome workflows don't use the staged pipeline, so they're
+    # skipped entirely - rv$pipeline is simply left at whatever it last was.
     shiny::observe({
       if (is_poly() || is_subgenome()) return()
       rv$pipeline <- ngcd_pipeline_mark(rv$pipeline, build_params(), rv$data_version)
@@ -1549,7 +1553,11 @@ workbench_server <- function(cfg) {
         run_data <- reconciled_run_data(force_drop_het)
       }
 
-      out <- ngcd_run_backend(cfg, params, data = run_data, label = label, progress = prog)
+      # protect: never let this one-shot run's disk-pruning evict an active
+      # staged-pipeline run dir the user is mid-way through (rv$pipeline$run_dir
+      # is NULL when no staged run is in flight, which ngcd_prune_runs ignores).
+      out <- ngcd_run_backend(cfg, params, data = run_data, label = label, progress = prog,
+                              protect = rv$pipeline$run_dir)
       rv$run_dir <- out$run_dir; rv$runlog <- out$log
 
       if (isTRUE(out$ok)) {
@@ -1791,7 +1799,11 @@ workbench_server <- function(cfg) {
     # "Allocate & rank" for the standard workflow (disabled until index is
     # done, and while qc is blocked). Same input id ("run") in every branch. ----
     output$run_button_ui <- shiny::renderUI({
-      if (is_poly() || is_subgenome())
+      # poly/subgenome, and the standard-workflow full-path fallbacks (auto
+      # cross-number sweep / artifact emission), use the one-shot do_run() and
+      # so get the always-on one-click button (short-circuit keeps build_params()
+      # off the poly/subgenome path).
+      if (is_poly() || is_subgenome() || !ngcd_run_uses_staged(build_params()))
         return(shiny::actionButton("run", "Run cross prediction", class = "btn-run", width = "260px"))
       en <- identical(ngcd_stage_status("index"), "done") &&
             !identical(ngcd_stage_status("qc"), "blocked")
@@ -1856,8 +1868,13 @@ workbench_server <- function(cfg) {
     }
 
     # Standard workflow uses the staged pipeline; poly/subgenome keep do_run().
+    # The standard workflow ALSO falls back to the one-shot do_run() when the
+    # staged path cannot reproduce the run: cross_number_mode == "auto" (the
+    # diminishing-returns sweep) or write_outputs/write_figures (artifact
+    # emission). See ngcd_run_uses_staged().
     shiny::observeEvent(input$run, {
-      if (is_poly() || is_subgenome()) do_run() else do_run_pipeline()
+      if (is_poly() || is_subgenome() || !ngcd_run_uses_staged(build_params()))
+        do_run() else do_run_pipeline()
     })
     # One-click recovery from the residual-heterozygosity block: drop the
     # flagged parents (also ticking the Data-screen box) and re-run immediately.
