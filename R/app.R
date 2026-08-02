@@ -216,7 +216,8 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::numericInput("ld_maf_threshold", "MAF threshold", 0.01, min = 0, max = 0.5, step = 0.01),
               shiny::selectInput("ld_backend", "Backend", ngcd_control_choices(cfg$backend_registry, "ld_backend", c("auto","cpp","r")))))),
         shiny::hr(),
-        shiny::uiOutput("run_qc_ui"))))),
+        shiny::uiOutput("run_qc_ui"),
+        ngcd_figure_tag("fig_qc", "Duplicate genotypes", desc = "Putative-duplicate similarity from the QC run."))))),
 
       bslib::nav_panel("Configure",
         bslib::navset_tab(
@@ -262,7 +263,9 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::numericInput("threshold_penalty_weight", "Threshold penalty weight", 1, min = 0, step = 0.1),
             shiny::checkboxInput("threshold_penalty_autoscale", "Autoscale threshold penalty", TRUE))),
         shiny::hr(),
-        shiny::uiOutput("run_index_ui")),
+        shiny::uiOutput("run_index_ui"),
+        ngcd_figure_tag("fig_trait_dist", "Trait / index distribution", desc = "Live spread of your chosen trait/index in the loaded phenotype."),
+        ngcd_figure_tag("fig_index", "Computed index distribution", desc = "Distribution of the multi-trait index after Build selection index.")),
           bslib::nav_panel("Prediction & scoring",
         ngcd_section("Trait value, variance & breeding system"),
         ngcd_guide("Configure", "Prediction & scoring", shiny::tagList(
@@ -319,7 +322,8 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::uiOutput("ril_note")),
             shiny::checkboxInput("assume_inbred", "Assume inbred parents", TRUE))),
         shiny::hr(),
-        shiny::uiOutput("run_predict_ui")),
+        shiny::uiOutput("run_predict_ui"),
+        ngcd_figure_tag("fig_predict", "Trait model reliability", desc = "Cross-validation reliability per trait, from Fit & score.")),
           bslib::nav_panel("Cross filters & genetic constraints",
         ngcd_guide("Configure", "Cross filters & genetic constraints", shiny::tagList(
           shiny::tags$p("Screen candidate crosses before allocation - flag or drop weak ones, steer toward useful alleles, and guard against lethal combinations."),
@@ -505,7 +509,8 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                   bslib::layout_columns(col_widths = c(4,4,4),
                     shiny::numericInput("alphamate_evol_solutions", "Evol solutions", 100, min = 2),
                     shiny::numericInput("alphamate_evol_iterations", "Evol iterations", 1000, min = 1),
-                    shiny::numericInput("alphamate_evol_stop", "Evol stop", 200, min = 1)))))))),
+                    shiny::numericInput("alphamate_evol_stop", "Evol stop", 200, min = 1))))))),
+        ngcd_figure_tag("fig_allocate", "Gain-diversity & parent use", desc = "Frontier + parent use, from Allocate & rank.")),
           bslib::nav_panel("Export options",
         ngcd_section("Priority ranking & outputs"),
         ngcd_guide("Configure", "Export options", shiny::tagList(
@@ -1726,6 +1731,60 @@ workbench_server <- function(cfg) {
       shiny::tagList(
         disable_if(shiny::actionButton("run_index", "Build selection index", class = "btn-ndsu"), !en),
         shiny::div(class = "help-hint", style = "margin-top:6px;", stage_status_badge("index"), hint))
+    })
+
+    # ---- on-demand Figure tags (activity screens) -- each `ngcd_figure_tag()`
+    # in the UI is a collapsed <details> wrapping a bare uiOutput(); the
+    # renderUI below decides plot-vs-note from the stage status, and the
+    # inner plotlyOutput/renderPlotly pair only gets created once the stage
+    # is actually "done" (so no plotly binding dangles before a run). ----
+    output$fig_qc <- shiny::renderUI({
+      if (!identical(rv$pipeline$stages$qc$status, "done"))
+        return(shiny::div(class = "help-hint", "Run ‘Run QC’ to see this figure."))
+      plotly::plotlyOutput("fig_qc_plot", height = "340px")
+    })
+    output$fig_qc_plot <- plotly::renderPlotly({ ngcd_stage_figure("qc", rv$pipeline$stages$qc$json) })
+
+    output$fig_predict <- shiny::renderUI({
+      if (!identical(rv$pipeline$stages$predict$status, "done"))
+        return(shiny::div(class = "help-hint", "Run ‘Fit effects & score’ to see this figure."))
+      plotly::plotlyOutput("fig_predict_plot", height = "340px")
+    })
+    output$fig_predict_plot <- plotly::renderPlotly({ ngcd_stage_figure("predict", rv$pipeline$stages$predict$json) })
+
+    output$fig_index <- shiny::renderUI({
+      if (!identical(rv$pipeline$stages$index$status, "done"))
+        return(shiny::div(class = "help-hint", "Run ‘Build selection index’ to see this figure."))
+      plotly::plotlyOutput("fig_index_plot", height = "340px")
+    })
+    output$fig_index_plot <- plotly::renderPlotly({ ngcd_stage_figure("index", rv$pipeline$stages$index$json) })
+
+    # "allocate" stage returns list(frontier=, parents=) -- compute once in a
+    # reactive so the two plotlyOutputs below don't each redo the dispatch.
+    alloc_figs <- shiny::reactive({ ngcd_stage_figure("allocate", rv$pipeline$stages$allocate$json) })
+    output$fig_allocate <- shiny::renderUI({
+      if (!identical(rv$pipeline$stages$allocate$status, "done"))
+        return(shiny::div(class = "help-hint", "Run ‘Allocate & rank’ to see this figure."))
+      shiny::tagList(
+        plotly::plotlyOutput("fig_allocate_frontier", height = "340px"),
+        plotly::plotlyOutput("fig_allocate_parents", height = "340px"))
+    })
+    output$fig_allocate_frontier <- plotly::renderPlotly({ alloc_figs()$frontier })
+    output$fig_allocate_parents  <- plotly::renderPlotly({ alloc_figs()$parents })
+
+    # Live pre-run trait/index distribution -- no stage gate, self-guards a
+    # missing phenotype or column inside ngcd_ply_trait_distribution().
+    output$fig_trait_dist <- shiny::renderUI({
+      plotly::plotlyOutput("fig_trait_dist_plot", height = "340px")
+    })
+    output$fig_trait_dist_plot <- plotly::renderPlotly({
+      ph <- rv$data$phenotype
+      col <- switch(input$objective_mode %||% "single",
+        single = input$single_trait,
+        index  = input$index_col,
+        multi  = (input$traits_to_use %||% full_trait_set())[1],
+        input$single_trait)
+      ngcd_ply_trait_distribution(ph, col)
     })
 
     # ---- the Run-screen button: one-shot for poly/subgenome, staged
