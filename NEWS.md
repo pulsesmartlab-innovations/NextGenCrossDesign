@@ -1,3 +1,32 @@
+# nextgenCrossWorkbench 0.18.0
+
+* **Staged, gated, activity-connected pipeline.** The standard cross-prediction
+  workflow now runs as four explicit, manual steps instead of one monolithic
+  run: **Run QC → Fit effects & score → Build selection index → Allocate &
+  rank**. Each step's button is enabled only once its upstream step is done, so
+  you walk the pipeline deliberately; nothing runs automatically.
+    - **QC is a real gate.** Quality control runs as its own certified step and
+      **blocks the design only on blockers** — warnings pass through. A
+      duplicate-genotype or other blocker disables the downstream steps (and the
+      backend refuses them) until you resolve it.
+    - **Compute-once.** Each stage's result is cached; a downstream stage never
+      recomputes upstream work. Changing a setting marks only that stage and the
+      steps after it as needing a re-run — untouched upstream stages stay done.
+      Staged execution is **byte-identical** to the old one-shot run.
+    - **On-demand "Figure" tags.** Each activity screen carries a small
+      collapsible *Figure* tag that reveals that step's chart in place — putative
+      duplicates after QC, trait-model reliability after Fit & score, the
+      computed index distribution after Build index, and the gain–diversity
+      frontier plus parent-use after Allocate & rank. A tag whose step has not
+      run yet shows a short "Run this step" note; none of them trigger a run.
+    - **Live trait/index distribution.** The Selection objective screen shows the
+      spread of your chosen trait or index in the loaded phenotype **before** any
+      backend run, updating as you change the objective.
+* Auto cross-number selection and output/figure writing continue to use the
+  full one-shot run, so the diminishing-returns sweep chart and the exported
+  workbook/figures are produced exactly as before. Polyploid and
+  disomic-subgenome designs are unchanged (they keep their single-run path).
+
 # nextgenCrossWorkbench 0.17.4
 
 * **Reverted the static PDF GEBV labels from 0.17.3.** Printing the mid-parent
