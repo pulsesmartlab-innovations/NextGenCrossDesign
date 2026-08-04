@@ -84,8 +84,10 @@ docker build -t ngcd-workbench:0.15.3 \
   -f deploy/Dockerfile .
 ```
 
-Pin the image tag to the front-end version and keep `required_backend_version`
-in `config.yml` in step with the backend tarball you install.
+Pin the image tag to the front-end version. You no longer need to keep a
+`required_backend_version` in step manually: the build reads the required
+floor from `inst/BACKEND_VERSION` in this repo and fails the build if the
+backend tarball you pass in is older than that.
 
 ### Publish a new multi-arch image to ghcr
 
@@ -153,17 +155,20 @@ rebuilding:
 | `data_dir` / `NGCD_DATA_DIR` | per-session temp dir (server mode) | Writable base for runs, reports, presets. Blank = the mode default. |
 | `keep_runs` / `NGCD_KEEP_RUNS` | `20` | Max run dirs kept per session (`0` = unlimited). |
 | `rscript_path` / `NGCD_RSCRIPT_PATH` | `Rscript` | Backend interpreter; on PATH inside the container. |
-| `required_backend_version` | `0.7.0` | Floor for progressive enhancement; the image bundles backend 0.9.0. |
+| `required_backend_version` | unset -> package default from `inst/BACKEND_VERSION` | Floor for progressive enhancement. Only set this to override the package default for a specific deployment. |
 | `developer_mode` / `NGCD_DEVELOPER_MODE` | `false` | Keep false on a hosted server (hides Setup/plumbing). |
 
 ## Updating the backend
 
-Rebuild the image with a newer backend tarball (and bump
-`required_backend_version` in `config.yml`), then re-deploy. The front-end picks
-up new/changed backend parameters automatically — it calls the backend by name
-and filters arguments against the installed backend's live formals — so most
-backend updates need no front-end change. See `../tools/update-backend.R` for the
-non-container update path.
+Rebuild the image with a newer backend tarball, then re-deploy. If the new
+backend raises the minimum version this front-end requires, bump
+`inst/BACKEND_VERSION` in this repo (the one place that value lives) and cut a
+new front-end release/tarball — the Docker build will then enforce that floor
+automatically instead of silently accepting an older backend. The front-end
+picks up new/changed backend parameters automatically — it calls the backend
+by name and filters arguments against the installed backend's live formals —
+so most backend updates need no other front-end change. See
+`../tools/update-backend.R` for the non-container update path.
 
 ## Scaling notes
 

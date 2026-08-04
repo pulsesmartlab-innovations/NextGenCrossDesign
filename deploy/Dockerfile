@@ -10,17 +10,24 @@
 #   nextgenCrossWorkbench_<ver>.tar.gz  (build from this repo:        R CMD build .)
 # Tarballs avoid putting a GitHub token in the image for the private backend repo.
 #
-# Build:
-#   docker build -t ngcd-workbench:0.15.3 \
-#     --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.9.0.tar.gz \
-#     --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.3.tar.gz \
+# The minimum backend version the front-end actually requires is NOT hardcoded
+# here: it lives in one place, inst/BACKEND_VERSION (read at runtime by
+# R/config.R::ngcd_default_backend_version()). This build reads that same file
+# and fails fast if the backend tarball you're bundling is older than it, so
+# the two repos can never silently drift apart again. Bump inst/BACKEND_VERSION
+# when the required backend version changes; nothing else needs to change.
+#
+# Build (both ARGs are required — no baked-in version defaults):
+#   docker build -t ngcd-workbench:<frontend-ver> \
+#     --build-arg BACKEND_TARBALL=nextgenCrossDesign_<backend-ver>.tar.gz \
+#     --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_<frontend-ver>.tar.gz \
 #     -f deploy/Dockerfile .
 
 # Pin a specific R version for reproducible deployments.
 FROM rocker/r-ver:4.4.2
 
-ARG BACKEND_TARBALL=nextgenCrossDesign_0.9.0.tar.gz
-ARG FRONTEND_TARBALL=nextgenCrossWorkbench_0.15.3.tar.gz
+ARG BACKEND_TARBALL
+ARG FRONTEND_TARBALL
 
 # System libraries: a C++ toolchain for the backend kernel, plus the headers the
 # R package dependencies need, and pandoc for HTML/PDF report rendering.
@@ -63,7 +70,19 @@ WORKDIR /tmp/pkg
 COPY ${BACKEND_TARBALL}  backend.tar.gz
 COPY ${FRONTEND_TARBALL} frontend.tar.gz
 RUN R CMD INSTALL backend.tar.gz \
-    && R CMD INSTALL frontend.tar.gz \
+    && R CMD INSTALL frontend.tar.gz
+
+# Fail the build if the bundled backend tarball is older than what this
+# front-end build requires. The required version is read straight out of the
+# just-installed frontend package (inst/BACKEND_VERSION), so this check stays
+# correct automatically whenever that one file is bumped — no version literal
+# to keep in sync here.
+RUN R -q -e "req <- trimws(readLines(system.file('BACKEND_VERSION', package = 'nextgenCrossWorkbench'), n = 1)); \
+    got <- as.character(packageVersion('nextgenCrossDesign')); \
+    if (package_version(got) < package_version(req)) \
+      stop('Bundled backend ', got, ' is older than the required ', req, \
+           ' (see inst/BACKEND_VERSION in the front-end repo).') else \
+      cat('Backend version check OK: ', got, ' >= ', req, '\n', sep = '')" \
     && rm -rf /tmp/pkg
 
 # Working directory the app runs from (holds config.yml). data_dir defaults to a
