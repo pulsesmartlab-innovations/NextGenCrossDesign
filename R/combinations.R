@@ -19,7 +19,7 @@ ngcd_combo_base <- function(cfg, prediction_mode = "trait_by_trait", work_dir = 
     direction_trait_col = "Trait", direction_column_col = "Trait",
     direction_direction_col = "Selection_direction",
     prediction_mode = prediction_mode,
-    trait_value_metric = "var_complex", uc_variance_source = "pmv", method_varPMV = "fast",
+    trait_value_metric = "usefulness", uc_variance_source = "reliable_family_variance", method_varPMV = "fast",
     multi_trait_method = "auto", progeny = "DH", recomb_model = "haldane",
     grm_method = "vanraden", selection_prop = 0.2, assume_inbred = TRUE,
     duplicate_action = "none", n_crosses = 10, max_crosses_per_parent = 4,
@@ -78,10 +78,10 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
   add <- function(varied, value, ov) combos[[length(combos) + 1L]] <<-
     list(varied = varied, value = value, overrides = ov)
 
-  metrics  <- c("var_complex", "usefulness", "pmv", "vpm", "mean", "parent_distance")
+  metrics  <- c("mid_parent_mean", "family_variance", "reliable_family_variance", "usefulness", "parent_distance")
   optims   <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
   methods  <- c("auto", "weighted", "economic_index", "desired_gain")
-  ucsrc    <- c("pmv", "vpm", "parent_distance")
+  ucsrc    <- c("reliable_family_variance", "family_variance", "parent_distance")
   divspecs <- list(c("strategy", "high_gain"), c("strategy", "balanced"), c("strategy", "diversity"),
                    c("emphasis", "15"), c("emphasis", "50"), c("emphasis", "85"), c("target", "0.05"))
 
@@ -157,10 +157,10 @@ ngcd_expected_fail <- function(message) {
 # exercise code paths and detect errors, not to tune optimization quality.
 ngcd_combo_random <- function(n = 1000, seed = 1) {
   set.seed(seed)
-  metrics <- c("var_complex", "usefulness", "pmv", "vpm", "mean", "parent_distance")
+  metrics <- c("mid_parent_mean", "family_variance", "reliable_family_variance", "usefulness", "parent_distance")
   optims  <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
   methods <- c("auto", "weighted", "economic_index", "desired_gain")
-  ucsrc   <- c("pmv", "vpm", "parent_distance")
+  ucsrc   <- c("reliable_family_variance", "family_variance", "parent_distance")
   pick <- function(x) x[sample.int(length(x), 1L)]
   combos <- vector("list", n)
   for (i in seq_len(n)) {

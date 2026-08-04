@@ -140,7 +140,7 @@ ngcd_exec_summary_html <- function(res, figs = NULL) {
     "<p>This report summarises a genomic cross-prediction and mate-allocation run performed with the ",
     "<b>nextgenCrossDesign</b> backend (v", res$package_version %||% "?", "), in <b>",
     (res$prediction_mode %||% "?"), "</b> mode for a <b>", (st$progeny %||% "?"),
-    "</b> breeding system. Crosses were scored with the <b>", (st$trait_value_metric %||% "?"),
+    "</b> breeding system. Crosses were scored with the <b>", ngcd_metric_label(st$trait_value_metric),
     "</b> metric and allocated with the <b>", (st$allocation_method %||% "?"), "</b> method (optimizer: <b>",
     (st$optimizer %||% st$optimizer_method %||% "?"), "</b>).</p>",
 
@@ -450,6 +450,102 @@ ngcd_ply_cross_number <- function(res) {
   plotly::layout(p, title = "Cross-number: diminishing returns",
     xaxis = list(title = "Number of crosses (K)"), yaxis = list(title = "Total plan gain"),
     hovermode = "closest", legend = list(orientation = "h", x = 0, y = -0.2), margin = list(t = 40))
+}
+
+# ===========================================================================
+# staged-pipeline figures: a NEW pre-run trait-distribution preview plus
+# adapters that turn each staged-run stage's JSON output into a plotly by
+# reusing the builders above. Every one of these is a pure function that must
+# NEVER error - a stage JSON that is NULL, empty, or missing an expected
+# field yields a small "empty" plot with an explanatory annotation instead.
+# ===========================================================================
+
+# A minimal, always-valid plotly with a centered annotation - the fallback
+# shown wherever a stage/preview figure has nothing to draw.
+ngcd_empty_plot <- function(msg) {
+  plotly::layout(plotly::plot_ly(type = "scatter", mode = "markers", x = numeric(0), y = numeric(0)),
+    xaxis = list(visible = FALSE, showgrid = FALSE, zeroline = FALSE),
+    yaxis = list(visible = FALSE, showgrid = FALSE, zeroline = FALSE),
+    annotations = list(list(text = msg, showarrow = FALSE, xref = "paper", yref = "paper",
+      x = 0.5, y = 0.5, font = list(size = 14, color = "#666666"))))
+}
+
+# Pre-run preview: histogram of a single numeric phenotype column, styled to
+# match ngcd_ply_score_dist. Guards every way `col` can fail to resolve to a
+# usable numeric column so the preview can be wired to a live column-picker
+# without ever erroring mid-selection.
+ngcd_ply_trait_distribution <- function(phenotype_df, col, direction = "increase") {
+  msg <- "Load a phenotype and pick a numeric trait to preview"
+  if (is.null(phenotype_df) || !is.data.frame(phenotype_df) || nrow(phenotype_df) == 0 ||
+      is.null(col) || length(col) != 1L || is.na(col) || !nzchar(col) ||
+      !(col %in% names(phenotype_df)))
+    return(ngcd_empty_plot(msg))
+  x <- suppressWarnings(as.numeric(phenotype_df[[col]]))
+  x <- x[is.finite(x)]
+  if (!length(x)) return(ngcd_empty_plot(msg))
+  plotly::layout(plotly::plot_ly(x = x, type = "histogram", marker = list(color = "#8fb3a3")),
+    title = paste0("Distribution: ", col), xaxis = list(title = col), yaxis = list(title = "Count"))
+}
+
+# Horizontal bar of pre-aggregated parent use (allocate.json's `parent_use`
+# shape: one row per parent with a `crosses` count), styled like
+# ngcd_ply_parent_use (which instead tallies parent1/parent2 from selected
+# crosses - not applicable here since allocate.json ships the counts directly).
+ngcd_ply_parent_use_counts <- function(parent_use_df) {
+  if (!is.data.frame(parent_use_df) || nrow(parent_use_df) == 0 ||
+      !all(c("parent", "crosses") %in% names(parent_use_df)))
+    return(ngcd_empty_plot("No parent-use data available."))
+  n <- suppressWarnings(as.numeric(parent_use_df$crosses))
+  o <- order(n)
+  nm <- as.character(parent_use_df$parent)[o]; n <- n[o]
+  plotly::layout(plotly::plot_ly(y = nm, x = n, type = "bar", orientation = "h",
+    marker = list(color = "#5b83a8"), hoverinfo = "x+y"),
+    title = "Parent use in recommended plan", xaxis = list(title = "Selected crosses"),
+    yaxis = list(title = "", categoryorder = "array", categoryarray = nm))
+}
+
+# Dispatcher: the figure(s) for one completed staged-pipeline stage, built
+# from that stage's parsed JSON by reusing the post-run builders above via
+# minimal res-shaped lists. `allocate` returns a list of two sub-figures
+# (frontier, parents) since its JSON carries both a frontier and parent-use
+# summary; every other stage returns a single plotly.
+ngcd_stage_figure <- function(stage, stage_json) {
+  stage_json <- stage_json %||% list()
+  switch(stage,
+    qc = {
+      res <- list(qc = stage_json)
+      if (!ngcd_has_dups(res)) return(ngcd_empty_plot("No putative duplicates flagged."))
+      tryCatch(ngcd_ply_dup_heatmap(res),
+               error = function(e) ngcd_empty_plot("No putative duplicates flagged."))
+    },
+    predict = {
+      res <- list(effect_summary = stage_json$effect_summary)
+      if (!ngcd_has_reliab(res)) return(ngcd_empty_plot("No trait reliability data available."))
+      tryCatch(ngcd_ply_reliability(res),
+               error = function(e) ngcd_empty_plot("No trait reliability data available."))
+    },
+    index = {
+      sc <- stage_json$multi_trait_score
+      if (is.null(sc) || !length(sc) || !any(is.finite(suppressWarnings(as.numeric(sc)))))
+        return(ngcd_empty_plot("No index scores available."))
+      p <- tryCatch(
+        ngcd_ply_score_dist(list(candidate_crosses = data.frame(multi_trait_score = sc))),
+        error = function(e) NULL)
+      if (is.null(p)) return(ngcd_empty_plot("No index scores available."))
+      plotly::layout(p, title = "Index distribution (computed multi-trait score)")
+    },
+    allocate = list(
+      frontier = {
+        res <- list(plan_summary = stage_json$plan_summary)
+        if (!ngcd_has_frontier(res)) ngcd_empty_plot("No gain-diversity frontier available.")
+        else tryCatch(ngcd_ply_frontier(res),
+                      error = function(e) ngcd_empty_plot("No gain-diversity frontier available."))
+      },
+      parents = tryCatch(ngcd_ply_parent_use_counts(stage_json$parent_use),
+                          error = function(e) ngcd_empty_plot("No parent-use data available."))
+    ),
+    ngcd_empty_plot("No figure available for this stage.")
+  )
 }
 
 # ===========================================================================

@@ -230,6 +230,19 @@ hr { border-top: 1px solid var(--ndsu-border); }
 .ndsu-guide .g-next { color: var(--ndsu-green-dark); font-size: 12.5px; margin-top: 8px;
   border-top: 1px dashed var(--ndsu-border); padding-top: 6px; }
 
+/* ---- on-demand figure disclosure ---- */
+.ndsu-figtag { border: 1px solid var(--ndsu-border); border-left: 4px solid var(--ndsu-green);
+  background: var(--ndsu-surface); border-radius: 6px; margin: 0 0 16px 0; }
+.ndsu-figtag > summary { cursor: pointer; padding: 7px 14px; font-family: var(--font-head);
+  font-weight: 600; font-size: 13px; color: var(--ndsu-green-dark); list-style: none; user-select: none; }
+.ndsu-figtag > summary::-webkit-details-marker { display: none; }
+.ndsu-figtag > summary::after { content: "  \25BC"; font-size: 10px; color: var(--ndsu-muted); }
+.ndsu-figtag[open] > summary::after { content: "  \25B2"; }
+.ndsu-figtag .figtag-chip { display: inline-block; background: var(--ndsu-yellow); color: var(--ndsu-green-dark);
+  font-family: var(--font-body); font-size: 10.5px; font-weight: 700; padding: 1px 9px;
+  border-radius: 999px; margin-right: 9px; letter-spacing: 0.02em; }
+.ndsu-figtag .figtag-body { padding: 2px 14px 12px 14px; }
+
 /* ---- report exec summary ---- */
 .ndsu-report h2 { font-family: var(--font-head); color: var(--ndsu-green-dark);
   border-bottom: 2px solid var(--ndsu-yellow); padding-bottom: 5px; font-size: 18px; }
