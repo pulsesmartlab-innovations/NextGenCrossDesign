@@ -140,7 +140,7 @@ ngcd_exec_summary_html <- function(res, figs = NULL) {
     "<p>This report summarises a genomic cross-prediction and mate-allocation run performed with the ",
     "<b>nextgenCrossDesign</b> backend (v", res$package_version %||% "?", "), in <b>",
     (res$prediction_mode %||% "?"), "</b> mode for a <b>", (st$progeny %||% "?"),
-    "</b> breeding system. Crosses were scored with the <b>", (st$trait_value_metric %||% "?"),
+    "</b> breeding system. Crosses were scored with the <b>", ngcd_metric_label(st$trait_value_metric),
     "</b> metric and allocated with the <b>", (st$allocation_method %||% "?"), "</b> method (optimizer: <b>",
     (st$optimizer %||% st$optimizer_method %||% "?"), "</b>).</p>",
 

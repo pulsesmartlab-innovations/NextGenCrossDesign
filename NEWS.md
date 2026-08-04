@@ -1,3 +1,31 @@
+# nextgenCrossWorkbench 0.19.0
+
+* **Breeder-intuitive cross-scoring metric names.** The "Cross-scoring metric"
+  dropdown now reads `Mid-parent mean`, `Family variance`,
+  `Reliable family variance`, `Usefulness`, `Parent distance` instead of the
+  raw backend tokens (`mean`/`vpm`/`pmv`/`var_complex`/`parent_distance`). The
+  underlying merit is unchanged; the frontend just talks to you in the
+  vocabulary you'd use with a colleague.
+* **Family/reliable variance as a scoring objective in its own right.**
+  Picking `Family variance` or `Reliable family variance` now scores and ranks
+  crosses on segregating variation alone (a pure-variance objective), not only
+  as an input to `Usefulness`.
+* **Conditional variance-source and variance-accuracy controls.** The
+  "Usefulness variance source" dropdown only appears when the metric is
+  `Usefulness`, and the "Variance accuracy" (fast vs. full-posterior) dropdown
+  only appears when a reliable/family-variance calculation is actually in
+  play — the previous version showed both unconditionally, which read as
+  relevant even when the chosen metric ignored them.
+* **Legacy settings-profile migration.** A `.json` settings profile saved
+  before this rework (raw `var_complex`/`pmv`/`vpm`/`mean` tokens) now
+  restores correctly: `var_complex`/`pmv` → `Usefulness` +
+  `Reliable family variance`, `vpm` → `Usefulness` + `Family variance`,
+  `mean` → `Mid-parent mean`. Restoring an old profile no longer leaves the
+  metric dropdown blank.
+* Raised `required_backend_version` to **0.16.0**, which ships the friendly
+  metric vocabulary in the backend capability registry that drives these
+  dropdowns.
+
 # nextgenCrossWorkbench 0.18.0
 
 * **Staged, gated, activity-connected pipeline.** The standard cross-prediction

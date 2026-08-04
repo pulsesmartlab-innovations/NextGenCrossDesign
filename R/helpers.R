@@ -263,6 +263,65 @@ ngcd_apply_settings <- function(session, values) {
   }
 }
 
+# Migrate a saved settings list's metric-related values from the legacy raw
+# backend vocabulary (var_complex/pmv/vpm/mean) to the current
+# breeder-intuitive friendly vocabulary (mid_parent_mean/family_variance/
+# reliable_family_variance/usefulness/parent_distance), so a settings profile
+# saved before the metric-names rework restores to a valid dropdown selection
+# instead of leaving the control blank (updateSelectInput silently ignores an
+# unrecognized value).
+#
+# A legacy `var_complex` or bare `pmv` restores as usefulness +
+# reliable_family_variance - NOT the new pure-variance metric - because that
+# preserves what the user actually configured: native usefulness scoring on
+# the (then-only) PMV variance path. Legacy `vpm` restores as usefulness +
+# family_variance for the same reason. `mean` maps to the friendly
+# `mid_parent_mean`. Already-friendly values (and any other setting) pass
+# through unchanged. Pure - no shiny, no I/O.
+ngcd_migrate_metric_settings <- function(s) {
+  if (is.null(s) || !length(s)) return(s)
+  tvm <- s$trait_value_metric
+  if (!is.null(tvm)) {
+    if (tvm %in% c("var_complex", "pmv")) {
+      s$trait_value_metric <- "usefulness"
+      s$uc_variance_source <- "reliable_family_variance"
+    } else if (identical(tvm, "vpm")) {
+      s$trait_value_metric <- "usefulness"
+      s$uc_variance_source <- "family_variance"
+    } else if (identical(tvm, "mean")) {
+      s$trait_value_metric <- "mid_parent_mean"
+    }
+  }
+  ucs <- s$uc_variance_source
+  if (!is.null(ucs)) {
+    if (identical(ucs, "pmv")) s$uc_variance_source <- "reliable_family_variance"
+    else if (identical(ucs, "vpm")) s$uc_variance_source <- "family_variance"
+  }
+  s
+}
+
+# Friendly display label for a trait_value_metric token, for report/help
+# text that shows the metric to a user. Understands both the current friendly
+# tokens and the legacy raw backend tokens a pre-migration saved result might
+# still carry, so old runs still display sensibly. Falls back to the raw
+# token for anything unrecognized.
+ngcd_metric_label <- function(metric) {
+  labels <- c(
+    mid_parent_mean          = "Mid-parent mean",
+    family_variance          = "Family variance",
+    reliable_family_variance = "Reliable family variance",
+    usefulness                = "Usefulness",
+    parent_distance            = "Parent distance",
+    # legacy raw backend tokens (pre metric-names rework)
+    var_complex = "Usefulness",
+    pmv         = "Reliable family variance",
+    vpm         = "Family variance",
+    mean        = "Mid-parent mean")
+  if (is.null(metric) || !length(metric) || is.na(metric) || !nzchar(metric)) return("?")
+  hit <- unname(labels[metric])
+  if (is.na(hit)) metric else hit
+}
+
 # Interactive gain-diversity frontier via plotly (hover tooltips, zoom, pan).
 # `fr` is the plan_summary$frontier data.frame; op_x/op_y mark the selected plan.
 ngcd_frontier_plotly <- function(fr, op_x = NULL, op_y = NULL) {

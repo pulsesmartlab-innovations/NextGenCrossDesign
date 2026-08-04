@@ -271,7 +271,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
         ngcd_guide("Configure", "Prediction & scoring", shiny::tagList(
           shiny::tags$p("Choose how a cross's merit is scored and what kind of progeny you'll make. The defaults are good for most programs."),
           shiny::tags$ul(
-            shiny::tags$li(shiny::tags$b("Merit metric"), ": keep ", shiny::tags$code("var_complex"), " (usefulness) for most cases. Switch to ", shiny::tags$code("mean"), " for highly polygenic traits or small training sets."),
+            shiny::tags$li(shiny::tags$b("Merit metric"), ": keep ", shiny::tags$code("Usefulness"), " for most cases. Switch to ", shiny::tags$code("Mid-parent mean"), " for highly polygenic traits or small training sets."),
             shiny::tags$li(shiny::tags$b("Breeding system"), ": ", shiny::tags$code("DH"), " for doubled haploids, ", shiny::tags$code("RIL"), " for recombinant inbred lines. Leave ", shiny::tags$b("Assume inbred parents"), " ticked unless your parents carry heterozygosity."),
             shiny::tags$li(shiny::tags$b("Selection proportion"), " is the top fraction of progeny you expect to keep (e.g. 0.10 = top 10%).")),
           shiny::tags$p(class = "help-hint", "If Data flagged non-inbred parents, either drop them (Data tab) or uncheck Assume inbred here.")),
@@ -703,7 +703,7 @@ workbench_server <- function(cfg) {
             row("lpSolve", "MIP optimizers (mip_linear, mip_contribution); absent -> greedy/repair"),
             row("openxlsx", "Excel crossing-plan workbook export (Export options)"),
             row("ggplot2", "Figure export (Export options)"),
-            row("PopVar", "Exact PopVar external baseline (native var_complex is the default)"),
+            row("PopVar", "Exact PopVar external baseline (native Usefulness is the default)"),
             row("SimpleMating", "SimpleMating external baseline (native proxy otherwise)"),
             row("genomicMateSelectR", "genomicMateSelectR external comparison"),
             row("AlphaSimR", "AlphaSimR simulation / benchmark workflows"),
@@ -1422,7 +1422,7 @@ workbench_server <- function(cfg) {
       dat <- tryCatch(jsonlite::fromJSON(path, simplifyVector = TRUE, simplifyDataFrame = FALSE),
                       error = function(e) NULL)
       if (is.null(dat) || is.null(dat$values)) { shiny::showNotification("Not a valid settings file.", type = "error"); return(invisible()) }
-      ngcd_apply_settings(session, dat$values)
+      ngcd_apply_settings(session, ngcd_migrate_metric_settings(dat$values))
       shiny::showNotification("Settings loaded. Review the tabs, then Run.", type = "message")
     }
     shiny::observeEvent(input$save_preset, {
