@@ -139,7 +139,7 @@ test_that("non-inbred parents are detected", {
 test_that("advanced mate-selection controls parse into backend shapes", {
   testServer(srv(), {
     do.call(session$setInputs, demo_inputs(
-      lambda_progeny_inbreeding = 0.05,
+      mate_relatedness_weight = 0.05,   # replaces the removed lambda_progeny_inbreeding control
       min_crosses_per_parent = 2,
       committed_crosses = "P09,P10\nP01,P02",
       parent_group = "P01,A\nP06,B",
@@ -150,7 +150,8 @@ test_that("advanced mate-selection controls parse into backend shapes", {
       drop_lethal_carrier_crosses = TRUE,
       budget = 5000, lambda_cost = 0.1, lambda_logistic = 0.2))
     p <- build_params()
-    expect_equal(p$lambda_progeny_inbreeding, 0.05)
+    # progeny-inbreeding control was unified into mate_relatedness (+ weight)
+    expect_equal(p$mate_relatedness_weight, 0.05)
     expect_equal(p$min_crosses_per_parent, 2)
     # committed matings -> parent1/parent2 vectors
     expect_equal(p$committed_crosses$parent1, c("P09", "P01"))
