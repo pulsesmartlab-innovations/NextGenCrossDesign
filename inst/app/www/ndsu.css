@@ -203,6 +203,9 @@ table.dataTable tbody tr.priority-low_priority td:first-child    { border-left: 
 }
 .ndsu-callout.warn  { border-left-color: var(--st-warn);  background: #fbf3e0; }
 .ndsu-callout.error { border-left-color: var(--st-error); background: #fbe7e6; }
+.ndsu-advisory-head { margin-bottom: 4px; }
+.ndsu-advisory-list { margin: 0; padding-left: 18px; }
+.ndsu-advisory-list li { margin: 4px 0; line-height: 1.45; }
 
 /* ---- misc ------------------------------------------------------------- */
 .ndsu-kpi { text-align: center; padding: 12px 8px; }
