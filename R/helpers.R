@@ -13,6 +13,61 @@ ngcd_callout <- function(..., kind = c("info","warn","error")) {
   shiny::div(class = cls, ...)
 }
 
+# Turn a raw backend advisory/error string into a breeder-friendly {title, body}.
+# Internal/developer notices (deprecations) are flagged hide = TRUE so they are
+# never shown to breeders; unknown messages fall back to the raw text under a
+# neutral title. Keeps the wall-of-text technical wording out of the UI while
+# preserving it in the debug panel.
+ngcd_humanize_message <- function(msg) {
+  m <- tolower(msg %||% "")
+  if (grepl("deprecat", m))
+    return(list(title = NA_character_, body = msg, hide = TRUE))
+  if (grepl("residual[ -]hetero", m) && grepl("ril", m))
+    return(list(
+      title = "Conservative variance estimate",
+      body = paste0("One or more parents are RILs carrying residual heterozygosity, so the ",
+                    "reported family variance is slightly conservative (biased low). Supply ",
+                    "phased haplotypes for the exact value; the ranking of crosses is unaffected."),
+      hide = FALSE))
+  if (grepl("heterozygous loci|not fully inbred|residual[ -]hetero", m))
+    return(list(
+      title = "Heterozygous parents detected",
+      body = paste0("Some parents carry heterozygous loci. A doubled-haploid or fully-inbred ",
+                    "line should be homozygous - fix or exclude those parents, or set Parent ",
+                    "type to 'RIL' if they are recombinant inbred lines."),
+      hide = FALSE))
+  list(title = "Notice", body = msg, hide = FALSE)
+}
+
+# Render a list of raw advisory strings as one professional, titled callout
+# (skips developer-only notices). Returns NULL when nothing is worth showing.
+ngcd_advisory_ui <- function(msgs) {
+  msgs <- as.character(msgs)
+  items <- Filter(function(h) !isTRUE(h$hide), lapply(msgs, ngcd_humanize_message))
+  if (!length(items)) return(NULL)
+  ngcd_callout(
+    kind = "warn",
+    shiny::tags$div(class = "ndsu-advisory-head",
+      shiny::tags$b(sprintf("%d advisor%s from this run", length(items),
+                            if (length(items) == 1) "y" else "ies"))),
+    shiny::tags$ul(class = "ndsu-advisory-list",
+      lapply(items, function(h) shiny::tags$li(
+        shiny::tags$b(h$title), shiny::tags$span(": "), h$body))))
+}
+
+# One concise, auto-dismissing toast pointing to the advisory banner -- instead
+# of a wall of long per-warning toasts. No-op when there is nothing to show.
+ngcd_notify_advisories <- function(msgs) {
+  items <- Filter(function(h) !isTRUE(h$hide),
+                  lapply(as.character(msgs), ngcd_humanize_message))
+  if (length(items))
+    shiny::showNotification(
+      sprintf("Completed with %d advisor%s - see the banner on the Results screen.",
+              length(items), if (length(items) == 1) "y" else "ies"),
+      type = "warning", duration = 8)
+  invisible(NULL)
+}
+
 ngcd_kpi <- function(value, label)
   shiny::div(class = "ndsu-kpi", shiny::div(class = "val", value), shiny::div(class = "lab", label))
 

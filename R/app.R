@@ -1375,9 +1375,11 @@ workbench_server <- function(cfg) {
         "\n\n== COMMAND ==\n", e$command,
         "\n\n== CONFIG ==\n", e$config_path,
         "\n\n== RUN LOG (tail) ==\n", e$log_tail)
+      h <- ngcd_humanize_message(e$message)   # friendly headline; raw kept in debug below
       shiny::tagList(
         ngcd_callout(kind = "error",
-          shiny::tags$b("Run failed. "), shiny::tags$span(e$message),
+          shiny::tags$b(if (!is.na(h$title)) h$title else "Run could not complete"),
+          shiny::tags$p(style = "margin:6px 0 0", h$body),
           if (!is.null(e$hint)) shiny::tags$div(class = "help-hint", shiny::tags$b("Likely fix: "), e$hint),
           if (isTRUE(e$het_fix)) shiny::tags$div(style = "margin-top:10px",
             shiny::actionButton("fix_exclude_het",
@@ -1588,7 +1590,7 @@ workbench_server <- function(cfg) {
         # caveat, deprecation notices) so the breeder sees non-blocking warnings
         # alongside the results. Stored for a persistent banner and toasted once.
         rv$warnings <- as.character(unlist(out$result$warnings))
-        for (w in rv$warnings) shiny::showNotification(w, type = "warning", duration = NULL)
+        ngcd_notify_advisories(rv$warnings)
         bslib::nav_select("nav", "Results")
       } else {
         rv$result <- NULL; rv$warnings <- NULL
@@ -1709,7 +1711,7 @@ workbench_server <- function(cfg) {
         # Surface any backend advisories from this stage (e.g. the residual-het
         # RIL variance caveat emitted during predict) -- persistent banner + toast.
         rv$warnings <- as.character(unlist(out$warnings))
-        for (w in rv$warnings) shiny::showNotification(w, type = "warning", duration = NULL)
+        ngcd_notify_advisories(rv$warnings)
       }
     }
 
@@ -1870,7 +1872,7 @@ workbench_server <- function(cfg) {
       result <- ngcd_enrich_result(final$result)
       rv$result <- result; rv$error <- NULL
       rv$warnings <- stage_warns          # advisories collected across the pipeline
-      for (w in stage_warns) shiny::showNotification(w, type = "warning", duration = NULL)
+      ngcd_notify_advisories(stage_warns)
       rv$last <- format(Sys.time(), "%H:%M:%S")
       rdir <- cfg$report_dir
       if (!dir.exists(rdir)) dir.create(rdir, recursive = TRUE, showWarnings = FALSE)
@@ -1911,11 +1913,9 @@ workbench_server <- function(cfg) {
       if (!is.null(rv$error))
         return(ngcd_callout(kind = "error", shiny::tags$b("Last run failed. "),
           "See the debug panel on the ", shiny::tags$b("Run"), " screen."))
-      # Non-blocking backend advisories (residual-het-RIL variance caveat,
-      # deprecations, ...): a persistent warning banner alongside the results.
-      if (length(rv$warnings))
-        ngcd_callout(kind = "warn", shiny::tags$b("Advisories from this run:"),
-          shiny::tags$ul(lapply(rv$warnings, function(w) shiny::tags$li(w))))
+      # Non-blocking backend advisories (residual-het-RIL variance caveat, ...):
+      # a persistent, humanized warning banner alongside the results.
+      if (length(rv$warnings)) ngcd_advisory_ui(rv$warnings)
     })
     output$results_kpis <- shiny::renderUI({
       r <- res(); if (is.null(r)) return(ngcd_callout("Run an analysis to see results."))
