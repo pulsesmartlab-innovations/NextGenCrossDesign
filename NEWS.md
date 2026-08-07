@@ -1,3 +1,13 @@
+# nextgenCrossWorkbench 0.19.1
+
+* **Experimental capabilities never surface in the UI.** `ngcd_control_choices()`
+  now drops any dropdown choice the backend capability registry marks
+  `status = "experimental"` or `"guarded"`, and that registry status overrides a
+  hardcoded frontend fallback that still lists the value. The backend registry is
+  the single point of retraction: marking a capability experimental removes it
+  from the workbench with no frontend edit (VALIDATED_STATE frontend-surfacing
+  governance).
+
 # nextgenCrossWorkbench 0.19.0
 
 * **Breeder-intuitive cross-scoring metric names.** The "Cross-scoring metric"
