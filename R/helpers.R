@@ -469,6 +469,17 @@ ngcd_control_choices <- function(registry, id, fallback = NULL) {
   hit <- Filter(function(c) identical(c$id, id), ctls)
   if (!length(hit) || !length(hit[[1]]$choices)) return(fallback)
   ch  <- hit[[1]]$choices
+  # Status gate (belt-and-suspenders): the backend registry is the single source
+  # of truth for what is exposed. Any choice the backend marks experimental/guarded
+  # must never surface in the UI (VALIDATED_STATE frontend-surfacing governance).
+  # We drop it from the registry choices AND from the hardcoded fallback, so the
+  # backend can retract a capability without a frontend edit.
+  blocked <- unique(vapply(
+    Filter(function(x) (x$status %||% "") %in% c("experimental", "guarded"), ch),
+    function(x) x$value %||% "", ""))
+  ch <- Filter(function(x) !((x$value %||% "") %in% blocked), ch)
+  fallback <- fallback[!(unname(fallback) %in% blocked)]  # registry status overrides fallback
+  if (!length(ch)) return(fallback)
   reg <- stats::setNames(vapply(ch, function(x) x$value %||% "", ""),
                          vapply(ch, function(x) x$label %||% x$value %||% "", ""))
   if (is.null(fallback) || !length(fallback)) return(reg)
