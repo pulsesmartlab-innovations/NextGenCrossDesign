@@ -34,7 +34,7 @@ demo_inputs <- function(...) {
     threshold_penalty_weight = 1, threshold_penalty_autoscale = TRUE, trait_weights = "",
     trait_value_metric = "var_complex", uc_variance_source = "pmv", method_varPMV = "fast", selection_prop = 0.2,
     progeny = "DH", recomb_model = "haldane", grm_method = "vanraden",
-    assume_inbred = TRUE, min_effect_reliability = 0.35,
+    parent_type = "inbred", min_effect_reliability = 0.35,
     duplicate_action = "none", duplicate_threshold = 0.995, duplicate_maf_min = 0.01,
     duplicate_max_missing_prop = 0.4, duplicate_min_compared_markers = 100,
     ld_pruning = FALSE, ld_window = 100, ld_r2_threshold = 0.9, ld_maf_threshold = 0.01, ld_backend = "auto",

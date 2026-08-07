@@ -47,7 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # benchmarking and are NOT needed to serve the app.
 #
 # The backend Imports block MUST stay in sync with nextgenCrossDesign's
-# DESCRIPTION: as of backend 0.9.0 that is Rcpp, lpSolve, jsonlite, Matrix,
+# DESCRIPTION: as of backend 0.17.2 that is Rcpp, lpSolve, jsonlite, Matrix,
 # mvtnorm, ggplot2, openxlsx (plus base/recommended parallel + Matrix that ship
 # with R). mvtnorm/ggplot2/Matrix were promoted from Suggests to Imports in
 # 0.7.0, so they are now required at `R CMD INSTALL` time, not just at runtime.

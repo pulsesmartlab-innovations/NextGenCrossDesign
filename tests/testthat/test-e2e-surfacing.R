@@ -27,7 +27,7 @@ test_that("single-trait run with trait_checks surfaces risk/portfolio + trait-ch
     map_pos_bp_col = "Position_BP", map_position_unit = "bp",
     prediction_mode = "trait_by_trait", traits_to_use = list("yield"),
     trait_value_metric = "var_complex", uc_variance_source = "pmv",
-    progeny = "DH", assume_inbred = TRUE, duplicate_action = "none",
+    progeny = "DH", parent_type = "inbred", duplicate_action = "none",
     n_crosses = 8, max_crosses_per_parent = 4, optimizer = "greedy_local",
     allocation_method = "ocs", use_ocs = TRUE, seed = 1,
     # one trait-check line: reject crosses whose yield mid-parent is on the wrong side

@@ -245,14 +245,14 @@ ngcd_settings_registry <- function() {
     alphamate_executable = "text", alphamate_runtime_path = "text", alphamate_workdir = "text",
     alphamate_lambda_grid = "text", training_genotype_id_col = "text", training_phenotype_id_col = "text",
     priority_breaks = "text", priority_labels = "text", output_file = "text",
-    assume_inbred = "checkbox", use_ocs = "checkbox", threshold_penalty_autoscale = "checkbox",
+    use_ocs = "checkbox", threshold_penalty_autoscale = "checkbox",
     ld_pruning = "checkbox", run_posterior_prediction = "checkbox", use_parallel = "checkbox",
     drop_lethal_carrier_crosses = "checkbox", write_outputs = "checkbox", write_figures = "checkbox",
     restrict_shared_markers = "checkbox", restrict_shared_ids = "checkbox",
     drop_noninbred_parents = "checkbox", alphamate_keep_files = "checkbox",
     pos_unit = "select", trait_value_metric = "select", uc_variance_source = "select",
     method_varPMV = "select", multi_trait_method = "select", threshold_policy = "select",
-    progeny = "select", ril_mode = "select", recomb_model = "select", grm_method = "select",
+    parent_type = "select", progeny = "select", ril_mode = "select", recomb_model = "select", grm_method = "select",
     duplicate_action = "select", ld_backend = "select", optimizer = "select",
     allocation_method = "select", lambda_parent_use_mode = "select", strategy = "select",
     alphamate_mode = "select", posterior_method = "select", ploidy = "select",
@@ -352,6 +352,20 @@ ngcd_migrate_metric_settings <- function(s) {
     if (identical(ucs, "pmv")) s$uc_variance_source <- "reliable_family_variance"
     else if (identical(ucs, "vpm")) s$uc_variance_source <- "family_variance"
   }
+  s
+}
+
+# Migrate a saved settings profile that predates the Parent-type selector: it
+# stored the boolean `assume_inbred` (the deprecated backend flag) instead of
+# `parent_type`. Map TRUE -> "inbred" (fully fixed lines; het blocked) and
+# FALSE -> "ril" (residual het accepted), matching ng_reconcile_parent_type in
+# the backend, then drop the stale key. A profile that already carries
+# `parent_type` passes through unchanged. Pure - no shiny, no I/O.
+ngcd_migrate_parent_type_settings <- function(s) {
+  if (is.null(s) || !length(s)) return(s)
+  if (is.null(s$parent_type) && !is.null(s$assume_inbred))
+    s$parent_type <- if (isTRUE(s$assume_inbred)) "inbred" else "ril"
+  s$assume_inbred <- NULL
   s
 }
 
@@ -600,7 +614,7 @@ ngcd_stage_key_patterns <- list(
   predict = c(
     "training_*",
     "trait_value_metric", "uc_variance_source", "method_varPMV",
-    "progeny", "recomb_model", "grm_method", "assume_inbred",
+    "progeny", "recomb_model", "grm_method", "parent_type",
     "min_effect_reliability", "selection_prop", "seed",
     "run_posterior_prediction", "posterior_method", "n_iter", "burn_in",
     "ril_mode", "nselfing"),

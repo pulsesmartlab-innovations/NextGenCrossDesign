@@ -272,9 +272,9 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           shiny::tags$p("Choose how a cross's merit is scored and what kind of progeny you'll make. The defaults are good for most programs."),
           shiny::tags$ul(
             shiny::tags$li(shiny::tags$b("Merit metric"), ": keep ", shiny::tags$code("Usefulness"), " for most cases. Switch to ", shiny::tags$code("Mid-parent mean"), " for highly polygenic traits or small training sets."),
-            shiny::tags$li(shiny::tags$b("Breeding system"), ": ", shiny::tags$code("DH"), " for doubled haploids, ", shiny::tags$code("RIL"), " for recombinant inbred lines. Leave ", shiny::tags$b("Assume inbred parents"), " ticked unless your parents carry heterozygosity."),
+            shiny::tags$li(shiny::tags$b("Breeding system"), ": ", shiny::tags$code("DH"), " for doubled haploids, ", shiny::tags$code("RIL"), " for recombinant inbred lines. Set ", shiny::tags$b("Parent type"), " to match the parents you cross: ", shiny::tags$code("Inbred"), "/", shiny::tags$code("DH"), " expect fully fixed lines (heterozygous parents are blocked as a data error); ", shiny::tags$code("RIL"), " accepts the residual heterozygosity RILs retain after finite selfing."),
             shiny::tags$li(shiny::tags$b("Selection proportion"), " is the top fraction of progeny you expect to keep (e.g. 0.10 = top 10%).")),
-          shiny::tags$p(class = "help-hint", "If Data flagged non-inbred parents, either drop them (Data tab) or uncheck Assume inbred here.")),
+          shiny::tags$p(class = "help-hint", "If Data flagged non-inbred parents, either drop them (Data tab) or set Parent type = RIL here.")),
           next_hint = "Cross filters & genetic constraints - screen crosses before allocation."),
         bslib::layout_columns(col_widths = c(4, 4, 4),
           bslib::card(bslib::card_header("Effect & variance model"),
@@ -332,7 +332,13 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::conditionalPanel("input.ril_mode == 'finite'",
                 shiny::numericInput("nselfing", "Number of selfing generations", 8, min = 1, step = 1)),
               shiny::uiOutput("ril_note")),
-            shiny::checkboxInput("assume_inbred", "Assume inbred parents", TRUE))),
+            shiny::selectInput("parent_type", "Parent type",
+              ngcd_control_choices(cfg$backend_registry, "parent_type",
+                c(`Inbred lines` = "inbred", `Doubled-haploid lines` = "dh",
+                  `RIL / partially inbred (keeps residual heterozygosity)` = "ril")),
+              selected = "inbred"),
+            shiny::div(class = "help-hint",
+              "Describes the parents you cross — not the progeny system above. Inbred / DH expect fully fixed lines and block heterozygous parents as a data error; RIL accepts the residual heterozygosity RILs retain after finite selfing."))),
         shiny::hr(),
         shiny::uiOutput("run_predict_ui"),
         ngcd_figure_tag("fig_predict", "Trait model reliability", desc = "Cross-validation reliability per trait, from Fit & score.")),
@@ -882,13 +888,13 @@ workbench_server <- function(cfg) {
         if (!id_ok) ngcd_callout(kind = "warn",
           length(d$miss_pheno), " genotyped parents have no phenotype", ex(d$miss_pheno),
           ". Tick 'Use only parents present in BOTH' to drop them."),
-        if (isTRUE(input$assume_inbred) && d$het_n > 0) ngcd_callout(kind = "warn",
+        if (!identical(input$parent_type, "ril") && d$het_n > 0) ngcd_callout(kind = "warn",
           shiny::tags$b(paste0(d$het_n, " parents are not fully inbred")),
           " (>2% heterozygous markers", ex(d$het_ids), ").",
           shiny::tags$div(class = "help-hint",
-            "The DH/RIL model assumes inbred parents. Either tick ",
-            shiny::tags$b("'Exclude non-inbred parents'"), " below to drop them, or uncheck ",
-            shiny::tags$b("'Assume inbred parents'"), " in Prediction & scoring to keep them (results for those parents will be approximate).")))
+            "The Inbred/DH parent type expects fully fixed lines. Either tick ",
+            shiny::tags$b("'Exclude non-inbred parents'"), " below to drop them, or set ",
+            shiny::tags$b("Parent type = 'Recombinant inbred line (RIL)'"), " in Prediction & scoring to keep them (results for those parents will be approximate unless phased haplotypes are supplied).")))
     })
 
     # editable tables
@@ -1137,7 +1143,7 @@ workbench_server <- function(cfg) {
         trait_value_metric = input$trait_value_metric, uc_variance_source = input$uc_variance_source,
         method_varPMV = input$method_varPMV, selection_prop = input$selection_prop,
         progeny = input$progeny, recomb_model = input$recomb_model,
-        grm_method = input$grm_method, assume_inbred = input$assume_inbred,
+        grm_method = input$grm_method, parent_type = input$parent_type,
         min_effect_reliability = input$min_effect_reliability,
         # Per-trait check-line veto (Trait checks tab); backend requires trait_by_trait mode
         # (both "single" and "multi" objective_mode map to trait_by_trait, so both get the veto).
@@ -1349,10 +1355,10 @@ workbench_server <- function(cfg) {
         msgs <- c(msgs, paste0("Genotype and map marker sets do not match (",
           length(d$miss_map), " only in genotype, ", length(d$extra_map),
           " only in map) - this will block the run. Fix the names, or tick 'Use only markers present in BOTH' on the Data screen."))
-      if (!is.null(d) && isTRUE(input$assume_inbred) && d$het_n > 0 &&
+      if (!is.null(d) && !identical(input$parent_type, "ril") && d$het_n > 0 &&
           !isTRUE(input$drop_noninbred_parents))
         msgs <- c(msgs, paste0(d$het_n,
-          " parents are not fully inbred - the DH/RIL model will block the run. Tick 'Exclude non-inbred parents' on the Data screen, or uncheck 'Assume inbred parents' in Prediction & scoring."))
+          " parents are not fully inbred - the Inbred/DH parent type will block the run. Tick 'Exclude non-inbred parents' on the Data screen, or set Parent type = 'Recombinant inbred line (RIL)' in Prediction & scoring."))
       # Feasibility: distinct crosses can't exceed n_parents * max_uses / 2.
       if (!is.null(d)) {
         n_par <- if (isTRUE(input$restrict_shared_ids)) d$n_shared_ids else length(d$gids)
@@ -1418,7 +1424,7 @@ workbench_server <- function(cfg) {
       dat <- tryCatch(jsonlite::fromJSON(path, simplifyVector = TRUE, simplifyDataFrame = FALSE),
                       error = function(e) NULL)
       if (is.null(dat) || is.null(dat$values)) { shiny::showNotification("Not a valid settings file.", type = "error"); return(invisible()) }
-      ngcd_apply_settings(session, ngcd_migrate_metric_settings(dat$values))
+      ngcd_apply_settings(session, ngcd_migrate_parent_type_settings(ngcd_migrate_metric_settings(dat$values)))
       shiny::showNotification("Settings loaded. Review the tabs, then Run.", type = "message")
     }
     shiny::observeEvent(input$save_preset, {

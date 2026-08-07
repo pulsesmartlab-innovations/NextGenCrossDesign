@@ -21,7 +21,7 @@ ngcd_combo_base <- function(cfg, prediction_mode = "trait_by_trait", work_dir = 
     prediction_mode = prediction_mode,
     trait_value_metric = "usefulness", uc_variance_source = "reliable_family_variance", method_varPMV = "fast",
     multi_trait_method = "auto", progeny = "DH", recomb_model = "haldane",
-    grm_method = "vanraden", selection_prop = 0.2, assume_inbred = TRUE,
+    grm_method = "vanraden", selection_prop = 0.2, parent_type = "inbred",
     duplicate_action = "none", n_crosses = 10, max_crosses_per_parent = 4,
     optimizer = "greedy_local", allocation_method = "ocs", use_ocs = TRUE,
     write_outputs = FALSE, write_figures = FALSE, seed = 20260706)
@@ -107,7 +107,7 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
   for (s in divspecs) add("diversity", paste(s, collapse = ":"), div_ov(s[1], s[2]))
   for (v in c("trait_by_trait", "index_as_trait")) add("prediction_mode", v, list(prediction_mode = v))
   add("ld_pruning", "TRUE", list(ld_pruning = TRUE))
-  add("assume_inbred", "FALSE", list(assume_inbred = FALSE))
+  for (v in c("dh", "ril")) add("parent_type", v, list(parent_type = v))
 
   # ---- advanced mate-selection controls (all optional; default off) ----
   add("advanced", "progeny_inbreeding", list(lambda_progeny_inbreeding = 0.05))
