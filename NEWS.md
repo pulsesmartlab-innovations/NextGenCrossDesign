@@ -1,3 +1,19 @@
+# nextgenCrossWorkbench 0.20.0
+
+* **Parent type selector (Inbred / DH / RIL).** Prediction & scoring now has a
+  **Parent type** dropdown that surfaces the backend's residual-heterozygosity
+  governance directly, replacing the old *"Assume inbred parents"* checkbox (which
+  drove the now-deprecated `assume_inbred` backend flag). `Inbred` and `Doubled
+  haploid (DH)` expect fully fixed lines and block heterozygous parents as a data
+  error; `Recombinant inbred line (RIL)` accepts the residual heterozygosity RILs
+  retain after finite selfing. The choices are read from the backend capability
+  registry, so the experimental-status gate applies automatically. Data-quality
+  het warnings and run-blocking hints now point at the selector. A settings
+  profile saved with the old checkbox migrates automatically (ticked → `Inbred`,
+  unticked → `RIL`).
+* Raised `required_backend_version` to **0.17.2**, which advertises `parent_type`
+  in the capability registry and ships the exact residual-het-parent variance.
+
 # nextgenCrossWorkbench 0.19.1
 
 * **Experimental capabilities never surface in the UI.** `ngcd_control_choices()`

@@ -38,7 +38,7 @@ proxy:
       description: Genomic cross prediction and mate allocation workbench.
       # Fully-qualified multi-arch image on ghcr (linux/amd64 + linux/arm64).
       # The daemon pulls the arch matching the host automatically.
-      container-image: ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.15.3
+      container-image: ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.20.0
       # The app listens on 3838 inside the container (see Dockerfile EXPOSE/CMD).
       port: 3838
       # Per-deployment tuning without rebuilding the image: override any NGCD_*

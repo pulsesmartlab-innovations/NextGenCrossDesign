@@ -18,7 +18,7 @@ sample_params <- function(n_crosses = 10, duplicate_threshold = 0.98) {
     ld_pruning = FALSE, marker_ploidy = 2L,
     training_genotype_id_col = "NAME", trait_value_metric = "var_complex",
     uc_variance_source = "posterior", progeny = "RIL", recomb_model = "haldane",
-    grm_method = "vanraden", assume_inbred = TRUE,
+    grm_method = "vanraden", parent_type = "inbred",
     min_effect_reliability = 0.1, selection_prop = 0.1, seed = 1L,
     multi_trait_method = "auto", threshold_policy = "soft",
     threshold_penalty_weight = 1, lambda_marker = 0,
@@ -42,7 +42,7 @@ test_that("ngcd_stage_cfg_subset: each stage gets its own keys, not others'", {
   expect_false("lambda_group" %in% names(qc))
 
   predict <- sub(p, "predict")
-  expect_true(all(c("trait_value_metric", "progeny", "assume_inbred",
+  expect_true(all(c("trait_value_metric", "progeny", "parent_type",
                      "min_effect_reliability", "seed") %in% names(predict)))
   expect_false("duplicate_threshold" %in% names(predict))
   expect_false("n_crosses" %in% names(predict))

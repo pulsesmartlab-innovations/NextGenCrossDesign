@@ -38,9 +38,10 @@ objective (single trait, a computed multi-trait index, or your own index column)
 multi-trait joint superiority, per-trait check-line vetoes, the cross-priority
 **portfolio & risk** view, family-size allocation, the gain–diversity Pareto
 explorer, robust (posterior) allocation, and the dosage-aware polyploid and
-disomic-subgenome design workflows. The method, metric and breeding-system menus
-are read from the backend's capability registry, so they always match the
-installed engine.
+disomic-subgenome design workflows. The method, metric, parent-type and
+breeding-system menus are read from the backend's capability registry, so they
+always match the installed engine; any capability the backend marks
+*experimental* or *guarded* is automatically hidden from the menus.
 
 ```{r}
 library(nextgenCrossWorkbench)
@@ -52,7 +53,7 @@ The front-end and the backend are installed independently:
 
 ```{r eval = FALSE}
 # 1. the backend engine (performs the computations; a separate R process)
-R CMD INSTALL nextgenCrossDesign_0.14.0.tar.gz
+R CMD INSTALL nextgenCrossDesign_0.17.2.tar.gz
 
 # 2. this front-end (pulls its dependencies from CRAN)
 install.packages("nextgenCrossWorkbench", dependencies = TRUE)
@@ -161,9 +162,16 @@ one-click exclusion.
    desired-gain *values* come from your trait-direction file.
 2. **Prediction & scoring** — the effect & variance model (recombination and GRM
    methods, marker-effect reliability floor, optional training-set augmentation
-   and posterior engine), the **cross-value metric** (default `var_complex`, the
-   usefulness criterion) with its joint-superiority option, and the breeding
-   system (DH or RIL) with the selection proportion.
+   and posterior engine), the **cross-scoring metric** (breeder-framed choices —
+   *Mid-parent mean*, *Family variance*, *Reliable family variance*, *Usefulness*
+   (the default), *Parent distance*) with its joint-superiority option, the
+   breeding system (DH or RIL) with the selection proportion, and the **Parent
+   type** (*Inbred* / *DH* / *RIL*). Parent type describes the parents you cross,
+   not the progeny: *Inbred* and *DH* expect fully fixed lines and block
+   heterozygous parents as a data error, while *RIL* accepts the residual
+   heterozygosity recombinant inbred lines retain after finite selfing (if Data
+   flagged non-inbred parents, either drop them on the Data screen or set Parent
+   type = RIL here).
 3. **Cross filters & genetic constraints** — candidate-level screens applied
    *before* allocation: the **per-trait check-line veto** (below), lethal-allele
    guarding, and marker-target steering.
@@ -176,8 +184,22 @@ one-click exclusion.
 5. **Export options** — whether to write an Excel crossing-plan workbook and PNG
    figures, and the random seed for reproducibility.
 
-**Run** — one click assembles a JSON configuration, materializes any edited
-tables, and drives the backend. Errors are surfaced with plain-language hints.
+**Run** — the standard workflow runs as four explicit, **manually gated** steps
+rather than one monolithic run: **Run QC → Fit effects & score → Build selection
+index → Allocate & rank**. Each step's button unlocks only once its upstream step
+has completed, so you walk the pipeline deliberately; nothing runs automatically.
+QC is a real gate — it blocks the design only on *blockers* (a duplicate-genotype
+or other hard issue disables the downstream steps), while warnings pass through.
+Each stage's result is cached, so a downstream stage never recomputes upstream
+work, and changing a setting marks only that stage and the ones after it as
+needing a re-run; staged execution is byte-identical to the old one-shot run. Each
+activity screen carries a collapsible **Figure** tag that reveals that step's
+chart in place (putative duplicates after QC, trait-model reliability after Fit &
+score, the index distribution after Build index, the gain–diversity frontier and
+parent use after Allocate & rank). Every step assembles a JSON configuration,
+materializes any edited tables, and drives the backend out-of-process; errors and
+backend warnings are surfaced with plain-language hints. (Automatic cross-number
+selection and the exported workbook/figures still use the full one-shot run.)
 
 **Results** — a KPI row (crosses, mean gain, group coancestry, unique parents,
 maximum parent use, mean progeny inbreeding) above sub-tabs for the ranked plan,

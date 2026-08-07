@@ -28,7 +28,7 @@ test_that("qc -> predict -> index -> allocate -> rank over one pipeline dir accu
     map_marker_col = "SNP_code", map_chr_col = "Chromosome",
     map_pos_bp_col = "Position_BP", map_position_unit = "bp", bp_per_cm = 1e6,
     prediction_mode = "trait_by_trait", multi_trait_method = "auto",
-    trait_value_metric = "var_complex", progeny = "RIL", assume_inbred = TRUE,
+    trait_value_metric = "var_complex", progeny = "RIL", parent_type = "inbred",
     duplicate_action = "none", n_crosses = 8, max_crosses_per_parent = 4,
     optimizer = "greedy_local", allocation_method = "ocs", use_ocs = TRUE,
     seed = 20260719)

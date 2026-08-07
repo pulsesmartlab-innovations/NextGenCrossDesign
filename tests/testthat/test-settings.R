@@ -14,14 +14,14 @@ test_that("collect -> apply round-trips input values", {
   testServer(srv, {
     do.call(session$setInputs, demo_inputs(
       n_crosses = 17, optimizer = "evolution", trait_value_metric = "pmv",
-      allocation_method = "alphamate_style", assume_inbred = FALSE,
+      allocation_method = "alphamate_style", parent_type = "ril",
       selection_prop = 0.25, committed_crosses = "P09,P10", crop = "Barley",
       ploidy = "4", write_outputs = TRUE, diversity_mode = "emphasis"))
     saved <- nextgenCrossWorkbench:::ngcd_collect_settings(input)
     expect_equal(saved$n_crosses, 17)
     expect_equal(saved$optimizer, "evolution")
     expect_equal(saved$committed_crosses, "P09,P10")
-    expect_false(saved$assume_inbred)
+    expect_equal(saved$parent_type, "ril")
 
     # write + read back through JSON to mimic a saved profile file
     tmp <- tempfile(fileext = ".json")
@@ -32,7 +32,7 @@ test_that("collect -> apply round-trips input values", {
     expect_equal(back$trait_value_metric, "pmv")
     expect_equal(back$crop, "Barley")
     expect_equal(back$ploidy, "4")
-    expect_false(back$assume_inbred)
+    expect_equal(back$parent_type, "ril")
     expect_true(back$write_outputs)
   })
 })
