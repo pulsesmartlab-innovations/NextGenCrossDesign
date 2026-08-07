@@ -616,7 +616,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
 workbench_server <- function(cfg) {
   function(input, output, session) {
     rv <- shiny::reactiveValues(backend = NULL, result = NULL, last = NULL,
-                                run_dir = NULL, runlog = NULL, error = NULL,
+                                run_dir = NULL, runlog = NULL, error = NULL, warnings = NULL,
                                 data = list(genotype = NULL, phenotype = NULL, map = NULL, direction = NULL),
                                 edited = FALSE,
                                 # Staged pipeline (Phase 2): compute-once state + staleness. data_version
@@ -1584,9 +1584,14 @@ workbench_server <- function(cfg) {
             conditionMessage(e)), type = "warning", duration = NULL)
         })
         shiny::showNotification("Run complete.", type = "message")
+        # Surface backend advisories (e.g. the residual-heterozygous-RIL variance
+        # caveat, deprecation notices) so the breeder sees non-blocking warnings
+        # alongside the results. Stored for a persistent banner and toasted once.
+        rv$warnings <- as.character(unlist(out$result$warnings))
+        for (w in rv$warnings) shiny::showNotification(w, type = "warning", duration = NULL)
         bslib::nav_select("nav", "Results")
       } else {
-        rv$result <- NULL
+        rv$result <- NULL; rv$warnings <- NULL
         log_lines <- strsplit(out$log %||% "", "\n")[[1]]
         emsg <- out$error_message %||% "Unknown error."
         dd <- tryCatch(align_diag(), error = function(e) NULL)
@@ -1595,7 +1600,7 @@ workbench_server <- function(cfg) {
           hint = ngcd_error_hint(emsg),
           # offer the one-click exclusion only when the failure is the
           # residual-heterozygosity block AND we actually detected the parents.
-          het_fix = grepl("residual-heterozygosity|assume_inbred|inbred", tolower(emsg)) &&
+          het_fix = grepl("residual-heterozygosity|heterozygous|assume_inbred|inbred|parent_type", tolower(emsg)) &&
                     !is.null(dd) && length(dd$het_ids) > 0,
           het_ids = if (!is.null(dd)) dd$het_ids else character(0),
           command = out$command %||% "",
@@ -1666,7 +1671,7 @@ workbench_server <- function(cfg) {
       dd <- tryCatch(align_diag(), error = function(e) NULL)
       log_lines <- strsplit(out$log %||% "", "\n")[[1]]
       list(message = emsg, hint = ngcd_error_hint(emsg),
-           het_fix = grepl("residual-heterozygosity|assume_inbred|inbred", tolower(emsg)) &&
+           het_fix = grepl("residual-heterozygosity|heterozygous|assume_inbred|inbred|parent_type", tolower(emsg)) &&
                      !is.null(dd) && length(dd$het_ids) > 0,
            het_ids = if (!is.null(dd)) dd$het_ids else character(0),
            command = "", config_path = "", run_dir = out$run_dir %||% "",
@@ -1690,15 +1695,21 @@ workbench_server <- function(cfg) {
       out <- ngcd_run_stage(cfg, stage, rv$pipeline$run_dir, params, data = data_arg, progress = prog)
       record_stage_outcome(stage, out, params)
       status <- ngcd_stage_status(stage)
-      if (identical(status, "blocked"))
+      if (identical(status, "blocked")) {
+        rv$warnings <- NULL
         shiny::showNotification("QC found blocking issues - resolve them before predicting.", type = "error", duration = NULL)
-      else if (identical(status, "error")) {
+      } else if (identical(status, "error")) {
+        rv$warnings <- NULL
         rv$error <- stage_error_record(out)
         shiny::showNotification(paste0(stage, " stage failed - see the debug panel on the Run screen."), type = "error", duration = NULL)
       } else {
         rv$error <- NULL
         shiny::showNotification(paste0(switch(stage, qc = "QC", predict = "Prediction & scoring", index = "Selection index"),
                                        " complete."), type = "message")
+        # Surface any backend advisories from this stage (e.g. the residual-het
+        # RIL variance caveat emitted during predict) -- persistent banner + toast.
+        rv$warnings <- as.character(unlist(out$warnings))
+        for (w in rv$warnings) shiny::showNotification(w, type = "warning", duration = NULL)
       }
     }
 
@@ -1839,6 +1850,7 @@ workbench_server <- function(cfg) {
       params <- build_params()
       rv$run_dir <- rv$pipeline$run_dir
       final <- NULL
+      stage_warns <- character(0)   # accumulate backend advisories across stages
       for (stage in ns$stages) {
         data_arg <- if (identical(stage, "qc")) reconciled_run_data() else NULL
         out <- ngcd_run_stage(cfg, stage, rv$pipeline$run_dir, params, data = data_arg, progress = prog)
@@ -1847,8 +1859,9 @@ workbench_server <- function(cfg) {
         if (identical(status, "blocked")) {
           shiny::showNotification("QC blocked the run - see the Data quality screen.", type = "error", duration = NULL); return() }
         if (identical(status, "error")) {
-          rv$result <- NULL; rv$error <- stage_error_record(out)
+          rv$result <- NULL; rv$warnings <- NULL; rv$error <- stage_error_record(out)
           shiny::showNotification("Run failed - see the debug panel on the Run screen.", type = "error", duration = NULL); return() }
+        stage_warns <- c(stage_warns, as.character(unlist(out$warnings)))
         if (identical(stage, "rank")) final <- out
       }
       if (is.null(final)) return()
@@ -1856,6 +1869,8 @@ workbench_server <- function(cfg) {
       # ---- rank success: same path as do_run() ----
       result <- ngcd_enrich_result(final$result)
       rv$result <- result; rv$error <- NULL
+      rv$warnings <- stage_warns          # advisories collected across the pipeline
+      for (w in stage_warns) shiny::showNotification(w, type = "warning", duration = NULL)
       rv$last <- format(Sys.time(), "%H:%M:%S")
       rdir <- cfg$report_dir
       if (!dir.exists(rdir)) dir.create(rdir, recursive = TRUE, showWarnings = FALSE)
@@ -1894,8 +1909,13 @@ workbench_server <- function(cfg) {
     res <- shiny::reactive(rv$result)
     output$results_banner <- shiny::renderUI({
       if (!is.null(rv$error))
-        ngcd_callout(kind = "error", shiny::tags$b("Last run failed. "),
-          "See the debug panel on the ", shiny::tags$b("Run"), " screen.")
+        return(ngcd_callout(kind = "error", shiny::tags$b("Last run failed. "),
+          "See the debug panel on the ", shiny::tags$b("Run"), " screen."))
+      # Non-blocking backend advisories (residual-het-RIL variance caveat,
+      # deprecations, ...): a persistent warning banner alongside the results.
+      if (length(rv$warnings))
+        ngcd_callout(kind = "warn", shiny::tags$b("Advisories from this run:"),
+          shiny::tags$ul(lapply(rv$warnings, function(w) shiny::tags$li(w))))
     })
     output$results_kpis <- shiny::renderUI({
       r <- res(); if (is.null(r)) return(ngcd_callout("Run an analysis to see results."))

@@ -243,6 +243,7 @@ ngcd_run_stage <- function(cfg, stage, run_dir, params, data = NULL, progress = 
   list(ok = ok, status = status, stage = stage, stage_json = stage_json,
        result = result, log = paste(log, collapse = "\n"),
        exit_status = exit_status %||% 0L, error_message = error_message,
+       warnings = if (!is.null(raw_out)) raw_out$warnings else NULL,
        run_dir = run_dir)
 }
 
