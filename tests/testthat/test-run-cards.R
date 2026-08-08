@@ -86,8 +86,16 @@ test_that("the Run area renders adaptive stepped cards (multi=4, single=3, poly=
     expect_false(grepl("Build selection index", rahtml(output), fixed = TRUE))
     expect_true(grepl("Quality control", rahtml(output), fixed = TRUE))
 
-    # polyploid -> the single one-shot Run card, no stepped pipeline
+    # autotetraploid -> the stepped cards too (single-trait: QC, Fit & score,
+    # Allocate; no index card), NOT the single one-shot card
     session$setInputs(workflow = "polyploid"); session$flushReact()
+    ph <- rahtml(output)
+    expect_true(grepl("Quality control", ph, fixed = TRUE))
+    expect_true(grepl("Allocate", ph, fixed = TRUE))
+    expect_false(grepl("Build selection index", ph, fixed = TRUE))  # single-trait
+
+    # disomic-subgenome stays the single one-shot Run card (Phase 2)
+    session$setInputs(workflow = "subgenome"); session$flushReact()
     expect_false(grepl("Quality control", rahtml(output), fixed = TRUE))
   })
 })

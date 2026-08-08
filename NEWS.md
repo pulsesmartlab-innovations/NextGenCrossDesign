@@ -1,3 +1,19 @@
+# nextgenCrossWorkbench 0.22.0
+
+* **Polyploid designs run as the stepped pipeline too (autotetraploid).** The
+  autotetraploid workflow now runs as the same stage-by-stage cards as the
+  standard workflow — **Quality control → Fit effects & score → Allocate & rank**
+  (single-trait, so no selection-index step) — each with its own run button,
+  status, summary, and figure, and the same compute-once guarantee (a later step
+  never re-runs a completed one). Backed by the backend's new staged polyploid
+  runner (`ng_poly_run_stage`), which is byte-identical to the one-shot
+  `ng_polyploid_design_crosses`. Disomic-subgenome keeps its single-shot Run card
+  for now (Phase 2).
+* **Fix:** the stepped Run view now unlocks **Allocate** after *Fit effects &
+  score* in single-trait mode (previously it waited on the hidden selection-index
+  step, which single-trait runs skip).
+* Raised `required_backend_version` to **0.18.0** (ships `ng_poly_run_stage`).
+
 # nextgenCrossWorkbench 0.21.0
 
 * **Stage-centric Run pipeline.** The Run tab is now the pipeline itself: a
