@@ -55,12 +55,13 @@ emit_error <- function(message, path) {
 # a single-trait phenotype -> QC -> additive[/dominance] effects -> scoring ->
 # native allocation. Writes the same ng_run_result.v1 shape with poly_design=TRUE.
 # ===========================================================================
-run_polyploid_design <- function(raw, result_path) {
+# Build the ng_polyploid_design_crosses() argument list from a raw config. Shared
+# by the one-shot run_polyploid_design() and the staged (ng_poly_run_stage) path
+# so their argument marshaling cannot drift.
+poly_design_args <- function(raw) {
   if (!requireNamespace("nextgenCrossDesign", quietly = TRUE))
     stop("The 'nextgenCrossDesign' package is not installed / not on the library path.", call. = FALSE)
   suppressWarnings(suppressMessages(library(nextgenCrossDesign)))
-  if (!exists("ng_polyploid_design_crosses", where = asNamespace("nextgenCrossDesign")))
-    stop("This backend build does not provide ng_polyploid_design_crosses(). Reinstall a newer nextgenCrossDesign.", call. = FALSE)
 
   read_tab <- function(p) utils::read.csv(p, check.names = FALSE, stringsAsFactors = FALSE)
   # dosage matrix from the genotype file (first column = parent ID)
@@ -140,7 +141,22 @@ run_polyploid_design <- function(raw, result_path) {
     grm_method = raw$grm_method %||% "vanraden",
     ridge_seed = ridge_seed), extra)
 
+  design_args
+}
+
+run_polyploid_design <- function(raw, result_path) {
+  if (!exists("ng_polyploid_design_crosses", where = asNamespace("nextgenCrossDesign")))
+    stop("This backend build does not provide ng_polyploid_design_crosses(). Reinstall a newer nextgenCrossDesign.", call. = FALSE)
+  design_args <- poly_design_args(raw)
   plan <- do.call(nextgenCrossDesign::ng_polyploid_design_crosses, design_args)
+  poly_emit_result(plan, raw, result_path, design_args)
+}
+
+# Emit the ng_run_result.v1 polyploid payload from a finished poly `plan`. Shared
+# by the one-shot design and the staged terminal-rank path (ng_poly_run_stage).
+poly_emit_result <- function(plan, raw, result_path, design_args) {
+  ploidy <- as.integer(design_args$ploidy %||% 2L)
+  method <- design_args$method %||% "greedy_local"
 
   sm <- attr(plan, "summary"); qcr <- attr(plan, "qc")
   plan_df <- as.data.frame(plan, stringsAsFactors = FALSE)
@@ -792,6 +808,22 @@ run <- function() {
   # byte-identical for the same config. Non-terminal stages just echo the
   # backend's per-stage status/manifest JSON as-is.
   if (identical(raw$workflow %||% "cross_prediction", "stage")) {
+    # Staged autotetraploid: same stages (qc/predict/allocate/rank, no index),
+    # driven by ng_poly_run_stage() which shares poly_design_args() with the
+    # one-shot run_polyploid_design(), so staged == one-shot by construction.
+    if (identical(raw$prediction_family %||% "", "polyploid")) {
+      if (!exists("ng_poly_run_stage", where = asNamespace("nextgenCrossDesign")))
+        stop("This backend build does not provide ng_poly_run_stage(). Reinstall nextgenCrossDesign >= 0.18.0.", call. = FALSE)
+      out <- nextgenCrossDesign::ng_poly_run_stage(raw$stage, raw$run_dir, poly_design_args(raw))
+      if (identical(raw$stage, "rank")) {
+        poly_emit_result(attr(out, "result") %||% out$result, raw, result_path, poly_design_args(raw))
+      } else {
+        jsonlite::write_json(out, result_path, auto_unbox = TRUE, null = "null",
+                             na = "null", dataframe = "rows", pretty = TRUE, digits = 10)
+        cat("OK: wrote", result_path, "(poly stage:", raw$stage, ")\n")
+      }
+      return(invisible())
+    }
     args_in <- ngcd_coerce_backend_args(raw)
     stage_config <- ngcd_full_backend_config(args_in)
     out <- nextgenCrossDesign::ng_run_stage(raw$stage, raw$run_dir, stage_config)
