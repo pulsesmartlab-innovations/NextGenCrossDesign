@@ -1318,8 +1318,8 @@ workbench_server <- function(cfg) {
     # The poly/subgenome workflows don't use the staged pipeline, so they're
     # skipped entirely - rv$pipeline is simply left at whatever it last was.
     shiny::observe({
-      if (is_poly() || is_subgenome()) return()
-      rv$pipeline <- ngcd_pipeline_mark(rv$pipeline, build_params(), rv$data_version)
+      if (is_subgenome()) return()   # subgenome is not staged (Phase 2)
+      rv$pipeline <- ngcd_pipeline_mark(rv$pipeline, staged_params(), rv$data_version)
     })
 
     output$run_gate <- shiny::renderUI({
@@ -1691,8 +1691,21 @@ workbench_server <- function(cfg) {
     # Generic MANUAL single-stage runner (qc / predict / index). qc mints the
     # persistent pipeline dir + materializes the reconciled tables; downstream
     # stages require their upstream to be "done" and resume from the artifacts.
+    # Staged config + qc data for the CURRENT workflow. Autotetraploid uses the
+    # poly config (build_poly_params + prediction_family = "polyploid") and its
+    # RAW dosage (poly QC cleans it in the backend); the standard workflow uses
+    # build_params + reconciled tables. Subgenome is not staged (Phase 2).
+    staged_params <- function() {
+      if (is_poly()) { p <- build_poly_params(); p$prediction_family <- "polyploid"; p }
+      else build_params()
+    }
+    staged_run_data <- function(force_drop_het = FALSE) {
+      if (is_poly()) list(genotype = rv$data$genotype, phenotype = rv$data$phenotype)
+      else reconciled_run_data(force_drop_het)
+    }
+
     run_stage_manual <- function(stage) {
-      if (!data_ready()) { shiny::showNotification("Load all four data tables first.", type = "error"); return() }
+      if (!data_ready()) { shiny::showNotification("Load your input data first.", type = "error"); return() }
       b <- rv$backend
       if (is.null(b) || !isTRUE(b$backend_installed)) { shiny::showNotification("Backend not ready.", type = "error"); return() }
       upstream <- switch(stage, predict = "qc", index = "predict", NULL)
@@ -1700,8 +1713,8 @@ workbench_server <- function(cfg) {
         shiny::showNotification(paste0("Run the ", upstream, " stage first."), type = "error"); return() }
       if (is.null(rv$pipeline$run_dir)) rv$pipeline$run_dir <- ngcd_new_pipeline_dir(cfg)
       prog <- shiny::Progress$new(session); on.exit(prog$close())
-      params <- build_params()
-      data_arg <- if (identical(stage, "qc")) reconciled_run_data() else NULL
+      params <- staged_params()
+      data_arg <- if (identical(stage, "qc")) staged_run_data() else NULL
       out <- ngcd_run_stage(cfg, stage, rv$pipeline$run_dir, params, data = data_arg, progress = prog)
       record_stage_outcome(stage, out, params)
       status <- ngcd_stage_status(stage)
@@ -1733,7 +1746,10 @@ workbench_server <- function(cfg) {
     # (poly/subgenome, or a standard run that cannot stage: auto cross-number
     # sweep / artifact export -> ngcd_run_uses_staged() is FALSE).
     run_mode <- shiny::reactive({
-      if (is_poly() || is_subgenome() || !ngcd_run_uses_staged(build_params())) "single" else "staged"
+      if (is_subgenome()) "single"                          # subgenome staging is Phase 2
+      else if (is_poly()) "staged"                          # autotetraploid runs the staged cards
+      else if (!ngcd_run_uses_staged(build_params())) "single"
+      else "staged"
     })
 
     # Per-stage one-line result summary, rendered from the stored stage JSON.
@@ -1869,15 +1885,19 @@ workbench_server <- function(cfg) {
       # cross-number sweep / artifact emission), use the one-shot do_run() and
       # so get the always-on one-click button (short-circuit keeps build_params()
       # off the poly/subgenome path).
-      if (is_poly() || is_subgenome() || !ngcd_run_uses_staged(build_params()))
+      if (is_subgenome() || (!is_poly() && !ngcd_run_uses_staged(build_params())))
         return(shiny::actionButton("run", "Run cross prediction", class = "btn-run", width = "260px"))
-      en <- identical(ngcd_stage_status("index"), "done") &&
+      # Gate Allocate on the last visible upstream step: `index` only exists as a
+      # card in multi-trait mode; single-trait and polyploid runs gate on predict.
+      gate_stage <- if (identical(input$objective_mode, "multi")) "index" else "predict"
+      en <- identical(ngcd_stage_status(gate_stage), "done") &&
             !identical(ngcd_stage_status("qc"), "blocked")
       btn <- shiny::actionButton("run", "Allocate & rank", class = "btn-run", width = "260px")
       if (!en) btn <- shiny::tagAppendAttributes(btn, disabled = NA)
       shiny::tagList(btn,
         if (!en) shiny::div(class = "help-hint", style = "margin-top:6px;",
-          "Run QC → Fit effects & score → Build selection index first."))
+          paste0("Run QC → Fit effects & score",
+                 if (identical(input$objective_mode, "multi")) " → Build selection index" else "", " first.")))
     })
 
     # Standard-workflow driver: walk the stages that still need running (from
@@ -1896,12 +1916,12 @@ workbench_server <- function(cfg) {
 
       prog <- shiny::Progress$new(session); on.exit(prog$close())
       prog$set(message = "Assembling configuration...", value = 0.1)
-      params <- build_params()
+      params <- staged_params()
       rv$run_dir <- rv$pipeline$run_dir
       final <- NULL
       stage_warns <- character(0)   # accumulate backend advisories across stages
       for (stage in ns$stages) {
-        data_arg <- if (identical(stage, "qc")) reconciled_run_data() else NULL
+        data_arg <- if (identical(stage, "qc")) staged_run_data() else NULL
         out <- ngcd_run_stage(cfg, stage, rv$pipeline$run_dir, params, data = data_arg, progress = prog)
         record_stage_outcome(stage, out, params)
         status <- ngcd_stage_status(stage)
@@ -1943,7 +1963,7 @@ workbench_server <- function(cfg) {
     # diminishing-returns sweep) or write_outputs/write_figures (artifact
     # emission). See ngcd_run_uses_staged().
     shiny::observeEvent(input$run, {
-      if (is_poly() || is_subgenome() || !ngcd_run_uses_staged(build_params()))
+      if (is_subgenome() || (!is_poly() && !ngcd_run_uses_staged(build_params())))
         do_run() else do_run_pipeline()
     })
     # One-click recovery from the residual-heterozygosity block: drop the

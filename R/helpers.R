@@ -610,14 +610,18 @@ ngcd_stage_key_patterns <- list(
     "map_pos_cm_divisor", "map_position_unit", "bp_per_cm",
     "direction_trait_col", "direction_column_col", "direction_direction_col",
     "prediction_mode", "traits_to_use", "index_col", "index_direction",
-    "duplicate_*", "ld_*", "marker_ploidy", "ploidy"),
+    "duplicate_*", "ld_*", "marker_ploidy", "ploidy", "run_qc", "poly_min_maf",
+    "poly_max_missing_marker", "poly_max_missing_sample", "poly_run_qc"),
   predict = c(
     "training_*",
     "trait_value_metric", "uc_variance_source", "method_varPMV",
     "progeny", "recomb_model", "grm_method", "parent_type",
     "min_effect_reliability", "selection_prop", "seed",
     "run_posterior_prediction", "posterior_method", "n_iter", "burn_in",
-    "ril_mode", "nselfing"),
+    "ril_mode", "nselfing",
+    # polyploid predict (fit + score) keys
+    "dominance", "poly_dominance", "gain", "poly_gain", "double_reduction",
+    "poly_double_reduction", "poly_trait_col", "poly_grm_method"),
   index = c(
     "multi_trait_method", "trait_weights",
     "threshold_policy", "threshold_penalty_*",
@@ -627,7 +631,7 @@ ngcd_stage_key_patterns <- list(
   allocate = c(
     "n_crosses", "max_crosses_per_parent",
     "min_unique_parents", "min_crosses_per_parent", "max_pair_kinship",
-    "optimizer", "allocation_method", "use_ocs",
+    "optimizer", "method", "allocation_method", "use_ocs",
     "lambda_group", "lambda_mating", "lambda_parent_use", "lambda_parent_use_mode",
     "lambda_cost", "lambda_logistic",
     "strategy", "diversity_emphasis", "target_coancestry",
@@ -761,15 +765,26 @@ ngcd_stage_summary <- function(stage, json) {
   plural <- function(n) if (identical(as.integer(n), 1L)) "" else "s"
   switch(stage,
     qc = {
-      nb <- n_issue("blocker"); nw <- n_issue("warning")
-      sprintf("%d blocker%s, %d warning%s", nb, plural(nb), nw, plural(nw))
+      if (!is.null(json$marker_report$kept)) {       # polyploid QC cleans the dosage
+        sprintf("%d markers kept, %d dropped", json$marker_report$kept,
+                json$marker_report$dropped %||% 0L)
+      } else {
+        nb <- n_issue("blocker"); nw <- n_issue("warning")
+        sprintf("%d blocker%s, %d warning%s", nb, plural(nb), nw, plural(nw))
+      }
     },
     predict = {
-      nt <- if (is.data.frame(json$effect_summary)) nrow(json$effect_summary)
-            else length(json$effect_summary)
-      nc <- json$n_candidates %||% NA
-      sprintf("%d trait%s scored%s", nt, plural(nt),
-              if (is.na(nc)) "" else sprintf(" · %d candidate crosses", nc))
+      if (!is.null(json$poly_metric)) {              # polyploid fit + score
+        nc <- json$n_candidates %||% NA
+        sprintf("Scored%s (metric %s)",
+                if (is.na(nc)) "" else sprintf(" %d candidate crosses", nc), json$poly_metric)
+      } else {
+        nt <- if (is.data.frame(json$effect_summary)) nrow(json$effect_summary)
+              else length(json$effect_summary)
+        nc <- json$n_candidates %||% NA
+        sprintf("%d trait%s scored%s", nt, plural(nt),
+                if (is.na(nc)) "" else sprintf(" · %d candidate crosses", nc))
+      }
     },
     index = sprintf("Selection index (%s)", (json$objective$method %||% "index")),
     allocate = {
