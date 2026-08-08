@@ -1,3 +1,29 @@
+# nextgenCrossWorkbench 0.21.0
+
+* **Stage-centric Run pipeline.** The Run tab is now the pipeline itself: a
+  vertical sequence of step-cards — **1 · Quality control → 2 · Fit effects &
+  score → 3 · Build selection index → 4 · Allocate & rank** — where each step has
+  its **own Run button, status badge, one-line result summary, and its figure(s)
+  shown inline** in the card. Quality control and the multi-trait selection-index
+  build are now first-class steps you run on their own, each with its own figure,
+  instead of being buried in Configure or lumped into one run whose output all
+  landed in Results.
+    - **Compute-once, preserved and tested.** Running a later step never re-runs a
+      step you already completed; changing a setting marks only the affected step
+      and the steps after it for a re-run, while earlier steps stay done. (Backed
+      by a new test that changes an allocation-only setting and asserts QC / Fit /
+      Index stay `done`.)
+    - **Adaptive.** Single-trait and index-column modes show three steps (the
+      index build is hidden); polyploid and disomic-subgenome designs keep their
+      single one-shot Run card. A **Run all remaining steps** button walks whatever
+      is left in one click (and still hosts the auto cross-number sweep + workbook/
+      figure export).
+    - **Configure is options only.** The per-stage run buttons and diagnostic
+      figures moved out of the Data/Configure sub-tabs into their Run cards; the
+      live pre-run trait/index distribution preview stays on the Selection
+      objective screen. Results keeps the final plan (ranked crosses, report,
+      downloads, KPIs, Portfolio/Pareto, gain–diversity frontier).
+
 # nextgenCrossWorkbench 0.20.0
 
 * **Parent type selector (Inbred / DH / RIL).** Prediction & scoring now has a

@@ -746,6 +746,43 @@ ngcd_next_stages <- function(pipeline, stage_order = ngcd_pipeline_stage_names) 
   list(blocked = FALSE, stages = stage_order[first:length(stage_order)])
 }
 
+# One-line, human summary of a stage's outcome from its stored stage JSON
+# (rv$pipeline$stages[[s]]$json), so each Run card can show its own result.
+# Pure. NULL / empty json -> "Not run yet.".
+ngcd_stage_summary <- function(stage, json) {
+  if (is.null(json) || !length(json)) return("Not run yet.")
+  n_issue <- function(sev) {
+    iss <- json$issues
+    if (is.data.frame(iss)) return(sum(iss$severity %in% sev))
+    if (is.list(iss) && length(iss))
+      return(sum(vapply(iss, function(x) isTRUE(x$severity %in% sev), logical(1))))
+    0L
+  }
+  plural <- function(n) if (identical(as.integer(n), 1L)) "" else "s"
+  switch(stage,
+    qc = {
+      nb <- n_issue("blocker"); nw <- n_issue("warning")
+      sprintf("%d blocker%s, %d warning%s", nb, plural(nb), nw, plural(nw))
+    },
+    predict = {
+      nt <- if (is.data.frame(json$effect_summary)) nrow(json$effect_summary)
+            else length(json$effect_summary)
+      nc <- json$n_candidates %||% NA
+      sprintf("%d trait%s scored%s", nt, plural(nt),
+              if (is.na(nc)) "" else sprintf(" · %d candidate crosses", nc))
+    },
+    index = sprintf("Selection index (%s)", (json$objective$method %||% "index")),
+    allocate = {
+      ps <- json$plan_summary %||% list()
+      k <- ps$n_crosses %||% NA; g <- ps$mean_gain %||% NA; co <- ps$group_coancestry %||% NA
+      out <- paste(c(if (!is.na(k)) sprintf("%d crosses", k),
+                     if (!is.na(g)) sprintf("mean gain %.3g", g),
+                     if (!is.na(co)) sprintf("coancestry %.3g", co)), collapse = " · ")
+      if (nzchar(out)) out else "Allocation complete."
+    },
+    "")
+}
+
 # PURE routing predicate for the standard-workflow Run button: does this run go
 # through the staged pipeline (do_run_pipeline), or fall back to the one-shot
 # full run (do_run)? Two cases the staged path cannot reproduce force the full

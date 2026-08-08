@@ -216,8 +216,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::numericInput("ld_maf_threshold", "MAF threshold", 0.01, min = 0, max = 0.5, step = 0.01),
               shiny::selectInput("ld_backend", "Backend", ngcd_control_choices(cfg$backend_registry, "ld_backend", c("auto","cpp","r")))))),
         shiny::hr(),
-        shiny::uiOutput("run_qc_ui"),
-        ngcd_figure_tag("fig_qc", "Duplicate genotypes", desc = "Putative-duplicate similarity from the QC run."))))),
+        shiny::div(class = "help-hint", "Quality control runs on the Run tab (step 1 · Quality control), where its putative-duplicate figure is shown."))))),
 
       bslib::nav_panel("Configure",
         bslib::navset_tab(
@@ -263,9 +262,8 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::numericInput("threshold_penalty_weight", "Threshold penalty weight", 1, min = 0, step = 0.1),
             shiny::checkboxInput("threshold_penalty_autoscale", "Autoscale threshold penalty", TRUE))),
         shiny::hr(),
-        shiny::uiOutput("run_index_ui"),
         ngcd_figure_tag("fig_trait_dist", "Trait / index distribution", desc = "Live spread of your chosen trait/index in the loaded phenotype."),
-        ngcd_figure_tag("fig_index", "Computed index distribution", desc = "Distribution of the multi-trait index after Build selection index.")),
+        shiny::div(class = "help-hint", "Build the selection index on the Run tab (step 3), where its distribution figure is shown.")),
           bslib::nav_panel("Prediction & scoring",
         ngcd_section("Trait value, variance & breeding system"),
         ngcd_guide("Configure", "Prediction & scoring", shiny::tagList(
@@ -340,8 +338,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::div(class = "help-hint",
               "Describes the parents you cross — not the progeny system above. Inbred / DH expect fully fixed lines and block heterozygous parents as a data error; RIL accepts the residual heterozygosity RILs retain after finite selfing."))),
         shiny::hr(),
-        shiny::uiOutput("run_predict_ui"),
-        ngcd_figure_tag("fig_predict", "Trait model reliability", desc = "Cross-validation reliability per trait, from Fit & score.")),
+        shiny::div(class = "help-hint", "Fit effects & score runs on the Run tab (step 2), where the trait-model reliability figure is shown.")),
           bslib::nav_panel("Cross filters & genetic constraints",
         ngcd_guide("Configure", "Cross filters & genetic constraints", shiny::tagList(
           shiny::tags$p("Screen candidate crosses before allocation - flag or drop weak ones, steer toward useful alleles, and guard against lethal combinations."),
@@ -528,7 +525,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                     shiny::numericInput("alphamate_evol_solutions", "Evol solutions", 100, min = 2),
                     shiny::numericInput("alphamate_evol_iterations", "Evol iterations", 1000, min = 1),
                     shiny::numericInput("alphamate_evol_stop", "Evol stop", 200, min = 1))))))),
-        ngcd_figure_tag("fig_allocate", "Gain-diversity & parent use", desc = "Frontier + parent use, from Allocate & rank.")),
+        shiny::div(class = "help-hint", "Allocate & rank runs on the Run tab (step 4), where the gain-diversity frontier and parent-use figures are shown.")),
           bslib::nav_panel("Export options",
         ngcd_section("Priority ranking & outputs"),
         ngcd_guide("Configure", "Export options", shiny::tagList(
@@ -554,16 +551,17 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
         )),
 
       bslib::nav_panel("Run",
-        ngcd_section("Run the analysis", "Assembles your configuration (with any table edits) and calls the backend."),
+        ngcd_section("Run the analysis", "Run each step in order - each keeps its result and shows its own figure."),
         ngcd_guide("Run", "Run", shiny::tagList(
-          shiny::tags$p("Launch the analysis and watch for problems."),
+          shiny::tags$p("Run the pipeline one step at a time; each step keeps its result so the next step never re-runs it."),
           shiny::tags$ul(
-            shiny::tags$li("The box under the button is the ", shiny::tags$b("readiness check"), " - it turns from warnings to \"Ready to run\" when data and backend are set."),
-            shiny::tags$li("Click ", shiny::tags$b("Run cross prediction"), ". When it finishes, the app jumps to Results automatically."),
-            shiny::tags$li("If it fails, a ", shiny::tags$b("debug panel"), " appears with the error, a likely-fix hint, and copyable details - fix the flagged item and run again."),
-            if (isTRUE(dev)) shiny::tags$li(shiny::tags$b("Save / load settings"), ": save all your choices as a named profile, then reload it next session and run again without re-entering everything.")),
-          shiny::tags$p(class = "help-hint", "Each run is saved under runs/ with its exact config, so results are reproducible.")),
-          next_hint = "Results - explore the plan."),
+            shiny::tags$li(shiny::tags$b("Quality control"), " runs first and blocks the design only on blockers - warnings pass through."),
+            shiny::tags$li("Each step unlocks when the step above it is done, and its result summary and figure appear inside the step."),
+            shiny::tags$li(shiny::tags$b("Run all remaining steps"), " walks whatever is left in one click."),
+            shiny::tags$li("If a step fails, a ", shiny::tags$b("debug panel"), " appears below with the error and a likely-fix hint."),
+            if (isTRUE(dev)) shiny::tags$li(shiny::tags$b("Save / load settings"), ": save all your choices as a named profile to reload next session.")),
+          shiny::tags$p(class = "help-hint", "Change a setting and only the affected step (and the steps after it) need re-running; earlier steps stay done. Each run is saved under runs/ with its exact config.")),
+          next_hint = "Results - explore the final plan."),
         if (isTRUE(dev)) bslib::card(bslib::card_header("Save / load settings"),
           shiny::div(class = "help-hint",
             "Save all your current settings as a named profile to reload and re-run later. (Data files and column edits are not part of a profile - reselect your data, then load a profile.)"),
@@ -578,8 +576,12 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::div(shiny::tags$label(class = "form-label", " "),
               shiny::div(shiny::actionButton("load_preset", "Load profile", class = "btn-ndsu"))),
             shiny::fileInput("upload_settings", "...or load a .json file", accept = ".json"))),
+        # The run area (single-shot card OR the stepped per-stage cards) is
+        # rendered from ONE server renderUI (output$run_area) so the shared
+        # run_button_ui binding appears exactly once in the DOM.
+        shiny::uiOutput("run_area"),
+
         bslib::card(
-          shiny::uiOutput("run_button_ui"),
           shiny::uiOutput("run_gate"),
           shiny::uiOutput("error_panel"),
           shiny::tags$hr(), shiny::tags$b("Runner log"),
@@ -1724,6 +1726,45 @@ workbench_server <- function(cfg) {
     shiny::observeEvent(input$run_qc,      run_stage_manual("qc"))
     shiny::observeEvent(input$run_predict, run_stage_manual("predict"))
     shiny::observeEvent(input$run_index,   run_stage_manual("index"))
+    # one-click walk of the remaining (non-done) stages -- compute-once
+    shiny::observeEvent(input$run_all, do_run_pipeline())
+
+    # "staged" -> the stepped per-stage cards; "single" -> one one-shot Run card
+    # (poly/subgenome, or a standard run that cannot stage: auto cross-number
+    # sweep / artifact export -> ngcd_run_uses_staged() is FALSE).
+    run_mode <- shiny::reactive({
+      if (is_poly() || is_subgenome() || !ngcd_run_uses_staged(build_params())) "single" else "staged"
+    })
+
+    # Per-stage one-line result summary, rendered from the stored stage JSON.
+    stage_summary_ui <- function(stage)
+      shiny::div(class = "help-hint", style = "margin:4px 0;",
+                 ngcd_stage_summary(stage, rv$pipeline$stages[[stage]]$json))
+    output$sum_qc       <- shiny::renderUI(stage_summary_ui("qc"))
+    output$sum_predict  <- shiny::renderUI(stage_summary_ui("predict"))
+    output$sum_index    <- shiny::renderUI(stage_summary_ui("index"))
+    output$sum_allocate <- shiny::renderUI(stage_summary_ui("allocate"))
+
+    # The whole run area, from ONE renderUI so the shared run_button_ui binding
+    # exists once. Single-shot = one Run card; staged = the stepped cards (index
+    # card only in multi-trait mode). References to run_qc_ui/fig_qc/etc. are the
+    # same server outputs the old Configure tags used.
+    output$run_area <- shiny::renderUI({
+      if (identical(run_mode(), "single"))
+        return(bslib::card(bslib::card_header("Run"), shiny::uiOutput("run_button_ui")))
+      shiny::tagList(
+        shiny::div(style = "margin-bottom:10px;",
+          shiny::actionButton("run_all", "Run all remaining steps", class = "btn-outline-secondary")),
+        bslib::card(bslib::card_header("1 · Quality control"),
+          shiny::uiOutput("run_qc_ui"), shiny::uiOutput("sum_qc"), shiny::uiOutput("fig_qc")),
+        bslib::card(bslib::card_header("2 · Fit effects & score"),
+          shiny::uiOutput("run_predict_ui"), shiny::uiOutput("sum_predict"), shiny::uiOutput("fig_predict")),
+        if (identical(input$objective_mode, "multi"))
+          bslib::card(bslib::card_header("3 · Build selection index"),
+            shiny::uiOutput("run_index_ui"), shiny::uiOutput("sum_index"), shiny::uiOutput("fig_index")),
+        bslib::card(bslib::card_header("4 · Allocate & rank"),
+          shiny::uiOutput("run_button_ui"), shiny::uiOutput("sum_allocate"), shiny::uiOutput("fig_allocate")))
+    })
 
     # ---- per-stage button UIs (the ONLY place run_qc/run_predict/run_index
     # input IDs are declared) ----
