@@ -26,6 +26,34 @@ test_that("each file's card renders its preview + column mapping + validation", 
   })
 })
 
+test_that("strip chips link to their card, and re-uploading one file keeps the others (revisitable)", {
+  skip_on_cran()
+  gp  <- tempfile(fileext = ".csv"); pp <- tempfile(fileext = ".csv"); pp2 <- tempfile(fileext = ".csv")
+  utils::write.csv(data.frame(NAME = c("P1", "P2"), S1 = c(0, 2)), gp, row.names = FALSE)
+  utils::write.csv(data.frame(NAME = c("P1", "P2"), yield = c(1, 2)), pp, row.names = FALSE)
+  utils::write.csv(data.frame(NAME = c("P1", "P2"), newtrait = c(9, 8)), pp2, row.names = FALSE)
+
+  srv <- nextgenCrossWorkbench:::workbench_server(
+    nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb")))
+  shiny::testServer(srv, {
+    session$setInputs(workflow = "standard", data_source = "upload")
+    session$setInputs(f_geno  = list(name = "g.csv",  size = 1, type = "text/csv", datapath = gp))
+    session$setInputs(f_pheno = list(name = "p.csv",  size = 1, type = "text/csv", datapath = pp))
+    session$flushReact()
+
+    strip <- paste(as.character(output$import_strip), collapse = " ")
+    expect_match(strip, 'href="#imp-geno"', fixed = TRUE)     # chip jumps to the genotype card
+    expect_match(strip, 'href="#imp-pheno"', fixed = TRUE)
+    geno_rows <- nrow(rv$data$genotype)
+
+    # re-upload a DIFFERENT phenotype: genotype must be untouched
+    session$setInputs(f_pheno = list(name = "p2.csv", size = 1, type = "text/csv", datapath = pp2))
+    session$flushReact()
+    expect_equal(nrow(rv$data$genotype), geno_rows)           # other file preserved
+    expect_true("newtrait" %in% names(rv$data$phenotype))     # this file updated
+  })
+})
+
 test_that("import cards adapt to workflow (poly = genotype + phenotype only)", {
   skip_on_cran()
   srv <- nextgenCrossWorkbench:::workbench_server(

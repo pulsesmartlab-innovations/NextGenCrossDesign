@@ -172,20 +172,24 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                            " above to load your own files, one at a time.")),
             shiny::conditionalPanel("input.data_source == 'upload'",
               shiny::uiOutput("import_strip"),
-              bslib::card(bslib::card_header("1 · Genotype / dosage"),
-                shiny::fileInput("f_geno", "Genotype / dosage CSV", accept = c(".csv", ".txt", ".tsv")),
-                shiny::uiOutput("geno_step")),
-              bslib::card(bslib::card_header("2 · Phenotype"),
-                shiny::fileInput("f_pheno", "Phenotype CSV", accept = c(".csv", ".txt", ".tsv")),
-                shiny::uiOutput("pheno_step")),
+              shiny::tags$div(id = "imp-geno",
+                bslib::card(bslib::card_header("1 · Genotype / dosage"),
+                  shiny::fileInput("f_geno", "Genotype / dosage CSV", accept = c(".csv", ".txt", ".tsv")),
+                  shiny::uiOutput("geno_step"))),
+              shiny::tags$div(id = "imp-pheno",
+                bslib::card(bslib::card_header("2 · Phenotype"),
+                  shiny::fileInput("f_pheno", "Phenotype CSV", accept = c(".csv", ".txt", ".tsv")),
+                  shiny::uiOutput("pheno_step"))),
               shiny::conditionalPanel("input.workflow == 'standard' || input.workflow == 'subgenome'",
-                bslib::card(bslib::card_header("3 · Marker map"),
-                  shiny::fileInput("f_map", "Marker map CSV", accept = c(".csv", ".txt", ".tsv")),
-                  shiny::uiOutput("map_step"))),
+                shiny::tags$div(id = "imp-map",
+                  bslib::card(bslib::card_header("3 · Marker map"),
+                    shiny::fileInput("f_map", "Marker map CSV", accept = c(".csv", ".txt", ".tsv")),
+                    shiny::uiOutput("map_step")))),
               shiny::conditionalPanel("input.workflow == 'standard'",
-                bslib::card(bslib::card_header("4 · Trait direction (optional)"),
-                  shiny::fileInput("f_dir", "Trait direction CSV", accept = c(".csv", ".txt", ".tsv")),
-                  shiny::uiOutput("dir_step"))),
+                shiny::tags$div(id = "imp-dir",
+                  bslib::card(bslib::card_header("4 · Trait direction (optional)"),
+                    shiny::fileInput("f_dir", "Trait direction CSV", accept = c(".csv", ".txt", ".tsv")),
+                    shiny::uiOutput("dir_step")))),
               shiny::div(class = "help-hint", style = "margin-top:8px",
                 "Alignment options (drop rows/markers that don't line up across files):"),
               shiny::checkboxInput("restrict_shared_markers",
@@ -975,17 +979,19 @@ workbench_server <- function(cfg) {
 
     output$import_strip <- shiny::renderUI({
       items <- list(
-        list(n = "1 Genotype",  up = input$f_geno,  df = rv$data$genotype,  show = TRUE),
-        list(n = "2 Phenotype", up = input$f_pheno, df = rv$data$phenotype, show = TRUE),
-        list(n = "3 Map",       up = input$f_map,   df = rv$data$map,
+        list(n = "1 Genotype",  a = "imp-geno",  up = input$f_geno,  df = rv$data$genotype,  show = TRUE),
+        list(n = "2 Phenotype", a = "imp-pheno", up = input$f_pheno, df = rv$data$phenotype, show = TRUE),
+        list(n = "3 Map",       a = "imp-map",   up = input$f_map,   df = rv$data$map,
              show = (input$workflow %||% "standard") %in% c("standard", "subgenome")),
-        list(n = "4 Direction", up = input$f_dir,   df = rv$data$direction,
+        list(n = "4 Direction", a = "imp-dir",   up = input$f_dir,   df = rv$data$direction,
              show = identical(input$workflow %||% "standard", "standard")))
+      # each chip is a link that jumps to its file's card (revisitable)
       chips <- lapply(Filter(function(x) isTRUE(x$show), items), function(x) {
         s <- ngcd_import_state(x$up, x$df)$state
         spec <- switch(s, ok = list("✓", "ok"), error = list("✗", "error"),
                        warn = list("!", "warn"), list("○", "info"))
-        ngcd_badge(paste0(spec[[1]], " ", x$n), spec[[2]])
+        shiny::tags$a(href = paste0("#", x$a), style = "text-decoration:none;",
+                      ngcd_badge(paste0(spec[[1]], " ", x$n), spec[[2]]))
       })
       shiny::div(style = "display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;", chips)
     })
