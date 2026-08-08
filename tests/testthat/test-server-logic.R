@@ -28,7 +28,7 @@ test_that("ID-column selector stays small for a wide genotype (no selectize warn
       f_dir = list(datapath = dr, name = "d.csv"))
     session$flushReact()
     expect_equal(ncol(rv$data$genotype), nm + 1L)     # wide table loaded
-    html <- output$colmap_ui
+    html <- paste(as.character(output$geno_step), collapse = " ")  # ID picker lives in the genotype card
     block <- regmatches(html, regexpr("id=\"genotype_id_col\".*?</select>", html))
     nopt <- length(gregexpr("<option", block)[[1]])
     expect_lt(nopt, 40)                                # not ~2000 options
