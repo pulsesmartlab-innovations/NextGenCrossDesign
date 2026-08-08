@@ -216,8 +216,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::numericInput("ld_maf_threshold", "MAF threshold", 0.01, min = 0, max = 0.5, step = 0.01),
               shiny::selectInput("ld_backend", "Backend", ngcd_control_choices(cfg$backend_registry, "ld_backend", c("auto","cpp","r")))))),
         shiny::hr(),
-        shiny::uiOutput("run_qc_ui"),
-        ngcd_figure_tag("fig_qc", "Duplicate genotypes", desc = "Putative-duplicate similarity from the QC run."))))),
+        shiny::div(class = "help-hint", "Quality control runs on the Run tab (step 1 · Quality control), where its putative-duplicate figure is shown."))))),
 
       bslib::nav_panel("Configure",
         bslib::navset_tab(
@@ -263,9 +262,8 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::numericInput("threshold_penalty_weight", "Threshold penalty weight", 1, min = 0, step = 0.1),
             shiny::checkboxInput("threshold_penalty_autoscale", "Autoscale threshold penalty", TRUE))),
         shiny::hr(),
-        shiny::uiOutput("run_index_ui"),
         ngcd_figure_tag("fig_trait_dist", "Trait / index distribution", desc = "Live spread of your chosen trait/index in the loaded phenotype."),
-        ngcd_figure_tag("fig_index", "Computed index distribution", desc = "Distribution of the multi-trait index after Build selection index.")),
+        shiny::div(class = "help-hint", "Build the selection index on the Run tab (step 3), where its distribution figure is shown.")),
           bslib::nav_panel("Prediction & scoring",
         ngcd_section("Trait value, variance & breeding system"),
         ngcd_guide("Configure", "Prediction & scoring", shiny::tagList(
@@ -340,8 +338,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             shiny::div(class = "help-hint",
               "Describes the parents you cross — not the progeny system above. Inbred / DH expect fully fixed lines and block heterozygous parents as a data error; RIL accepts the residual heterozygosity RILs retain after finite selfing."))),
         shiny::hr(),
-        shiny::uiOutput("run_predict_ui"),
-        ngcd_figure_tag("fig_predict", "Trait model reliability", desc = "Cross-validation reliability per trait, from Fit & score.")),
+        shiny::div(class = "help-hint", "Fit effects & score runs on the Run tab (step 2), where the trait-model reliability figure is shown.")),
           bslib::nav_panel("Cross filters & genetic constraints",
         ngcd_guide("Configure", "Cross filters & genetic constraints", shiny::tagList(
           shiny::tags$p("Screen candidate crosses before allocation - flag or drop weak ones, steer toward useful alleles, and guard against lethal combinations."),
@@ -528,7 +525,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                     shiny::numericInput("alphamate_evol_solutions", "Evol solutions", 100, min = 2),
                     shiny::numericInput("alphamate_evol_iterations", "Evol iterations", 1000, min = 1),
                     shiny::numericInput("alphamate_evol_stop", "Evol stop", 200, min = 1))))))),
-        ngcd_figure_tag("fig_allocate", "Gain-diversity & parent use", desc = "Frontier + parent use, from Allocate & rank.")),
+        shiny::div(class = "help-hint", "Allocate & rank runs on the Run tab (step 4), where the gain-diversity frontier and parent-use figures are shown.")),
           bslib::nav_panel("Export options",
         ngcd_section("Priority ranking & outputs"),
         ngcd_guide("Configure", "Export options", shiny::tagList(
