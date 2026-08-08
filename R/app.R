@@ -981,17 +981,13 @@ workbench_server <- function(cfg) {
             sel("direction_direction_col", "Direction", c$dir, c("Selection_direction","direction")))))
     })
     # Trait choices come from the DIRECTION file (the backend filters
-    # traits_to_use against the direction file's trait label / column), NOT the
-    # phenotype columns - otherwise a subset can match nothing.
+    # Traits come from the uploaded PHENOTYPE file's own columns (what the user
+    # sees and selects). The trait-direction file, if supplied, only annotates
+    # increase/decrease for these traits -- it no longer defines the set.
     full_trait_set <- shiny::reactive({
-      d <- rv$data$direction
-      if (is.null(d) || !nrow(d)) {
-        c <- cols(); idg <- ngcd_guess_col(c$pheno, c("NAME","parent","id","line"))
-        return(setdiff(c$pheno, idg))
-      }
-      tcol <- input$direction_trait_col %||% ngcd_guess_col(names(d), c("Trait","trait"))
-      if (is.null(tcol) || !tcol %in% names(d)) tcol <- names(d)[1]
-      unique(trimws(as.character(d[[tcol]])))
+      ngcd_trait_columns(rv$data$phenotype,
+        input$phenotype_id_col %||% ngcd_guess_col(names(rv$data$phenotype),
+                                                   c("NAME", "parent", "id", "line")))
     })
     # Single-trait picker (Selection objective: "single" mode) - choices track
     # full_trait_set() the same way traits_to_use_ui does; keep the current

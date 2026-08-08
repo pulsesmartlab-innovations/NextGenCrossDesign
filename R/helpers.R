@@ -113,6 +113,18 @@ ngcd_guess_col <- function(cols, candidates) {
   if (length(hit)) cols[hit[1]] else NULL
 }
 
+# The traits available for selection come from the PHENOTYPE file's own columns
+# (every column except the parent-ID column) -- what the user uploaded and sees.
+# The trait-direction file, if supplied, only annotates increase/decrease for
+# these traits; it does NOT define the set. `id_col` is auto-detected when NULL.
+# Pure: no shiny, no I/O.
+ngcd_trait_columns <- function(pheno, id_col = NULL) {
+  if (is.null(pheno) || !is.data.frame(pheno) || !ncol(pheno)) return(character(0))
+  if (is.null(id_col) || !id_col %in% names(pheno))
+    id_col <- ngcd_guess_col(names(pheno), c("NAME", "parent", "id", "line")) %||% names(pheno)[1]
+  setdiff(names(pheno), id_col)
+}
+
 # Full-table read for editable tables. Robust to real-world exports:
 #   * strips a UTF-8 BOM (Excel adds one; it corrupts the first column name),
 #   * auto-detects the delimiter (comma / semicolon / tab / pipe) so European
