@@ -113,6 +113,18 @@ ngcd_guess_col <- function(cols, candidates) {
   if (length(hit)) cols[hit[1]] else NULL
 }
 
+# Per-file import status for the guided data-import cards. Pure. Returns
+# list(state, label): "empty" (not uploaded), "error" (unreadable), "warn"
+# (single column - likely a delimiter problem), or "ok" (N rows x M columns).
+ngcd_import_state <- function(uploaded, df) {
+  if (is.null(uploaded)) return(list(state = "empty", label = "not uploaded"))
+  if (is.null(df) || !is.data.frame(df) || !ncol(df))
+    return(list(state = "error", label = "could not read the file"))
+  if (ncol(df) < 2)
+    return(list(state = "warn", label = "only one column - check the delimiter"))
+  list(state = "ok", label = sprintf("%d rows × %d columns", nrow(df), ncol(df)))
+}
+
 # The traits available for selection come from the PHENOTYPE file's own columns
 # (every column except the parent-ID column) -- what the user uploaded and sees.
 # The trait-direction file, if supplied, only annotates increase/decrease for

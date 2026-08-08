@@ -14,6 +14,16 @@ test_that("ngcd_trait_columns returns the phenotype's non-ID columns", {
   expect_equal(tc(ph2, "line"), "y")
 })
 
+test_that("ngcd_import_state reports per-file status", {
+  st <- nextgenCrossWorkbench:::ngcd_import_state
+  expect_equal(st(NULL, NULL)$state, "empty")
+  expect_equal(st(list(name = "x.csv"), NULL)$state, "error")          # uploaded but unreadable
+  expect_equal(st(list(name = "x.csv"), data.frame(a = 1))$state, "warn")   # single column
+  ok <- st(list(name = "x.csv"), data.frame(NAME = "P1", y = 1))
+  expect_equal(ok$state, "ok")
+  expect_match(ok$label, "1 rows × 2 columns")
+})
+
 test_that("ngcd_trait_columns is robust to empty / NULL / no-trait input", {
   tc <- nextgenCrossWorkbench:::ngcd_trait_columns
   expect_equal(tc(NULL), character(0))

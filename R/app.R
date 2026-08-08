@@ -124,16 +124,8 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::uiOutput("subgenome_col_ui")),
             shiny::radioButtons("data_source", NULL,
               c("Bundled demo data" = "demo", "Upload my CSV files" = "upload"), selected = "demo"),
-            shiny::conditionalPanel("input.data_source == 'upload'",
-              shiny::fileInput("f_geno", "Genotype / dosage CSV", accept = c(".csv", ".txt", ".tsv")),
-              shiny::fileInput("f_pheno", "Phenotype CSV", accept = c(".csv", ".txt", ".tsv")),
-              shiny::conditionalPanel("input.workflow == 'standard' || input.workflow == 'subgenome'",
-                shiny::fileInput("f_map", "Marker map CSV", accept = c(".csv", ".txt", ".tsv"))),
-              shiny::conditionalPanel("input.workflow == 'standard'",
-                shiny::fileInput("f_dir", "Trait direction CSV", accept = c(".csv", ".txt", ".tsv"))),
-              shiny::div(class = "help-hint", style = "margin-top:-6px",
-                "Comma, semicolon or tab separated; a UTF-8 byte-order mark (Excel) is handled automatically."),
-              shiny::uiOutput("load_status")),
+            # File uploads + their column mapping live in the per-file import
+            # cards in the right column (progressive, revisitable).
             shiny::conditionalPanel("input.data_source == 'demo'",
               ngcd_callout("Demo: 10 inbred parents, 12 markers, traits ", shiny::tags$b("yield"),
                            " (increase) and ", shiny::tags$b("disease"), " (decrease).")),
@@ -172,15 +164,36 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::div(class = "help-hint", style = "margin-top:4px",
                 "Restores every setting to its default and re-guesses the column mappings and traits for the currently loaded data. Your data source and uploaded files are kept. Use this when switching datasets so old column selections don't carry over.")),
             shiny::uiOutput("edit_flag")),
-          bslib::card(bslib::card_header("Column mapping"), shiny::uiOutput("colmap_ui"))),
-        bslib::card(bslib::card_header("Data checks (marker & ID alignment)"),
-          shiny::uiOutput("data_checks"),
-          shiny::checkboxInput("restrict_shared_markers",
-            "Use only markers present in BOTH genotype and map (drop unmapped genotype markers)", FALSE),
-          shiny::checkboxInput("restrict_shared_ids",
-            "Use only parents present in BOTH genotype and phenotype", FALSE),
-          shiny::checkboxInput("drop_noninbred_parents",
-            "Exclude non-inbred parents (>2% heterozygous markers) for the DH/RIL model", FALSE)),
+          # RIGHT column: per-file guided import. Each file's upload reveals its
+          # own preview + column mapping (from that file) + inline checks.
+          bslib::card(bslib::card_header("Data files & column mapping"),
+            shiny::conditionalPanel("input.data_source == 'demo'",
+              ngcd_callout("Using the bundled demo data. Choose ", shiny::tags$b("Upload my CSV files"),
+                           " above to load your own files, one at a time.")),
+            shiny::conditionalPanel("input.data_source == 'upload'",
+              shiny::uiOutput("import_strip"),
+              bslib::card(bslib::card_header("1 · Genotype / dosage"),
+                shiny::fileInput("f_geno", "Genotype / dosage CSV", accept = c(".csv", ".txt", ".tsv")),
+                shiny::uiOutput("geno_step")),
+              bslib::card(bslib::card_header("2 · Phenotype"),
+                shiny::fileInput("f_pheno", "Phenotype CSV", accept = c(".csv", ".txt", ".tsv")),
+                shiny::uiOutput("pheno_step")),
+              shiny::conditionalPanel("input.workflow == 'standard' || input.workflow == 'subgenome'",
+                bslib::card(bslib::card_header("3 · Marker map"),
+                  shiny::fileInput("f_map", "Marker map CSV", accept = c(".csv", ".txt", ".tsv")),
+                  shiny::uiOutput("map_step"))),
+              shiny::conditionalPanel("input.workflow == 'standard'",
+                bslib::card(bslib::card_header("4 · Trait direction (optional)"),
+                  shiny::fileInput("f_dir", "Trait direction CSV", accept = c(".csv", ".txt", ".tsv")),
+                  shiny::uiOutput("dir_step"))),
+              shiny::div(class = "help-hint", style = "margin-top:8px",
+                "Alignment options (drop rows/markers that don't line up across files):"),
+              shiny::checkboxInput("restrict_shared_markers",
+                "Use only markers present in BOTH genotype and map (drop unmapped genotype markers)", FALSE),
+              shiny::checkboxInput("restrict_shared_ids",
+                "Use only parents present in BOTH genotype and phenotype", FALSE),
+              shiny::checkboxInput("drop_noninbred_parents",
+                "Exclude non-inbred parents (>2% heterozygous markers) for the DH/RIL model", FALSE)))),
         bslib::card(bslib::card_header("Input data (editable)"),
           bslib::navset_tab(
             bslib::nav_panel("Genotype", DT::DTOutput("edit_geno")),
@@ -932,53 +945,114 @@ workbench_server <- function(cfg) {
       cand[!is.na(cand) & nzchar(cand)]
     }
     # subgenome column picker (disomic-subgenome workflow)
-    output$subgenome_col_ui <- shiny::renderUI({
-      c <- cols()
-      if (!length(c$map)) return(shiny::div(class = "help-hint",
-        "Upload a marker map with a subgenome column, then pick it here."))
-      shiny::selectInput("subgenome_col", "Subgenome column (marker map)",
-        choices = c$map,
-        selected = ngcd_guess_col(c$map, c("Subgenome","subgenome","genome","sg")) %||% c$map[[1]])
+    # The subgenome column is picked on the Marker-map import card below.
+    output$subgenome_col_ui <- shiny::renderUI(
+      shiny::div(class = "help-hint",
+        "Pick the marker-map column that names each marker's subgenome on the Marker map card."))
+
+    # ---- per-file guided import: column-picker builders + preview ----------
+    imp_sel <- function(id, label, choices, guess)
+      shiny::selectInput(id, label, choices = c("(auto)" = "", choices),
+                         selected = ngcd_guess_col(choices, guess) %||% "")
+    imp_id_sel <- function(id, label, df, guess) {
+      ch <- id_col_choices(df, guess)
+      shiny::selectInput(id, label, choices = c("(auto)" = "", ch),
+                         selected = ngcd_guess_col(ch, guess) %||% "")
+    }
+    imp_preview <- function(df) {
+      if (is.null(df) || !ncol(df)) return(NULL)
+      d <- utils::head(df, 5L); cn <- utils::head(names(d), 8L)
+      shiny::div(style = "overflow-x:auto; font-size:0.8em; margin:6px 0;",
+        shiny::tags$table(class = "table table-sm",
+          shiny::tags$thead(shiny::tags$tr(lapply(cn, shiny::tags$th))),
+          shiny::tags$tbody(lapply(seq_len(nrow(d)), function(i)
+            shiny::tags$tr(lapply(cn, function(k) shiny::tags$td(as.character(d[i, k]))))))),
+        if (ncol(df) > 8L) shiny::div(class = "help-hint", sprintf("… and %d more columns", ncol(df) - 8L)))
+    }
+    imp_note <- function(state, empty_msg) shiny::div(class = "help-hint",
+      if (identical(state$state, "empty")) empty_msg else state$label)
+    imp_chip <- function(state) ngcd_badge(paste0("✓ ", state$label), "ok")
+
+    output$import_strip <- shiny::renderUI({
+      items <- list(
+        list(n = "1 Genotype",  up = input$f_geno,  df = rv$data$genotype,  show = TRUE),
+        list(n = "2 Phenotype", up = input$f_pheno, df = rv$data$phenotype, show = TRUE),
+        list(n = "3 Map",       up = input$f_map,   df = rv$data$map,
+             show = (input$workflow %||% "standard") %in% c("standard", "subgenome")),
+        list(n = "4 Direction", up = input$f_dir,   df = rv$data$direction,
+             show = identical(input$workflow %||% "standard", "standard")))
+      chips <- lapply(Filter(function(x) isTRUE(x$show), items), function(x) {
+        s <- ngcd_import_state(x$up, x$df)$state
+        spec <- switch(s, ok = list("✓", "ok"), error = list("✗", "error"),
+                       warn = list("!", "warn"), list("○", "info"))
+        ngcd_badge(paste0(spec[[1]], " ", x$n), spec[[2]])
+      })
+      shiny::div(style = "display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;", chips)
     })
-    # column mapping
-    output$colmap_ui <- shiny::renderUI({
-      c <- cols()
-      if (!length(c$geno)) return(ngcd_callout("Load data to map columns."))
-      sel <- function(id, label, choices, guess)
-        shiny::selectInput(id, label, choices = c("(auto)" = "", choices),
-                           selected = ngcd_guess_col(choices, guess) %||% "")
-      id_sel <- function(id, label, df, guess) {
-        ch <- id_col_choices(df, guess)
-        shiny::selectInput(id, label, choices = c("(auto)" = "", ch),
-                           selected = ngcd_guess_col(ch, guess) %||% "")
+
+    output$geno_step <- shiny::renderUI({
+      g <- rv$data$genotype; st <- ngcd_import_state(input$f_geno, g)
+      if (!identical(st$state, "ok")) return(imp_note(st, "Drop your genotype / dosage CSV above to begin."))
+      gid <- input$genotype_id_col %||% ngcd_guess_col(names(g), c("NAME","parent","id","line"))
+      dupw <- if (!is.null(gid) && gid %in% names(g) && any(duplicated(trimws(as.character(g[[gid]])))))
+        ngcd_callout(kind = "warn", "Duplicate parent IDs in the genotype file - fix on the Genotype table.") else NULL
+      shiny::tagList(imp_chip(st), imp_preview(g),
+        imp_id_sel("genotype_id_col", "Which column is the parent ID?", g, c("NAME","parent","id","line")),
+        dupw)
+    })
+
+    output$pheno_step <- shiny::renderUI({
+      ph <- rv$data$phenotype; g <- rv$data$genotype; st <- ngcd_import_state(input$f_pheno, ph)
+      if (!identical(st$state, "ok")) return(imp_note(st, "Drop your phenotype CSV above."))
+      pid <- input$phenotype_id_col %||% ngcd_guess_col(names(ph), c("NAME","parent","id","line"))
+      traits <- ngcd_trait_columns(ph, pid)
+      match_note <- NULL
+      if (!is.null(g) && ncol(g)) {
+        gid <- input$genotype_id_col %||% ngcd_guess_col(names(g), c("NAME","parent","id","line"))
+        if (!is.null(gid) && gid %in% names(g) && !is.null(pid) && pid %in% names(ph)) {
+          m  <- length(intersect(trimws(as.character(g[[gid]])), trimws(as.character(ph[[pid]]))))
+          np <- length(unique(trimws(as.character(ph[[pid]]))))
+          match_note <- ngcd_callout(kind = if (m > 0) "info" else "warn",
+            sprintf("%d of %d phenotype IDs match the genotype.", m, np))
+        }
       }
-      shiny::tagList(
-        shiny::tags$b("Identity columns"),
+      shiny::tagList(imp_chip(st), imp_preview(ph),
+        imp_id_sel("phenotype_id_col", "Which column is the parent ID?", ph, c("NAME","parent","id","line")),
+        shiny::div(class = "help-hint",
+          paste0("Trait column(s) detected (choose which to analyze on the Selection objective screen): ",
+                 if (length(traits)) paste(traits, collapse = ", ") else "none")),
+        match_note)
+    })
+
+    output$map_step <- shiny::renderUI({
+      m <- rv$data$map; st <- ngcd_import_state(input$f_map, m)
+      if (!identical(st$state, "ok")) return(imp_note(st,
+        "Drop your marker-map CSV above (needed for recombination-aware variance)."))
+      shiny::tagList(imp_chip(st), imp_preview(m),
         bslib::layout_columns(col_widths = c(6,6),
-          id_sel("genotype_id_col", "Genotype ID", rv$data$genotype, c("NAME","parent","id","line")),
-          id_sel("phenotype_id_col", "Phenotype ID", rv$data$phenotype, c("NAME","parent","id","line"))),
-        if (is_poly()) shiny::div(class = "help-hint",
-          "Polyploid mode needs only the identity columns and a single phenotype trait (chosen on the Data-source panel). Marker-map and trait-direction columns are not used.")
-        else shiny::tagList(
-          shiny::tags$b("Marker map columns"),
-          bslib::layout_columns(col_widths = c(6,6),
-            sel("map_marker_col", "Marker", c$map, c("SNP_code","marker","snp","id")),
-            sel("map_chr_col", "Chromosome", c$map, c("Chromosome","chr","chrom"))),
-          shiny::selectInput("pos_unit", "Position unit",
-            c("auto (detect)" = "auto", "bp" = "bp", "cM" = "cM", "Morgans (M)" = "M"), selected = "auto"),
-          shiny::div(class = "help-hint",
-            "auto detects bp vs cM from the values; Morgans are converted to cM. The backend works in bp or cM."),
-          shiny::conditionalPanel("input.pos_unit == 'bp'",
-            shiny::numericInput("bp_per_cm", "bp per cM (to derive cM)", 1e6, min = 1)),
-          shiny::conditionalPanel("input.pos_unit == 'bp' || input.pos_unit == 'auto'",
-            sel("map_pos_bp_col", "Position column (bp / auto)", c$map, c("Position_BP","pos","position","bp"))),
-          shiny::conditionalPanel("input.pos_unit == 'cM' || input.pos_unit == 'M'",
-            sel("map_pos_cm_col", "Position column (cM / Morgans)", c$map, c("Position_cM","cM","pos_cm","cm","Position_M"))),
-          shiny::tags$b("Trait direction columns"),
-          bslib::layout_columns(col_widths = c(4,4,4),
-            sel("direction_trait_col", "Trait label", c$dir, c("Trait","trait")),
-            sel("direction_column_col", "Phenotype column", c$dir, c("Trait","column","trait")),
-            sel("direction_direction_col", "Direction", c$dir, c("Selection_direction","direction")))))
+          imp_sel("map_marker_col", "Marker", names(m), c("SNP_code","marker","snp","id")),
+          imp_sel("map_chr_col", "Chromosome", names(m), c("Chromosome","chr","chrom"))),
+        if (is_subgenome())
+          imp_sel("subgenome_col", "Subgenome (per marker)", names(m), c("Subgenome","subgenome","genome","sg")),
+        shiny::selectInput("pos_unit", "Position unit",
+          c("auto (detect)" = "auto", "bp" = "bp", "cM" = "cM", "Morgans (M)" = "M"), selected = "auto"),
+        shiny::conditionalPanel("input.pos_unit == 'bp'",
+          shiny::numericInput("bp_per_cm", "bp per cM (to derive cM)", 1e6, min = 1)),
+        shiny::conditionalPanel("input.pos_unit == 'bp' || input.pos_unit == 'auto'",
+          imp_sel("map_pos_bp_col", "Position (bp / auto)", names(m), c("Position_BP","pos","position","bp"))),
+        shiny::conditionalPanel("input.pos_unit == 'cM' || input.pos_unit == 'M'",
+          imp_sel("map_pos_cm_col", "Position (cM / Morgans)", names(m), c("Position_cM","cM","pos_cm","cm","Position_M"))))
+    })
+
+    output$dir_step <- shiny::renderUI({
+      d <- rv$data$direction; st <- ngcd_import_state(input$f_dir, d)
+      if (!identical(st$state, "ok")) return(imp_note(st,
+        "Optional: drop a trait-direction CSV to set increase/decrease per trait (default: increase)."))
+      shiny::tagList(imp_chip(st), imp_preview(d),
+        bslib::layout_columns(col_widths = c(4,4,4),
+          imp_sel("direction_trait_col", "Trait label", names(d), c("Trait","trait")),
+          imp_sel("direction_column_col", "Phenotype column", names(d), c("Trait","column","trait")),
+          imp_sel("direction_direction_col", "Direction", names(d), c("Selection_direction","direction"))))
     })
     # Trait choices come from the DIRECTION file (the backend filters
     # Traits come from the uploaded PHENOTYPE file's own columns (what the user

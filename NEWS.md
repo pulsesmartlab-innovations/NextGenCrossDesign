@@ -1,3 +1,19 @@
+# nextgenCrossWorkbench 0.23.0
+
+* **Professional per-file guided data import.** The Data screen is rebuilt around
+  one card per file: uploading a file reveals ITS OWN preview + column mapping
+  (populated from that file) + inline cross-file validation, instead of a wall of
+  upload boxes plus a separate lumped column-mapping block. A status strip
+  (`✓ Genotype  ✓ Phenotype  ○ Map …`) shows progress at a glance; the genotype
+  card flags duplicate IDs; the phenotype card lists its trait columns and shows
+  how many of its IDs match the genotype. Cards adapt to the workflow (polyploid =
+  genotype + phenotype only; disomic-subgenome adds the subgenome column to the
+  Marker-map card) and are fully revisitable.
+* **Traits come from the phenotype file.** The traits you select on the Selection
+  objective screen are now the uploaded phenotype's own columns (via
+  `ngcd_trait_columns`); the trait-direction file only annotates increase/decrease
+  for those traits — it no longer defines the trait set.
+
 # nextgenCrossWorkbench 0.22.0
 
 * **Polyploid designs run as the stepped pipeline too (autotetraploid).** The
