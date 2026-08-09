@@ -1,0 +1,97 @@
+# Builds the ShinyProxy deployment image (deploy/Dockerfile) and smoke-tests it,
+# so a broken Dockerfile is caught by CI rather than only by manual local runs.
+# The other workflow (R-CMD-check) exercises the R package but NOT the Docker
+# build, which is where recent breakage lived (e.g. an invalid R CMD INSTALL
+# flag, a vignette that failed to render into the image).
+#
+# Runs only when the deployment assets or this workflow change — a full image
+# build (apt + CRAN + backend C++ kernel + frontend + vignette render) is
+# minutes-expensive, and the package itself is already gated by R-CMD-check.
+name: docker-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/**'
+      - '.github/workflows/docker-image.yaml'
+  pull_request:
+    paths:
+      - 'deploy/**'
+      - '.github/workflows/docker-image.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    name: build & smoke-test deployment image
+    steps:
+      - name: Checkout frontend
+        uses: actions/checkout@v4
+
+      # The image bundles BOTH packages (the frontend drives the backend as a
+      # subprocess). The backend lives in a separate, public repo; check it out
+      # so we can build its source tarball for the image's BACKEND_TARBALL arg.
+      - name: Checkout backend (nextgenCrossDesignR)
+        uses: actions/checkout@v4
+        with:
+          repository: pulsesmartlab-innovations/nextgenCrossDesignR
+          path: backend-src
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+
+      # Source tarballs only — vignettes are rendered INSIDE the image
+      # (deploy/Dockerfile has pandoc + knitr), so no host pandoc / deps are
+      # needed here, and R CMD build --no-build-vignettes just packages source.
+      - name: Build source tarballs
+        run: |
+          set -euo pipefail
+          R CMD build backend-src --no-build-vignettes --no-manual
+          R CMD build .           --no-build-vignettes --no-manual
+          BE_TARBALL=$(ls nextgenCrossDesign_*.tar.gz | head -1)
+          FE_TARBALL=$(ls nextgenCrossWorkbench_*.tar.gz | head -1)
+          echo "BE_TARBALL=$BE_TARBALL" >> "$GITHUB_ENV"
+          echo "FE_TARBALL=$FE_TARBALL" >> "$GITHUB_ENV"
+          echo "built backend=$BE_TARBALL frontend=$FE_TARBALL"
+
+      # Single-arch (native amd64, no emulation) build loaded into the local
+      # docker so the smoke test can run it. This is the step that fails on a
+      # broken Dockerfile — the whole point of this workflow.
+      - name: Build deployment image
+        run: |
+          set -euo pipefail
+          docker build \
+            -f deploy/Dockerfile \
+            --build-arg BACKEND_TARBALL="$BE_TARBALL" \
+            --build-arg FRONTEND_TARBALL="$FE_TARBALL" \
+            -t ngcd-workbench:ci \
+            --load .
+
+      - name: Smoke-test (vignette bundled + app serves HTTP 200)
+        run: |
+          set -euo pipefail
+          # 1. the rendered user-guide vignette must be present in the container
+          docker run --rm --entrypoint Rscript ngcd-workbench:ci -e '
+            v <- vignette(package = "nextgenCrossWorkbench")
+            if (nrow(v$results) < 1L) stop("no vignette bundled in the image")
+            h <- system.file("doc", "nextgenCrossWorkbench.html", package = "nextgenCrossWorkbench")
+            if (!nzchar(h) || !file.exists(h)) stop("rendered vignette HTML missing from inst/doc")
+            cat("vignette OK: ", paste(v$results[, "Item"], collapse = ", "), "\n", sep = "")'
+          # 2. the app itself must come up and serve HTTP 200
+          cid=$(docker run -d -p 3838:3838 ngcd-workbench:ci)
+          ok=""
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3838/ || true)
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 3
+          done
+          echo "--- container logs (tail) ---"; docker logs "$cid" 2>&1 | tail -20 || true
+          docker rm -f "$cid" >/dev/null 2>&1 || true
+          if [ -z "$ok" ]; then echo "app did not serve HTTP 200"; exit 1; fi
+          echo "HTTP 200 OK"
