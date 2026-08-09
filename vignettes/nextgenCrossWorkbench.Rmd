@@ -359,6 +359,12 @@ relationship matrix, and ploidy-aware QC. The resulting plan reports each cross'
 predicted mean, variance, dominance-aware usefulness, parent genomic estimated
 breeding values, and pairwise kinship.
 
+Like the Standard workflow, the autotetraploid design runs as the same **stepped,
+compute-once pipeline** on the Run screen — **Quality control → Fit effects & score
+→ Allocate & rank** (single-trait, so no selection-index step), each step gated on
+its upstream step, cached, and carrying its own inline figure, and byte-identical to
+the one-shot run.
+
 ### Disomic-subgenome (true allopolyploid) design
 
 For **true allopolyploids** — species whose subgenomes are inherited *diploidly*
@@ -382,6 +388,20 @@ subgenome. Without chromosome + position columns the app falls back to an
 unlinked-loci approximation (reported as `unlinked`) and says so in the run notes. The
 relationship matrix follows your chosen **GRM method** (VanRaden or Yang), computed
 per subgenome and averaged.
+
+Like the Standard and Polyploid workflows, the disomic-subgenome design runs as a
+**stepped, compute-once pipeline** on the Run screen rather than a single button:
+**Quality control → Fit effects & score → Allocate & rank** — three steps, because
+the path is single-trait there is no selection-index step. Each step's button
+unlocks only after its upstream step completes and reveals its own inline figure
+(kept vs. dropped markers per subgenome after QC, the scoring metric and candidate
+count after Fit & score, the gain–diversity frontier after Allocate & rank). Each
+step's result is cached, so upstream work is never recomputed; changing the
+subgenome map column re-runs from QC, and changing the DH/RIL progeny target re-runs
+from Fit & score, while unrelated settings leave completed steps intact. The stepped
+run is **byte-identical** to running the whole subgenome design in one shot — the
+steps only decide *when* each part of the same calculation happens, not *what* it
+computes.
 
 This path is deliberately **not crop-specific**: most polyploid crops (wheat, canola)
 are genotyped and analysed as diploid, so use the *Standard* workflow for those and

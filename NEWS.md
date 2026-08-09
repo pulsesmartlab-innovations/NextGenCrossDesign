@@ -1,3 +1,13 @@
+# nextgenCrossWorkbench 0.25.1
+
+* **Docs: the user vignette now covers staged polyploid and disomic-subgenome
+  design.** The disomic-subgenome section explains that the design runs as the
+  same stepped, compute-once pipeline as the Standard workflow (Quality control →
+  Fit effects & score → Allocate & rank; single-trait, so no selection-index
+  step), with per-step gating, caching, inline figures, and byte-identical
+  results to a one-shot run — plus which setting change re-runs which step. A
+  parallel note was added to the Polyploid (autotetraploid) section.
+
 # nextgenCrossWorkbench 0.25.0
 
 * **Disomic-subgenome design now runs the stepped pipeline (staging Phase 2).**
