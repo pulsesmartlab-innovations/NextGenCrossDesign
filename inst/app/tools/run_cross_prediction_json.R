@@ -198,7 +198,17 @@ poly_emit_result <- function(plan, raw, result_path, design_args) {
 # subgenome-aware: per-subgenome QC (ploidy 2), per-subgenome ridge effects, the
 # subgenome GRM, subgenome cross scoring, then native allocation. Not crop-specific --
 # the user declares the subgenome of each marker via a marker-map column.
-run_subgenome_design <- function(raw, result_path) {
+# ===========================================================================
+# Disomic-subgenome design — staged (compute-once) + one-shot, sharing the
+# same stage functions so staged == one-shot by construction. Per-subgenome
+# QC -> per-subgenome ridge effects + scoring -> allocation, each step's ctx
+# persisted to a run_dir via the backend's generic stage store (reused from
+# the diploid/autotetraploid staged runners). Single-trait, so `index` is a
+# no-op passthrough kept only for 5-stage parity with the frontend machinery.
+# ===========================================================================
+
+# stage 1 (qc): read + split by subgenome + per-subgenome ploidy-2 QC.
+subgenome_ctx_qc <- function(raw) {
   ns <- asNamespace("nextgenCrossDesign")
   need <- c("ng_polyploid_subgenome_score_crosses", "ng_polyploid_subgenome_grm",
             "ng_polyploid_model_select", "ng_polyploid_policy", "ng_polyploid_qc",
@@ -221,7 +231,6 @@ run_subgenome_design <- function(raw, result_path) {
   if (is.finite(dmax) && dmax > 2)
     stop(sprintf("Each disomic subgenome is diploid, so dosages must be 0..2, but values go up to %g. Genotype each subgenome as a diploid (0/1/2).", dmax), call. = FALSE)
 
-  # subgenome label per marker from the marker map
   if (is.null(raw$map_file) || !file.exists(raw$map_file))
     stop("Subgenome design needs a marker map with a subgenome column.", call. = FALSE)
   mp <- read_tab(raw$map_file)
@@ -239,13 +248,6 @@ run_subgenome_design <- function(raw, result_path) {
   geno_by_subgenome <- setNames(
     lapply(subgenome_names, function(s) dosage[, marker_sg == s, drop = FALSE]), subgenome_names)
 
-  # A chromosome column + a cM position turn on the recombination-aware within-family
-  # variance (per-subgenome a'Ra, summed). We require BOTH a chromosome and a numeric
-  # position for every genotyped marker -- never guess a chromosome, since lumping
-  # distinct chromosomes would fabricate cross-chromosome linkage and bias the variance.
-  # Position handling mirrors the diploid path's UI resolution: honor the resolved
-  # unit (bp -> cM via bp_per_cm; Morgans via map_pos_cm_divisor), else auto-detect a
-  # cM column. Without a usable chromosome+position we fall back to the unlinked approximation.
   mk <- as.character(mp[[mkcol]])
   chr_candidates <- c(raw$map_chr_col, "chr", "chrom", "chromosome", "linkage_group", "lg")
   chr_col <- chr_candidates[chr_candidates %in% names(mp)][1L]
@@ -285,7 +287,6 @@ run_subgenome_design <- function(raw, result_path) {
   progeny_target <- toupper(as.character(raw$subgenome_progeny %||% raw$progeny_type %||% "DH"))
   progeny_target <- if (grepl("RIL", progeny_target)) "RIL" else "DH"
 
-  # phenotype (single numeric trait aligned to the parents)
   y <- NULL
   if (!is.null(raw$phenotype_file) && file.exists(raw$phenotype_file)) {
     pdf <- read_tab(raw$phenotype_file); pid <- raw$phenotype_id_col %||% names(pdf)[1L]
@@ -295,60 +296,91 @@ run_subgenome_design <- function(raw, result_path) {
   }
   if (is.null(y) || all(is.na(y))) stop("Subgenome design needs a numeric phenotype.", call. = FALSE)
 
-  # subgenome-aware QC (each diploid) + per-subgenome ridge effects
   min_maf <- as.numeric(raw$poly_min_maf %||% 0.01)
   do_qc   <- isTRUE(as.logical(raw$run_qc %||% TRUE))
   gs <- setNames(lapply(geno_by_subgenome, function(g)
           if (do_qc) nextgenCrossDesign::ng_polyploid_qc(g, ploidy = 2, min_maf = min_maf)$clean else g),
         subgenome_names)
-  ridge_seed <- suppressWarnings(as.integer(raw$seed %||% 1L)); if (length(ridge_seed) != 1L || is.na(ridge_seed)) ridge_seed <- 1L
-  set.seed(ridge_seed)
-  eff <- setNames(lapply(gs, function(g)
-           nextgenCrossDesign::ng_fit_ridge_effects(g, y[rownames(g)], rownames(g))$beta), subgenome_names)
 
-  md    <- nextgenCrossDesign::ng_polyploid_model_select(inheritance_model = "disomic_subgenome",
-                                                         subgenome_names = subgenome_names)
-  pairs <- nextgenCrossDesign::ng_make_pairs(ids)
+  ridge_seed <- suppressWarnings(as.integer(raw$seed %||% 1L))
+  if (length(ridge_seed) != 1L || is.na(ridge_seed)) ridge_seed <- 1L
   grm_method <- tolower(as.character(raw$grm_method %||% raw$poly_grm_method %||% "vanraden"))
   grm_method <- if (grepl("yang", grm_method)) "yang" else "vanraden"
+  mode <- raw$poly_gain %||% "gain"; if (!mode %in% c("gain", "diversity", "ocs")) mode <- "gain"
+
+  list(gs = gs, map_by_subgenome = map_by_subgenome, y = y,
+       subgenome_names = subgenome_names, marker_sg = marker_sg,
+       variance_note = variance_note, progeny_target = progeny_target,
+       ridge_seed = ridge_seed, selection_prop = as.numeric(raw$selection_prop %||% 0.1),
+       grm_method = grm_method, mode = mode,
+       n_crosses = as.integer(raw$n_crosses %||% 10L),
+       max_crosses_per_parent = as.integer(raw$max_crosses_per_parent %||% 4L),
+       run_label = raw$run_label,
+       qc = list(status = "pass",
+                 markers_total = length(marker_sg),
+                 markers_kept = sum(vapply(gs, ncol, 0L)),
+                 markers_per_subgenome = as.list(vapply(gs, ncol, 0L))))
+}
+
+# stage 2 (predict): per-subgenome ridge effects + subgenome scoring.
+subgenome_ctx_predict <- function(ctx) {
+  set.seed(ctx$ridge_seed)
+  eff <- setNames(lapply(ctx$gs, function(g)
+           nextgenCrossDesign::ng_fit_ridge_effects(g, ctx$y[rownames(g)], rownames(g))$beta),
+         ctx$subgenome_names)
+  md    <- nextgenCrossDesign::ng_polyploid_model_select(inheritance_model = "disomic_subgenome",
+                                                         subgenome_names = ctx$subgenome_names)
+  pairs <- nextgenCrossDesign::ng_make_pairs(rownames(ctx$gs[[1L]]))
   score_fmls <- names(formals(nextgenCrossDesign::ng_polyploid_subgenome_score_crosses))
-  # Recombination-aware variance needs a backend that accepts map_by_subgenome.
-  # Older installs lack that formal -> score without it (unlinked) and say so.
-  score_args <- list(gs, eff, candidate_pairs = pairs, model_decision = md,
-                     selection_prop = as.numeric(raw$selection_prop %||% 0.1))
-  if ("grm_method" %in% score_fmls) score_args$grm_method <- grm_method
+  score_args <- list(ctx$gs, eff, candidate_pairs = pairs, model_decision = md,
+                     selection_prop = ctx$selection_prop)
+  if ("grm_method" %in% score_fmls) score_args$grm_method <- ctx$grm_method
   if ("map_by_subgenome" %in% score_fmls) {
-    score_args$map_by_subgenome <- map_by_subgenome
-    score_args$progeny_target   <- progeny_target
-  } else if (!is.null(map_by_subgenome)) {
-    map_by_subgenome <- NULL
-    variance_note <- "Installed nextgenCrossDesign is too old for recombination-aware subgenome variance; used the unlinked variance. Update the backend."
+    score_args$map_by_subgenome <- ctx$map_by_subgenome
+    score_args$progeny_target   <- ctx$progeny_target
+  } else if (!is.null(ctx$map_by_subgenome)) {
+    ctx$map_by_subgenome <- NULL
+    ctx$variance_note <- "Installed nextgenCrossDesign is too old for recombination-aware subgenome variance; used the unlinked variance. Update the backend."
   }
-  sc    <- do.call(nextgenCrossDesign::ng_polyploid_subgenome_score_crosses, score_args)
+  sc <- do.call(nextgenCrossDesign::ng_polyploid_subgenome_score_crosses, score_args)
   variance_model <- attr(sc, "variance_model") %||%
     (if ("poly_variance_model" %in% names(as.data.frame(sc))) as.data.frame(sc)$poly_variance_model[[1L]]
      else "unlinked")
-  # <= 0.9.0 backends emitted "linkage_equilibrium"; normalize to the current "unlinked".
   if (identical(variance_model, "linkage_equilibrium")) variance_model <- "unlinked"
-  K     <- if ("method" %in% names(formals(nextgenCrossDesign::ng_polyploid_subgenome_grm)))
-             nextgenCrossDesign::ng_polyploid_subgenome_grm(gs, method = grm_method)
-           else nextgenCrossDesign::ng_polyploid_subgenome_grm(gs)
-  mode  <- raw$poly_gain %||% "gain"; if (!mode %in% c("gain", "diversity", "ocs")) mode <- "gain"
-  plan  <- nextgenCrossDesign::ng_polyploid_policy(
-             sc, n_crosses = as.integer(raw$n_crosses %||% 10L), mode = mode, parent_kinship = K,
-             max_crosses_per_parent = as.integer(raw$max_crosses_per_parent %||% 4L))
+  ctx$eff <- eff; ctx$sc <- sc; ctx$variance_model <- variance_model; ctx$n_candidates <- nrow(as.data.frame(sc))
+  ctx
+}
+
+# stage 3 (index): no-op (single-trait) — 5-stage parity.
+subgenome_ctx_index <- function(ctx) ctx
+
+# stage 4 (allocate): subgenome GRM + native policy.
+subgenome_ctx_allocate <- function(ctx) {
+  K <- if ("method" %in% names(formals(nextgenCrossDesign::ng_polyploid_subgenome_grm)))
+         nextgenCrossDesign::ng_polyploid_subgenome_grm(ctx$gs, method = ctx$grm_method)
+       else nextgenCrossDesign::ng_polyploid_subgenome_grm(ctx$gs)
+  ctx$plan <- nextgenCrossDesign::ng_polyploid_policy(
+    ctx$sc, n_crosses = ctx$n_crosses, mode = ctx$mode, parent_kinship = K,
+    max_crosses_per_parent = ctx$max_crosses_per_parent)
+  ctx
+}
+
+# stage 5 (rank): assemble + write the ng_run_result.v1 subgenome payload.
+subgenome_emit_result <- function(ctx, raw, result_path) {
+  plan <- ctx$plan
   plan_df  <- as.data.frame(plan, stringsAsFactors = FALSE)
   gain_vec <- if ("poly_gain" %in% names(plan_df)) plan_df$poly_gain else plan_df$poly_usefulness
-
+  subgenome_names <- ctx$subgenome_names; mode <- ctx$mode
   payload <- list(
     schema = "ng_run_result.v1", ok = TRUE, error = FALSE,
     generated_at = format(as.POSIXct(Sys.time(), tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
     package_version = as.character(utils::packageVersion("nextgenCrossDesign")),
-    run_label = raw$run_label %||% NULL, poly_design = TRUE, prediction_mode = "subgenome_design",
+    run_label = (raw$run_label %||% ctx$run_label) %||% NULL, poly_design = TRUE,
+    prediction_mode = "subgenome_design",
     subgenome = list(names = subgenome_names,
-                     markers_per_subgenome = as.list(vapply(gs, ncol, 0L)), mode = mode,
-                     variance_model = variance_model, progeny_target = progeny_target,
-                     variance_note = variance_note %||% NULL),
+                     markers_per_subgenome = as.list(vapply(ctx$gs, ncol, 0L)), mode = mode,
+                     variance_model = ctx$variance_model, progeny_target = ctx$progeny_target,
+                     variance_note = ctx$variance_note %||% NULL),
     plan_summary = list(n_crosses = nrow(plan_df),
                         mean_gain = if (!is.null(gain_vec)) mean(gain_vec, na.rm = TRUE) else NA_real_),
     selected_crosses = plan_df,
@@ -358,12 +390,75 @@ run_subgenome_design <- function(raw, result_path) {
                                     n_crosses = nrow(plan_df)),
                      gain_col = if ("poly_gain" %in% names(plan_df)) "poly_gain" else "poly_usefulness"),
     settings = list(inheritance_model = "disomic_subgenome", subgenomes = length(subgenome_names),
-                    allocation_mode = mode, grm_method = grm_method, grm_scope = "subgenome",
+                    allocation_mode = mode, grm_method = ctx$grm_method, grm_scope = "subgenome",
                     progeny = "disomic_subgenome",
-                    variance_model = variance_model, progeny_target = progeny_target))
+                    variance_model = ctx$variance_model, progeny_target = ctx$progeny_target))
   jsonlite::write_json(payload, result_path, auto_unbox = TRUE, null = "null", na = "null",
                        dataframe = "rows", pretty = TRUE, digits = 10)
   cat("OK: wrote", result_path, "(subgenome design)\n")
+}
+
+# one-shot: run all stages in memory, then emit.
+run_subgenome_design <- function(raw, result_path) {
+  ctx <- subgenome_ctx_qc(raw)
+  ctx <- subgenome_ctx_predict(ctx)
+  ctx <- subgenome_ctx_allocate(ctx)
+  subgenome_emit_result(ctx, raw, result_path)
+}
+
+# staged: one stage per call, ctx persisted to run_dir/artifacts via the backend
+# stage store. qc/predict/index/allocate write status; rank emits the full result.
+run_subgenome_stage <- function(raw, stage, run_dir, result_path) {
+  order <- c("qc", "predict", "index", "allocate", "rank")
+  if (!stage %in% order) stop("bad subgenome stage: ", stage, call. = FALSE)
+  save  <- get("ng_stage_save",       asNamespace("nextgenCrossDesign"))
+  loadc <- get("ng_stage_load_ctx",   asNamespace("nextgenCrossDesign"))
+  manif <- get("ng_stage__update_manifest", asNamespace("nextgenCrossDesign"))
+  if (identical(stage, "qc")) {
+    ctx <- subgenome_ctx_qc(raw)
+  } else {
+    ctx <- loadc(run_dir, order[[match(stage, order) - 1L]])
+  }
+  ctx <- switch(stage,
+    qc = ctx, predict = subgenome_ctx_predict(ctx), index = subgenome_ctx_index(ctx),
+    allocate = subgenome_ctx_allocate(ctx), rank = ctx)
+  save(run_dir, stage, ctx)
+  status <- if (identical(stage, "qc")) ctx$qc$status else "done"
+  manif(run_dir, stage, status)
+  if (identical(stage, "rank")) {
+    subgenome_emit_result(ctx, raw, result_path)
+    return(invisible())
+  }
+  # Per-stage figure/summary JSON in run_dir/artifacts/<stage>.json -- the SAME
+  # location + poly-shaped payload the autotetraploid path emits, so the FE's
+  # ngcd_run_stage() picks it up as stage_json and ngcd_stage_summary() renders
+  # the inline card with no helper changes. marker_report (qc) / poly_metric
+  # (predict) / plan_summary (allocate) are the shapes that summary already reads.
+  fig <- switch(stage,
+    qc = list(status = ctx$qc$status,
+              marker_report = list(kept = ctx$qc$markers_kept,
+                                   dropped = ctx$qc$markers_total - ctx$qc$markers_kept),
+              subgenomes = ctx$subgenome_names,
+              markers_per_subgenome = ctx$qc$markers_per_subgenome),
+    predict = list(poly_metric = ctx$variance_model %||% "unlinked",
+                   n_candidates = ctx$n_candidates %||% NULL),
+    index = list(status = "done"),
+    allocate = {
+      pdf <- as.data.frame(ctx$plan)
+      gv  <- if ("poly_gain" %in% names(pdf)) pdf$poly_gain else pdf$poly_usefulness
+      list(plan_summary = list(n_crosses = nrow(pdf),
+                               mean_gain = if (!is.null(gv)) mean(gv, na.rm = TRUE) else NULL))
+    })
+  art_dir <- file.path(run_dir, "artifacts"); dir.create(art_dir, showWarnings = FALSE, recursive = TRUE)
+  jsonlite::write_json(fig, file.path(art_dir, paste0(stage, ".json")),
+                       auto_unbox = TRUE, null = "null", na = "null",
+                       dataframe = "rows", pretty = TRUE, digits = 10)
+  # result_path drives ngcd_run_stage()'s ok/status (it reads $status/$error).
+  jsonlite::write_json(list(status = status, stage = stage, error = FALSE),
+                       result_path, auto_unbox = TRUE, null = "null", na = "null",
+                       dataframe = "rows", pretty = TRUE, digits = 10)
+  cat("OK: wrote", result_path, "(subgenome stage:", stage, ")\n")
+  invisible()
 }
 
 # ===========================================================================
@@ -822,6 +917,15 @@ run <- function() {
                              na = "null", dataframe = "rows", pretty = TRUE, digits = 10)
         cat("OK: wrote", result_path, "(poly stage:", raw$stage, ")\n")
       }
+      return(invisible())
+    }
+    # Staged disomic-subgenome: same 5 stages (index is a single-trait no-op),
+    # driven by run_subgenome_stage() which shares its stage functions with the
+    # one-shot run_subgenome_design(), so staged == one-shot by construction.
+    # ctx (the per-subgenome list-of-matrices + attributes) persists via the
+    # backend's generic stage store, reached through the runner's stage fns.
+    if (identical(raw$prediction_family %||% "", "subgenome")) {
+      run_subgenome_stage(raw, raw$stage, raw$run_dir, result_path)
       return(invisible())
     }
     args_in <- ngcd_coerce_backend_args(raw)

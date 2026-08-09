@@ -635,7 +635,10 @@ ngcd_stage_key_patterns <- list(
     "direction_trait_col", "direction_column_col", "direction_direction_col",
     "prediction_mode", "traits_to_use", "index_col", "index_direction",
     "duplicate_*", "ld_*", "marker_ploidy", "ploidy", "run_qc", "poly_min_maf",
-    "poly_max_missing_marker", "poly_max_missing_sample", "poly_run_qc"),
+    "poly_max_missing_marker", "poly_max_missing_sample", "poly_run_qc",
+    # disomic-subgenome: the map column that splits markers into subgenomes
+    # changes how each diploid subgenome is QC'd, so it invalidates from qc.
+    "subgenome_col"),
   predict = c(
     "training_*",
     "trait_value_metric", "uc_variance_source", "method_varPMV",
@@ -645,7 +648,10 @@ ngcd_stage_key_patterns <- list(
     "ril_mode", "nselfing",
     # polyploid predict (fit + score) keys
     "dominance", "poly_dominance", "gain", "poly_gain", "double_reduction",
-    "poly_double_reduction", "poly_trait_col", "poly_grm_method"),
+    "poly_double_reduction", "poly_trait_col", "poly_grm_method",
+    # disomic-subgenome: DH vs RIL sets the recombination-aware variance target
+    # in the per-subgenome score step, so it invalidates from predict.
+    "subgenome_progeny"),
   index = c(
     "multi_trait_method", "trait_weights",
     "threshold_policy", "threshold_penalty_*",

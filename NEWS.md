@@ -1,3 +1,19 @@
+# nextgenCrossWorkbench 0.25.0
+
+* **Disomic-subgenome design now runs the stepped pipeline (staging Phase 2).**
+  The true-allopolyploid workflow joins the diploid and autotetraploid paths as a
+  stepped, compute-once run: **Quality control → Fit effects & score → Allocate &
+  rank**, each stage with its own Run button, status badge, one-line summary and
+  inline figure — instead of the previous single one-shot Run card. Per-subgenome
+  QC, per-subgenome ridge effects + recombination-aware scoring, and the native
+  allocation are decomposed into ctx stages that persist across the shared run
+  directory, so upstream work is never recomputed. Changing the subgenome map
+  column or the DH/RIL progeny target correctly invalidates only the affected
+  stages onward. The one-shot and staged paths share the same stage functions, so
+  they are byte-identical by construction (verified end-to-end through the runner
+  by `test-subgenome-staging-parity.R`). This completes the staged-pipeline effort
+  across all three ploidy families. Requires nextgenCrossDesign >= 0.18.0.
+
 # nextgenCrossWorkbench 0.24.0
 
 * **Design-system pass — a calmer, more professional look.** The UI moves from a

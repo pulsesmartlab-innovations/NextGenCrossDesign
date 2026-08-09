@@ -63,7 +63,7 @@ test_that("changing an allocation-only setting never re-runs completed earlier s
   })
 })
 
-test_that("the Run area renders adaptive stepped cards (multi=4, single=3, poly=single)", {
+test_that("the Run area renders adaptive stepped cards (multi=4, single=3, poly+subgenome staged)", {
   srv <- nextgenCrossWorkbench:::workbench_server(
     nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb")))
   rahtml <- function(output) {
@@ -94,8 +94,12 @@ test_that("the Run area renders adaptive stepped cards (multi=4, single=3, poly=
     expect_true(grepl("Allocate", ph, fixed = TRUE))
     expect_false(grepl("Build selection index", ph, fixed = TRUE))  # single-trait
 
-    # disomic-subgenome stays the single one-shot Run card (Phase 2)
+    # disomic-subgenome -> the stepped cards too (Phase 2, single-trait: QC,
+    # Fit & score, Allocate; no index card), NOT the single one-shot card
     session$setInputs(workflow = "subgenome"); session$flushReact()
-    expect_false(grepl("Quality control", rahtml(output), fixed = TRUE))
+    sh <- rahtml(output)
+    expect_true(grepl("Quality control", sh, fixed = TRUE))
+    expect_true(grepl("Allocate", sh, fixed = TRUE))
+    expect_false(grepl("Build selection index", sh, fixed = TRUE))  # single-trait
   })
 })
