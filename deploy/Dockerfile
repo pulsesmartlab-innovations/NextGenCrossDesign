@@ -69,8 +69,27 @@ RUN R -q -e "pkgs <- c( \
 WORKDIR /tmp/pkg
 COPY ${BACKEND_TARBALL}  backend.tar.gz
 COPY ${FRONTEND_TARBALL} frontend.tar.gz
+# Backend first (frontend's SystemRequirements needs it reachable). Then RENDER the
+# user-guide vignette into the installed frontend so it is available in the
+# container via `vignette("nextgenCrossWorkbench")` / `browseVignettes()`.
+#
+# Vignettes are rendered at `R CMD build` time (which needs pandoc), NOT at
+# `R CMD INSTALL` time — install only copies a pre-rendered inst/doc. The incoming
+# FRONTEND_TARBALL ships the vignette *source* (vignettes/*.Rmd) but not a rendered
+# inst/doc, because the host that built it may lack pandoc. So we unpack it and
+# re-run `R CMD build` here, where pandoc (apt, above) + the backend + knitr/
+# rmarkdown are all present; that produces a tarball carrying the rendered vignette,
+# which we then install. The vignette's chunks are lightweight (demo-data reads),
+# and if it ever fails to knit the image build fails here rather than silently
+# shipping without the guide.
 RUN R CMD INSTALL backend.tar.gz \
-    && R CMD INSTALL frontend.tar.gz
+    && tar xzf frontend.tar.gz \
+    && R CMD build nextgenCrossWorkbench --no-manual \
+    && R CMD INSTALL nextgenCrossWorkbench_*.tar.gz \
+    && R -q -e "d <- system.file('doc', package = 'nextgenCrossWorkbench'); \
+        if (!nzchar(d) || !any(endsWith(list.files(d), '.html'))) \
+          stop('vignette was not rendered into the installed package') else \
+          cat('Vignette bundled OK: ', paste(list.files(d), collapse = ', '), '\n', sep = '')"
 
 # Fail the build if the bundled backend tarball is older than what this
 # front-end build requires. The required version is read straight out of the
