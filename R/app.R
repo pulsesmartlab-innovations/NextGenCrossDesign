@@ -1394,10 +1394,9 @@ workbench_server <- function(cfg) {
     # identical() to its input, and reactiveValues suppresses a write of an
     # identical value (no invalidation is fired). The first tick after a real
     # change reaches the fixpoint in one step; the write-back is then a no-op.
-    # The poly/subgenome workflows don't use the staged pipeline, so they're
-    # skipped entirely - rv$pipeline is simply left at whatever it last was.
+    # Autotetraploid AND disomic-subgenome both run the staged pipeline now, so
+    # their params flow through the same staleness fixpoint (compute-once).
     shiny::observe({
-      if (is_subgenome()) return()   # subgenome is not staged (Phase 2)
       rv$pipeline <- ngcd_pipeline_mark(rv$pipeline, staged_params(), rv$data_version)
     })
 
@@ -1775,11 +1774,16 @@ workbench_server <- function(cfg) {
     # RAW dosage (poly QC cleans it in the backend); the standard workflow uses
     # build_params + reconciled tables. Subgenome is not staged (Phase 2).
     staged_params <- function() {
-      if (is_poly()) { p <- build_poly_params(); p$prediction_family <- "polyploid"; p }
+      if (is_subgenome()) { p <- build_subgenome_params(); p$prediction_family <- "subgenome"; p }
+      else if (is_poly()) { p <- build_poly_params(); p$prediction_family <- "polyploid"; p }
       else build_params()
     }
     staged_run_data <- function(force_drop_het = FALSE) {
-      if (is_poly()) list(genotype = rv$data$genotype, phenotype = rv$data$phenotype)
+      # Subgenome needs the marker map too (it carries the subgenome column +
+      # chr/pos that drive the recombination-aware within-family variance).
+      if (is_subgenome())
+        list(genotype = rv$data$genotype, phenotype = rv$data$phenotype, map = rv$data$map)
+      else if (is_poly()) list(genotype = rv$data$genotype, phenotype = rv$data$phenotype)
       else reconciled_run_data(force_drop_het)
     }
 
@@ -1825,7 +1829,7 @@ workbench_server <- function(cfg) {
     # (poly/subgenome, or a standard run that cannot stage: auto cross-number
     # sweep / artifact export -> ngcd_run_uses_staged() is FALSE).
     run_mode <- shiny::reactive({
-      if (is_subgenome()) "single"                          # subgenome staging is Phase 2
+      if (is_subgenome()) "staged"                          # disomic-subgenome runs the staged cards (Phase 2)
       else if (is_poly()) "staged"                          # autotetraploid runs the staged cards
       else if (!ngcd_run_uses_staged(build_params())) "single"
       else "staged"
@@ -1960,11 +1964,12 @@ workbench_server <- function(cfg) {
     # "Allocate & rank" for the standard workflow (disabled until index is
     # done, and while qc is blocked). Same input id ("run") in every branch. ----
     output$run_button_ui <- shiny::renderUI({
-      # poly/subgenome, and the standard-workflow full-path fallbacks (auto
-      # cross-number sweep / artifact emission), use the one-shot do_run() and
-      # so get the always-on one-click button (short-circuit keeps build_params()
-      # off the poly/subgenome path).
-      if (is_subgenome() || (!is_poly() && !ngcd_run_uses_staged(build_params())))
+      # The standard-workflow full-path fallbacks (auto cross-number sweep /
+      # artifact emission) use the one-shot do_run() and so get the always-on
+      # one-click button. Poly AND subgenome now run the staged cards, so they
+      # fall through to the gated "Allocate & rank" button below. The `&&` order
+      # keeps build_params() off the poly/subgenome path (short-circuits first).
+      if (!is_poly() && !is_subgenome() && !ngcd_run_uses_staged(build_params()))
         return(shiny::actionButton("run", "Run cross prediction", class = "btn-run", width = "260px"))
       # Gate Allocate on the last visible upstream step: `index` only exists as a
       # card in multi-trait mode; single-trait and polyploid runs gate on predict.
@@ -2036,13 +2041,14 @@ workbench_server <- function(cfg) {
       bslib::nav_select("nav", "Results")
     }
 
-    # Standard workflow uses the staged pipeline; poly/subgenome keep do_run().
-    # The standard workflow ALSO falls back to the one-shot do_run() when the
-    # staged path cannot reproduce the run: cross_number_mode == "auto" (the
-    # diminishing-returns sweep) or write_outputs/write_figures (artifact
-    # emission). See ngcd_run_uses_staged().
+    # Standard, autotetraploid, AND disomic-subgenome workflows all use the
+    # staged pipeline (do_run_pipeline). The standard workflow falls back to the
+    # one-shot do_run() when the staged path cannot reproduce the run:
+    # cross_number_mode == "auto" (the diminishing-returns sweep) or
+    # write_outputs/write_figures (artifact emission). See ngcd_run_uses_staged().
+    # The `&&` order keeps build_params() off the poly/subgenome path.
     shiny::observeEvent(input$run, {
-      if (is_subgenome() || (!is_poly() && !ngcd_run_uses_staged(build_params())))
+      if (!is_poly() && !is_subgenome() && !ngcd_run_uses_staged(build_params()))
         do_run() else do_run_pipeline()
     })
     # One-click recovery from the residual-heterozygosity block: drop the
