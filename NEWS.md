@@ -1,3 +1,17 @@
+# nextgenCrossWorkbench 0.24.0
+
+* **Design-system pass — a calmer, more professional look.** The UI moves from a
+  university-brand theme to a precise "scientific software" system while keeping
+  NDSU green as the identity: a neutral grotesque (Inter) for all text, neutral
+  greys carrying the interface with green as the single restrained accent, and
+  yellow reserved for warnings/attention only (the Run button is now solid green).
+  The **form controls users touch most are now styled** — dropdowns, checkboxes,
+  numeric fields, file inputs and selectize menus get consistent heights, softer
+  borders and a branded focus ring (they were raw Bootstrap before). Adds an
+  elevation/shadow scale and subtle motion (cards, buttons, disclosures, nav),
+  a consistent 8pt spacing rhythm, keyboard focus states throughout, and lighter,
+  less shouty guidance/figure panels. No functional change; CSS + theme only.
+
 # nextgenCrossWorkbench 0.23.0
 
 * **Professional per-file guided data import.** The Data screen is rebuilt around

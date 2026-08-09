@@ -37,9 +37,12 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
       shiny::div(class = "ndsu-topbar-meta", shiny::textOutput("topbar_status", inline = TRUE)))
   }
 
-  theme <- bslib::bs_theme(version = 5, primary = "#00583d", secondary = "#003524",
-    base_font = bslib::font_collection(bslib::font_google("Montserrat", local = FALSE), "Helvetica Neue", "Arial"),
-    heading_font = bslib::font_collection(bslib::font_google("Antonio", local = FALSE), "Oswald"))
+  theme <- bslib::bs_theme(version = 5, primary = "#00583d", secondary = "#5c6b64",
+    base_font = bslib::font_collection(bslib::font_google("Inter", local = FALSE),
+      "system-ui", "-apple-system", "Segoe UI", "Helvetica Neue", "Arial"),
+    heading_font = bslib::font_collection(bslib::font_google("Inter", local = FALSE),
+      "system-ui", "Helvetica Neue", "Arial"),
+    "border-radius" = "0.5rem")
 
   shiny::tagList(
     shiny::tags$head(
