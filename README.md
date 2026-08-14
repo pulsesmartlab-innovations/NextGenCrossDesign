@@ -2,11 +2,12 @@
 
 **NextGenCrossDesign** — a point-and-click Shiny front-end for the
 [`nextgenCrossDesign`](#the-backend) genomic cross-prediction and mate-allocation
-engine. It turns a genomic-selection cross-design pipeline into a guided,
-four-stage web app (Data · Configure · Run · Results) over plain CSV inputs, with
-NDSU branding, editable input tables, an interactive cross-linked HTML report, an
-automatic cross-number optimizer, robust (posterior) allocation, and a full
-polyploid design workflow.
+engine. It turns a genomic-selection cross-design pipeline into a **guided,
+one-screen-at-a-time workflow** (Data → Objective → Scoring → Filters →
+Allocation → Outputs → Run → Results) over plain CSV inputs, with NDSU branding,
+editable input tables, interactive modelling graphics, a cross-linked HTML
+report, an automatic cross-number optimizer, robust (posterior) allocation, and
+a full polyploid design workflow.
 
 The backend runs in a *separate*, user-configured R process, so this front-end
 installs and runs cleanly on its own.
@@ -22,11 +23,13 @@ Developed at North Dakota State University (PulseSmartLab).
 
 ## Contents
 
-- [Movies: end-to-end workflows](#movies-end-to-end-workflows)
+- [Movies: the guided workflow](#movies-the-guided-workflow)
 - [What it does](#what-it-does)
+- [The guided view](#the-guided-view)
 - [Install](#install)
 - [Run](#run)
 - [Guided walkthrough (with screenshots)](#guided-walkthrough)
+- [Modelling graphics](#modelling-graphics)
 - [Diagnostics & tuning](#diagnostics--tuning)
 - [The interactive report](#the-interactive-report)
 - [Polyploid / clonal design workflow](#polyploid--clonal-design-workflow)
@@ -38,17 +41,20 @@ Developed at North Dakota State University (PulseSmartLab).
 
 ---
 
-## Movies: end-to-end workflows
+## Movies: the guided workflow
 
-**Standard genomic cross prediction** — load the bundled demo, set the objective,
-score and allocate crosses, run, and read the recommended plan:
+**Guided cross prediction, end to end** — load the bundled demo, then step
+through the objective, scoring, filters and allocation with the progress
+stepper, run, and land on the results and modelling graphics:
 
-![Standard cross-prediction workflow](man/figures/demo-standard-workflow.gif)
+![Guided cross-prediction workflow](man/figures/demo-standard-workflow.gif)
 
-**Polyploid design** — switch to the polyploid workflow, set the ploidy, and
-produce a dosage-aware crossing plan for an autopolyploid / clonal crop:
+**Modelling graphics** — the Results screen renders interactive `plotly` views of
+the predicted crosses: the score distribution, a per-trait ridgeline,
+score × confidence coloured by risk, score vs diversity, and per-trait
+cross-validation reliability:
 
-![Polyploid design workflow](man/figures/demo-polyploid-workflow.gif)
+![Modelling graphics](man/figures/demo-modelling-graphics.gif)
 
 ---
 
@@ -86,12 +92,15 @@ covers the whole decision, from raw CSVs to a shareable report:
   best crosses get proportionally more seed.
 - **Robust (posterior) allocation** — re-optimize using posterior quantiles or
   top-N probabilities so the plan is stable under prediction uncertainty.
+- **Interactive modelling graphics** — a Results panel of five `plotly` views
+  built from the run's own candidate and selected crosses (see
+  [Modelling graphics](#modelling-graphics)).
 - **Polyploid / clonal design** — dosage-aware workflows for **autopolyploids**
   (potato-like, tetrasomic) with ploidy-aware GRM, dominance/heterosis, double
   reduction, and ploidy-aware QC, plus a **disomic-subgenome (allopolyploid)**
   path whose within-family variance is recombination-aware and GRM is
   VanRaden/Yang, computed per subgenome.
-- **A self-contained interactive report** — executive summary, KPIs, and eight
+- **A self-contained interactive report** — executive summary, KPIs, and
   interactive figures, cross-linked and saveable to PDF or standalone HTML.
 
 Inputs are **plain CSVs** you can edit in-app (double-click a cell). Every screen
@@ -100,22 +109,40 @@ whether the backend is connected.
 
 ---
 
-## Two ways to run it
+## The guided view
 
-- **Individual, on your own machine — no Docker.** Install the two R packages and
-  call `run_workbench()`. That's it. The app runs in `local` mode by default:
-  your runs are kept in an `ngcd-data` folder beside your working directory and
-  persist across sessions (the most recent `keep_runs` are retained — default 20;
-  set `keep_runs: 0` to keep every run). Docker is **not** involved and **not**
-  needed. Follow **Install** and **Run** below.
-- **Hosted for many users on a server — Docker.** Deploy the containerised app
-  under ShinyProxy (one container per user). This is the only scenario that uses
-  Docker. It runs in `server` mode: per-session, ephemeral run storage. See
-  [`deploy/`](deploy/) for the Dockerfile, ShinyProxy config, and instructions.
+By default the workbench presents its screens as a familiar set of tabs. Setting
+one option turns the same screens into a **minimalist, guided flow** — one screen
+at a time, in the order you actually work in — without moving, renaming, or
+removing a single control:
 
-The mode is controlled by `deployment_mode` (`local` / `server`, or the
-`NGCD_DEPLOYMENT_MODE` env var). Individual users never set it — `local` is the
-default; the container image sets `server`.
+```r
+options(ngcd.wizard = TRUE)   # set before run_workbench()
+run_workbench("~/cross-workbench")
+```
+
+The guided view adds:
+
+- a **clickable progress stepper** — *Data → Objective → Scoring → Filters →
+  Allocation → Outputs → Run → Results* — that drives both the top-level stages
+  and the Configure sub-tabs, so one bar tracks the whole design;
+- **Back / Next** navigation that walks the flow one screen at a time;
+- a **live one-line run summary** (workflow, data source, traits, number of
+  crosses, and run status) that updates as you configure;
+- a **minimalist look** with the raw navbar hidden so the stepper is the single
+  source of navigation.
+
+Everything is opt-in and non-destructive: no input is moved or renamed, every
+backend parameter keeps working, and with the option off the classic UI is
+**byte-for-byte unchanged**. If you prefer the guided flow but want the tabs back,
+keep them visible with `options(ngcd.wizard.hidenav = FALSE)`. A developer build
+(`?dev=1` on the URL, or `developer_mode: true`) adds a leading **Setup** step for
+verifying the backend connection.
+
+All screenshots below are of the guided view on the bundled demo (10 inbred
+parents, 12 markers, traits *yield* ↑ and *disease* ↓).
+
+---
 
 ## Install
 
@@ -124,19 +151,17 @@ backend in the same R library.
 
 ```r
 # 1. the backend (compiles native code — needs Rtools/Xcode/build-essential)
-#    Floor is nextgenCrossDesign >= 0.7.0 (required_backend_version in config.yml);
-#    0.14.0 adds the per-trait check-line veto, portfolio/risk and constraint
-#    diagnostics, and the unified mate-relatedness control surfaced by this app.
-remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.14.0")
+#    Floor is nextgenCrossDesign >= 0.7.0 (required_backend_version in config.yml).
+remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.18.0")
 
 #    …or from a local source tarball:
-R CMD INSTALL nextgenCrossDesign_0.14.0.tar.gz
+R CMD INSTALL nextgenCrossDesign_0.18.0.tar.gz
 
 # 2. this front-end — from CRAN once published:
 install.packages("nextgenCrossWorkbench", dependencies = TRUE)
 
 #    …or from a local source tarball:
-install.packages("nextgenCrossWorkbench_0.17.0.tar.gz",
+install.packages("nextgenCrossWorkbench_0.26.0.tar.gz",
                  repos = NULL, type = "source", dependencies = TRUE)
 ```
 
@@ -149,11 +174,11 @@ install the imports first:
 install.packages(c("shiny","bslib","DT","jsonlite","yaml","base64enc","plotly"))
 ```
 
-The interactive report and figures use `plotly` (now a hard dependency, so
-charts are interactive out of the box). Excel workbook export and static PNG
-figure export are optional and live in `Suggests` (`openxlsx`, `ggplot2`),
-because they run in the backend process; the app degrades gracefully without
-them.
+The interactive report, modelling graphics and figures use `plotly` (a hard
+dependency, so charts are interactive out of the box). Excel workbook export and
+static PNG figure export are optional and live in `Suggests` (`openxlsx`,
+`ggplot2`), because they run in the backend process; the app degrades gracefully
+without them.
 
 ### Updating the backend
 
@@ -164,7 +189,7 @@ tagged release, refresh it with:
 
 ```r
 Rscript tools/update-backend.R          # installs the version this workbench requires
-Rscript tools/update-backend.R 0.4.1    # or a specific version
+Rscript tools/update-backend.R 0.18.0   # or a specific version
 ```
 
 The script reads `required_backend_version` from `config.template.yml`, installs
@@ -175,7 +200,7 @@ scope (`Sys.setenv(GITHUB_PAT = "ghp_…")`); to skip the token, install from a
 built tarball instead:
 
 ```r
-NGCD_BACKEND_TARBALL=/path/nextgenCrossDesign_0.4.1.tar.gz Rscript tools/update-backend.R
+NGCD_BACKEND_TARBALL=/path/nextgenCrossDesign_0.18.0.tar.gz Rscript tools/update-backend.R
 ```
 
 You rarely need to touch the app for a backend update: the workbench calls the
@@ -184,6 +209,22 @@ formals, so new or changed backend parameters are picked up on the next run once
 the package is reinstalled. Bump `required_backend_version` (in `config.yml` /
 `config.template.yml`) only when the workbench needs to *require* a newer backend
 — the app then warns at startup if an older one is installed.
+
+### Two ways to run it
+
+- **Individual, on your own machine — no Docker.** Install the two R packages and
+  call `run_workbench()`. The app runs in `local` mode by default: your runs are
+  kept in an `ngcd-data` folder beside your working directory and persist across
+  sessions (the most recent `keep_runs` are retained — default 20; set
+  `keep_runs: 0` to keep every run). Docker is **not** involved and **not** needed.
+- **Hosted for many users on a server — Docker.** Deploy the containerised app
+  under ShinyProxy (one container per user). This is the only scenario that uses
+  Docker. It runs in `server` mode: per-session, ephemeral run storage. See
+  [`deploy/`](deploy/) for the Dockerfile, ShinyProxy config, and instructions.
+
+The mode is controlled by `deployment_mode` (`local` / `server`, or the
+`NGCD_DEPLOYMENT_MODE` env var). Individual users never set it — `local` is the
+default; the container image sets `server`.
 
 ---
 
@@ -196,7 +237,8 @@ library(nextgenCrossWorkbench)
 init_workbench_dir("~/cross-workbench")
 #   -> edit ~/cross-workbench/config.yml: set rscript_path and package_library
 
-run_workbench("~/cross-workbench")   # opens the app in your browser
+options(ngcd.wizard = TRUE)           # opt in to the guided view (optional)
+run_workbench("~/cross-workbench")    # opens the app in your browser
 ```
 
 `config.yml` points the app at the R installation and library where
@@ -211,26 +253,19 @@ users aren't exposed to configuration plumbing. Turn them on while configuring a
 machine by setting `developer_mode: true` in `config.yml`, appending `?dev=1` to
 the app URL, or setting `NGCD_DEVELOPER_MODE=true`.
 
----
-
-## Guided walkthrough
-
-The workbench is organized as **four workflow stages** in the top navbar —
-**Data · Configure · Run · Results** (plus a developer-only Setup) — that follow
-the order you actually work in. Each panel below is shown with the bundled demo
-(10 inbred parents, 12 markers, traits *yield* ↑ and *disease* ↓).
-
-> The screenshots show the individual configuration **panels**; version 0.17
-> regrouped the navigation from a flat ten-tab bar into the four stages described
-> here, so a panel's controls are unchanged but now live under the stage noted in
-> each heading.
-
 **Setup** *(developer-only, hidden in production)* confirms the app can reach your
 R installation and the `nextgenCrossDesign` engine — green badges for Rscript, the
 runner, the backend package and its version, plus an optional-capabilities panel
 (lpSolve, AlphaSimR, openxlsx, …).
 
-![Setup screen](man/figures/screen-01-setup.png)
+![Setup screen (developer mode)](man/figures/guided-00-setup.png)
+
+---
+
+## Guided walkthrough
+
+The stepper follows the order you actually work in: load and check your data,
+configure the design in five sections, run it, then explore the plan.
 
 ### Data — load, check, and edit inputs
 
@@ -238,152 +273,110 @@ Load the bundled demo or upload your own CSVs (comma/semicolon/tab separated; a
 UTF-8 byte-order mark from Excel is handled automatically). Column mapping is
 auto-guessed and adjustable, data-alignment checks flag ID/marker mismatches, and
 every input table is **editable in place** — double-click a cell to change it and
-re-run.
+re-run. A **Data quality** panel holds duplicate-parent detection,
+marker-missingness and MAF filters, optional LD pruning, and a
+residual-heterozygosity audit that mirrors the backend's inbred model.
 
-![Data screen](man/figures/screen-02-data.png)
+![Data screen](man/figures/guided-01-data.png)
 
-A **Data quality** sub-tab holds duplicate-parent detection, marker-missingness and
-MAF filters, optional LD pruning, and a residual-heterozygosity audit that mirrors
-the backend's inbred model — heterozygous parents that would break a DH/RIL model
-are flagged with a one-click exclusion.
+### Objective — what does *good* mean?
 
-![Data quality (QC) sub-tab](man/figures/screen-05-qc.png)
+The breeder question as a three-way choice: a **single trait**, **multiple traits
+(build a selection index)**, or **use my selection-index column** (a pre-computed
+index already in your phenotype file). Single- and multiple-trait modes both run
+full trait-by-trait prediction; for multiple traits you pick the combination
+method (automatic, relative weights, economic weights, desired gains) and can add
+a **joint P(superior progeny)** column. Trait directions are explicit, so risk
+traits are selected *downward*.
 
-### Configure — every design choice, in five sections
+![Selection objective screen](man/figures/guided-02-objective.png)
 
-**1. Selection objective.** The breeder question "what does *good* mean?" as a
-three-way choice: a **single trait**, **multiple traits (build a selection index)**,
-or **use my selection-index column** (a pre-computed index already in your
-phenotype file). Single- and multiple-trait modes both run full trait-by-trait
-prediction; for multiple traits you pick the combination method (automatic,
-relative weights, economic weights, desired gains) and can add a **joint
-P(superior progeny)** column. Trait directions are explicit, so risk traits are
-selected *downward*.
+### Scoring — the prediction & variance model
 
-![Selection objective screen](man/figures/screen-03-objective.png)
+The effect & variance model (recombination and GRM methods, marker-effect
+reliability floor, optional training-set augmentation and posterior engine), the
+**cross-value metric** (default the usefulness criterion), the breeding system
+(DH or RIL) with the selection proportion, and the **parent type**
+(*Inbred* / *DH* / *RIL*).
 
-**2. Prediction & scoring.** The effect & variance model (recombination and GRM
-methods, marker-effect reliability floor, optional training-set augmentation and
-posterior engine), the **cross-value metric** (default `var_complex`, the
-usefulness criterion), and the breeding system (DH or RIL) with the selection
-proportion. "Assume inbred parents" can be toggled for non-inbred material.
+![Prediction & scoring screen](man/figures/guided-03-scoring.png)
 
-![Prediction & scoring screen](man/figures/screen-04-scoring.png)
+### Filters — cross filters & genetic constraints
 
-**3. Cross filters & genetic constraints.** Candidate-level screens applied
-*before* allocation: the **per-trait check-line veto** (flag or remove crosses
-whose mid-parent for a trait is worse than a reference line, on GEBV or phenotype
-basis), lethal-allele guarding, and marker-target steering.
+Candidate-level screens applied *before* allocation: the **per-trait check-line
+veto** (flag or remove crosses whose mid-parent for a trait is worse than a
+reference line, on GEBV or phenotype basis), lethal-allele guarding, and
+marker-target steering.
 
-![Cross filters & genetic constraints screen](man/figures/screen-07-advanced.png)
+![Cross filters & genetic constraints screen](man/figures/guided-04-filters.png)
 
-**4. Mate allocation.** The **number of crosses** (fixed, or let the automatic
-optimizer sweep K and recommend a value), the gain-vs-coancestry dial, the unified
-**mate-relatedness** control (avoid inbreeding / favor complementarity), the
-optimizer (greedy / evolutionary / MIP / AlphaMate-style), constraints on parent
-use, kinship and quotas, a family-size budget, the Pareto explorer, and a
-robust-allocation card that re-optimizes on posterior quantiles for stability
-under uncertainty.
+### Allocation — build the mating plan
 
-![Mate allocation screen](man/figures/screen-06-allocation.png)
+The **number of crosses** (fixed, or let the automatic optimizer sweep K and
+recommend a value), the gain-vs-coancestry dial, the unified **mate-relatedness**
+control (avoid inbreeding / favor complementarity), the optimizer (greedy /
+evolutionary / MIP / AlphaMate-style), constraints on parent use, kinship and
+quotas, a family-size budget, the Pareto explorer, and a robust-allocation card
+that re-optimizes on posterior quantiles for stability under uncertainty.
 
-**5. Export options.** Whether to write an Excel crossing-plan workbook (needs
-`openxlsx`) and static PNG figures (needs `ggplot2`), and the random seed for
-reproducibility.
+![Mate allocation screen](man/figures/guided-05-allocation.png)
 
-![Export options screen](man/figures/screen-08-output.png)
+### Outputs — export options
+
+Whether to write an Excel crossing-plan workbook (needs `openxlsx`) and static PNG
+figures (needs `ggplot2`), and the random seed for reproducibility.
+
+![Export options screen](man/figures/guided-06-outputs.png)
 
 ### Run — execute
 
-One click assembles a JSON config, materializes any edited tables, and drives the
-backend in its configured R process. Errors are surfaced in a debug panel with
-plain-language hints for the most common failures.
+The standard workflow runs as four explicit, **manually gated** steps rather than
+one monolithic run: **Run QC → Fit effects & score → Build selection index →
+Allocate & rank**. Each step's button unlocks only once its upstream step has
+completed, each step's result is cached, and changing a setting marks only that
+stage and the ones after it for a re-run. QC is a real gate — it blocks the design
+only on *blockers* while warnings pass through. Each step assembles a JSON
+configuration, materializes any edited tables, and drives the backend
+out-of-process; errors are surfaced with plain-language hints.
 
-![Run screen](man/figures/screen-09-run.png)
+![Run screen](man/figures/guided-07-run.png)
 
 ### Results — the plan and the evidence
 
 A KPI row (crosses, mean gain, group coancestry, unique parents, max parent use,
 mean progeny inbreeding) sits above sub-tabs for the ranked plan, candidate
-scores, parent use, the **Portfolio & risk** view, the gain-diversity frontier,
-QC audit, input matching, marker effects, and method/settings provenance.
+scores, the **Modelling graphics** (below), parent use, family sizes, the
+**Portfolio & risk** view, the gain-diversity frontier, the Pareto explorer, QC
+audit, input matching, marker effects, and method/settings provenance — plus the
+self-contained interactive report.
 
-Selected crosses (ranked, priority-tiered):
+![Results — modelling graphics](man/figures/guided-08-modelling-graphics.png)
 
-![Selected crosses](man/figures/screen-11-selected-crosses.png)
+---
 
-Per-cross candidate scores (mean, variance, usefulness, kinship) for every
-predicted cross, not just the selected ones:
+## Modelling graphics
 
-![Candidate scores](man/figures/screen-12-candidate-scores.png)
+The **Modelling graphics** sub-tab on the Results screen renders five interactive
+`plotly` views straight from the run's own candidate and selected crosses (no
+extra configuration, empty-safe before a run):
 
-The gain-diversity frontier, with your chosen plan marked:
+1. **Predicted cross-score distribution** — a histogram of the merit score across
+   every candidate cross, with an optional per-trait view.
+2. **Per-trait score ridgeline** — overlaid density curves, one per trait, so you
+   can compare where each trait's predicted values sit.
+3. **Score × confidence (by risk)** — selected crosses plotted by predicted score
+   against cross confidence, coloured by estimation-risk bin.
+4. **Score vs diversity (kinship)** — every candidate by score against pairwise
+   kinship, with the selected plan highlighted, so the gain–diversity trade-off is
+   visible at the cross level.
+5. **Trait-model reliability (cross-validation)** — a per-trait bar of
+   marker-effect reliability, coloured by selection direction, showing which
+   traits the model predicts most dependably.
 
-![Gain-diversity frontier](man/figures/screen-14-frontier.png)
-
-**Pareto / breeder explorer.** The Pareto explorer sweeps the diversity-penalty
-(lambda) grid and lays out every optimal plan along the gain-vs-diversity frontier,
-so you can step along it and adopt the plan that matches your appetite for gain
-versus long-term diversity — instead of being locked into one trade-off. Each
-frontier point is a fully-specified plan (gain, coancestry, unique parents):
-
-![Pareto explorer](man/figures/screen-24-pareto-explorer.png)
-
-**Cross-number optimizer.** When you let the app choose the number of crosses
-(Objective screen → *Number of crosses: automatic*), it sweeps K and reports the
-diminishing-returns curve below, marking the recommended K under your chosen rule
-(relative-marginal / kneedle elbow, effective-population-size floor, or
-coancestry budget). Total gain rises steeply, then flattens as added crosses buy
-less merit — the recommendation is where that trade-off turns. The same curve
-appears in the interactive report. In R this is `ng_optimize_mating_plan_curve()`
-+ `ng_plot_diminishing_returns()`.
-
-![Cross-number optimizer — diminishing returns](man/figures/screen-22-cross-number-optimizer.png)
-
-Parent-use distribution across the plan:
-
-![Parent use](man/figures/screen-13-parent-use.png)
-
-**Portfolio & risk** *(single-trait runs).* Two crosses with the same score can be
-very different bets. This tab decomposes each cross into its genetic **level**
-(mid-parent breeding value) and **upside** (within-family genetic SD, √VPM),
-coloured by an **estimation-risk** bin, so you can read each cross's *profile* —
-a high-level **workhorse**, a high-upside **breakthrough**, a **long shot**, or a
-cross to **deprioritize** — instead of a single opaque ranking. It is a
-decision-support view on top of the priority tiers and never changes how crosses
-are scored or allocated.
-
-![Portfolio & risk](man/figures/screen-27-portfolio-risk.png)
-
-**Family-size allocation.** Turn a fixed total-progeny budget into a per-cross
-seed plan: the best crosses get proportionally more progeny, bounded by per-family
-minimum and maximum sizes. In R this is `ng_allocate_family_sizes()`.
-
-![Family-size allocation](man/figures/screen-23-family-size.png)
-
-**Multi-trait joint P(superior progeny).** For a multi-trait run you can also score
-each cross by the probability it throws progeny clearing the target on *every* trait
-at once (using the estimated cross-trait covariance) — a joint superiority that a
-per-trait probability misses. It surfaces as a `p_superior_progeny_mt` column and a
-results callout:
-
-![Multi-trait joint P(superior progeny)](man/figures/screen-25-multitrait-joint.png)
-
-Marker-effect reliability per trait:
-
-![Marker effects](man/figures/screen-17-marker-effects.png)
-
-QC audit — duplicate parents, missingness/MAF, and residual heterozygosity:
-
-![QC audit](man/figures/screen-15-qc-audit.png)
-
-Input matching — the exact parent/marker/column matching used for the run:
-
-![Input matching](man/figures/screen-16-input-matching.png)
-
-Method & settings provenance — the full configuration that produced the plan:
-
-![Method and settings](man/figures/screen-18-method-settings.png)
+The charts share a colourblind-safe NDSU palette and are hover-, zoom- and
+pan-able. They read the result schema directly (`candidate_crosses` /
+`selected_crosses` and `effect_summary`), so they always reflect the exact run on
+screen.
 
 ---
 
@@ -392,40 +385,32 @@ Method & settings provenance — the full configuration that produced the plan:
 Every procedure — the automatic cross-number optimizer, mate allocation, robust
 posterior re-optimization, trait reliability, and QC — can leave a plan looking
 "off". A **Diagnostics & tuning** section in the interactive report — together
-with inline run notes on the **Results** screen (e.g. the crop-suitability,
-joint-superiority, and "number of crosses chosen automatically" callouts above) —
-explains *why* each procedure produced its result and *which parameter to change*
-to steer it. Each item is graded **CHECK** (act on it), **NOTE** (worth knowing),
-or **OK** (stable).
+with inline run notes on the **Results** screen — explains *why* each procedure
+produced its result and *which parameter to change* to steer it. Each item is
+graded **CHECK** (act on it), **NOTE** (worth knowing), or **OK** (stable).
 
 For example, the single most common reason an automatic cross-number
 recommendation looks wrong is that it hit the edge of the swept range — the elbow
 was never actually reached, so the number is capped by your range, not by the
 data. The workbench detects this and tells you exactly what to do. Typical
-diagnostics include: the cross-number recommendation sitting at the top
-or bottom of the swept range (widen it), a binding pairwise-kinship or
-parent-use cap (loosen or tighten it), a trait with very low marker-effect
-reliability dominating the score (down-weight or drop it), how many candidate
+diagnostics include a binding pairwise-kinship or parent-use cap, a trait with
+very low marker-effect reliability dominating the score, how many candidate
 crosses a **trait-check veto** flagged or removed, the mix of **portfolio
 profiles** and estimation-risk bins in the plan, robust and point-estimate plans
-disagreeing (move the robustness quantile or gather more training data), and
-blocking QC issues (resolve them and re-run). These are backed by the backend's
+disagreeing, and blocking QC issues. These are backed by the backend's
 `constraint_diagnostics` and (single-trait) `priority_risk_diagnostics`.
 
 ---
 
-
 ## The interactive report
 
 The **Report** tab renders a self-contained, cross-linked HTML report: an
-executive summary in plain language, the KPI row, and eight interactive `plotly`
+executive summary in plain language, the KPI row, and interactive `plotly`
 figures (priority tiers, multi-trait score distribution, selected-vs-all scatter,
 gain-diversity frontier, cross-number diminishing-returns curve when the
 auto-optimizer ran, parent use, trait-model reliability, and a trait-rank
 heatmap). Charts are hover-, zoom-, and pan-able; the whole thing can be
 downloaded as standalone HTML (plotly.js inlined, works offline) or PDF.
-
-![Interactive report](man/figures/screen-10-report.png)
 
 ---
 
@@ -443,20 +428,9 @@ subgenome-aware: per-subgenome QC, marker effects, and VanRaden/Yang GRM, plus a
 **recombination-aware** within-family usefulness variance (exact per-subgenome,
 summed) when the marker map carries chromosome + cM positions. Autopolyploids such
 as potato (dosages 0..4) use the *Polyploid* path instead — the subgenome path is
-only for species whose subgenomes each segregate as a diploid. A bundled
-disomic-subgenome demo (two subgenomes, with a cM map so the variance is
-recombination-aware) lets you try it immediately:
-
-![Disomic-subgenome results](man/figures/screen-26-subgenome-results.png)
-
-Polyploid data setup (ploidy = 4):
-
-![Polyploid data setup](man/figures/screen-19-polyploid-data.png)
-
-The resulting polyploid crossing plan — per-cross mean, variance, dominance-aware
-usefulness, parent GEBVs, and pairwise kinship:
-
-![Polyploid plan](man/figures/screen-20-polyploid-plan.png)
+only for species whose subgenomes each segregate as a diploid. Both polyploid
+paths run as the same **stepped, compute-once pipeline** on the Run screen as the
+standard workflow, and are byte-identical to a one-shot run.
 
 ---
 
@@ -472,6 +446,7 @@ entry point and its optimization, robustness, and polyploid routines:
 | Multi-trait | auto / weighted / economic-index / desired-gain; soft/strict thresholds with autoscaled penalties; joint probability of superior progeny across all traits |
 | Cross filters | per-trait check-line veto (GEBV/phenotype basis, flag or exclude); lethal-allele guarding; marker-target steering |
 | Decision support | single-trait portfolio & risk profile (level × upside × estimation risk); `constraint_diagnostics` / `priority_risk_diagnostics` run notes |
+| Modelling graphics | score distribution, per-trait ridgeline, score × confidence by risk, score vs diversity (kinship), per-trait cross-validation reliability |
 | Breeding system | DH / RIL (infinite or finite selfing); Haldane/Kosambi; VanRaden/Yang GRM |
 | Allocation | OCS / greedy / evolutionary / MIP / AlphaMate-style; parent-use, kinship, quota constraints; unified mate-relatedness control |
 | Cross number | fixed, or automatic sweep with elbow / kneedle / Ne-floor / coancestry-budget selection |
@@ -489,7 +464,7 @@ entry point and its optimization, robustness, and polyploid routines:
 The package ships an extensive `testthat` suite (Config/testthat/edition 3) and
 passes `R CMD check` with **status OK** (no errors, warnings, or notes).
 
-- **430+ assertions across 20 test files.** Unit tests cover the IO/formatting
+- **1,100+ assertions across the test suite.** Unit tests cover the IO/formatting
   helpers (delimiter and BOM auto-detection, quoted fields, Latin-1 fallback,
   number formatting, column guessing, the heterozygosity audit at diploid and
   tetraploid ploidy), the report layer (figure-registry integrity, applicability
@@ -497,6 +472,10 @@ passes `R CMD check` with **status OK** (no errors, warnings, or notes).
   PDF, and graceful degradation on empty/sparse results), config and
   developer-mode gating, settings save/restore round-trips, run-directory and
   config-serialization edge cases, and error-hint mapping.
+- **Guided-view and modelling-graphics tests** cover the progress stepper and its
+  navigation math, the guided navigation layer and live run-summary, and the
+  empty-safe `plotly` chart builders (`test-wizard-shell.R`, `test-ui-guided.R`,
+  `test-ui-charts.R`).
 - **Server-logic tests** drive the reactive layer with `shiny::testServer`,
   including regression tests for column-mapping crashes and wide-genotype ID
   selection.
@@ -514,11 +493,16 @@ Sys.setenv(NOT_CRAN = "true", NGCD_RUN_COMBINATIONS = "1")
 devtools::test()
 ```
 
-Debugging hardening in this release includes byte-safe CSV reading in any locale,
-byte-perfect inlining of `plotly.js` (fixing blank charts under a C locale), a
-guarded `plotly` JSON serializer with a `jsonlite` fallback (no fragile `:::`
-call), ASCII-only UI source (portable-package clean), and display-safe report
-summaries that never surface a raw `NA`.
+Robustness hardening includes byte-safe CSV reading in any locale, byte-perfect
+inlining of `plotly.js` (fixing blank charts under a C locale), a guarded `plotly`
+JSON serializer with a `jsonlite` fallback, ASCII-only UI source (portable-package
+clean), and display-safe report summaries that never surface a raw `NA`.
+
+The guided view and modelling graphics are captured for these docs with a
+self-contained recorder, [`tools/record-guided-demo.R`](tools/record-guided-demo.R),
+which drives the real UI over a bundled demo result — regenerate the figures and
+movies on your own machine (with the backend installed, for live results) from
+there.
 
 ---
 
@@ -599,10 +583,11 @@ If you use this workbench in published work, please cite both components:
 > (R package). North Dakota State University.
 >
 > Atanda, S., and Morales, M. *nextgenCrossWorkbench: NextGenCrossDesign — a Shiny
-> front-end for nextgenCrossDesign* (R package, v0.17.0). North Dakota State
-> University, PulseSmartLab - PI: Dr. Sikiru Atanda.
+> front-end for nextgenCrossDesign* (R package, v0.26.0). North Dakota State
+> University, PulseSmartLab — PI: Dr. Sikiru Atanda.
 
 ---
 
 *NextGenCrossDesign. Backend (nextgenCrossDesign): Dr. Sikiru Atanda.
-Front-end (workbench): Mario Morales.*
+Front-end (workbench): Dr. Sikiru Atanda and Mario Morales. North Dakota State
+University, PulseSmartLab.*
