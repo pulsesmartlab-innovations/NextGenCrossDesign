@@ -49,10 +49,10 @@ stepper, run, and land on the results and modelling graphics:
 
 ![Guided cross-prediction workflow](man/figures/demo-standard-workflow.gif)
 
-**Modelling graphics** — the Results screen renders interactive `plotly` views of
-the predicted crosses: the score distribution, a per-trait ridgeline,
-score × confidence coloured by risk, score vs diversity, and per-trait
-cross-validation reliability:
+**Modelling graphics** — the Results screen walks through five interactive
+`plotly` views of the predicted crosses one figure at a time, each with a short
+explanation: the score distribution, a per-trait ridgeline, score × confidence
+coloured by risk, score vs diversity, and per-trait cross-validation reliability:
 
 ![Modelling graphics](man/figures/demo-modelling-graphics.gif)
 
@@ -356,9 +356,12 @@ self-contained interactive report.
 
 ## Modelling graphics
 
-The **Modelling graphics** sub-tab on the Results screen renders five interactive
-`plotly` views straight from the run's own candidate and selected crosses (no
-extra configuration, empty-safe before a run):
+The **Modelling graphics** sub-tab on the Results screen presents five interactive
+`plotly` views built from the run's own candidate and selected crosses. Rather
+than crowding them onto one board, it walks you through them **one figure at a
+time** — each with a short plain-language explanation, and **Previous / Next**
+navigation plus clickable step dots — mirroring how the run report presents its
+figures. All five are empty-safe before a run:
 
 1. **Predicted cross-score distribution** — a histogram of the merit score across
    every candidate cross, with an optional per-trait view.

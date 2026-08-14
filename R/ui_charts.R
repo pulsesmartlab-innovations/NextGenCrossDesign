@@ -261,3 +261,90 @@ ngcd_chart_trait_reliability <- function(es) {
     xaxis = list(title = "Cross-validation reliability", gridcolor = pal$grid, range = c(0, 1)),
     yaxis = list(title = "", categoryorder = "array", categoryarray = es$trait[o]))
 }
+
+# ===========================================================================
+# Guided, sequential presentation of the modelling graphics.
+#
+# Instead of showing all five charts on one board, the Results "Modelling
+# graphics" panel walks the breeder through them one figure at a time, each with
+# a short plain-language explanation - mirroring how the run report presents its
+# figures (title + one-line description + plot). ngcd_mg_steps() is the ordered
+# figure list; ngcd_mg_guided_panel() renders the card for the current step with
+# Previous / Next controls and clickable step dots; the server owns the current
+# step (a reactiveVal driven by inputs mg_prev / mg_next / mg_goto).
+# ===========================================================================
+
+# Ordered figure list: id, title, explanation (desc), the plotly outputId the
+# server already renders, and the figure height. Keep desc to one or two
+# sentences, report-style.
+ngcd_mg_steps <- function() list(
+  list(id = "dist", title = "Predicted cross-score distribution",
+       outputId = "mg_dist", height = "440px",
+       desc = paste0("How the predicted merit score is spread across every candidate cross. ",
+                     "A long right tail means a few standout crosses; a tight cluster means the ",
+                     "candidates are hard to separate on score alone. Use the trait selector to view ",
+                     "a single trait instead of the overall score.")),
+  list(id = "ridge", title = "Per-trait score ridgeline",
+       outputId = "mg_ridge", height = "440px",
+       desc = paste0("Where each trait's predicted values sit, one density curve per trait. ",
+                     "Compare the location and spread of the traits to see which ones separate ",
+                     "crosses most and where the population centres.")),
+  list(id = "conf", title = "Score x confidence (selected, by risk)",
+       outputId = "mg_conf", height = "440px",
+       desc = paste0("The selected crosses plotted by predicted score against how confident the ",
+                     "prediction is, coloured by estimation-risk bin. Crosses toward the top-right ",
+                     "are high-scoring and well estimated; high-score, low-confidence crosses are ",
+                     "the riskier bets.")),
+  list(id = "div", title = "Score vs diversity (kinship)",
+       outputId = "mg_div", height = "440px",
+       desc = paste0("Every candidate by predicted score against pairwise kinship (lower kinship = ",
+                     "more diverse), with the selected plan highlighted over all candidates. It shows ",
+                     "the gain-versus-diversity trade-off cross by cross - a good plan favours the ",
+                     "high-score, lower-kinship region.")),
+  list(id = "reliab", title = "Trait-model reliability (cross-validation)",
+       outputId = "mg_reliab", height = "360px",
+       desc = paste0("How dependably the marker-effect model predicts each trait, from ",
+                     "cross-validation, coloured by selection direction. A trait with low reliability ",
+                     "adds more noise to the score - consider down-weighting or dropping it."))
+)
+
+# Small, self-contained styling for the guided panel (injected once in the UI).
+ngcd_mg_css <- function() shiny::tags$style(shiny::HTML("
+.ngcd-mg-head{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:2px 0 10px}
+.ngcd-mg-count{font-weight:700;color:#00583d}
+.ngcd-mg-dots{display:flex;gap:6px;flex:1 1 auto}
+.ngcd-mg-dot{width:26px;height:26px;border-radius:50%;border:1px solid #cfe0d8;background:#fff;
+  color:#5c6b64;font-size:12px;font-weight:600;cursor:pointer;line-height:1}
+.ngcd-mg-dot:hover{border-color:#00583d;color:#00583d}
+.ngcd-mg-dot.is-current{background:#00583d;border-color:#00583d;color:#fff}
+.ngcd-mg-navbtns{display:flex;gap:8px}
+.ngcd-mg-desc{color:#3c4a44;margin:0 0 12px;max-width:70ch}
+"))
+
+# Build the card for one figure step (1-based). Emits the step's title, its
+# explanation, the trait selector on the distribution step, and the single
+# plotly output the server renders. Navigation is done with Shiny inputs
+# mg_prev / mg_next / mg_goto.
+ngcd_mg_guided_panel <- function(step = 1L) {
+  steps <- ngcd_mg_steps(); n <- length(steps)
+  step <- suppressWarnings(as.integer(step)); if (length(step) != 1L || is.na(step)) step <- 1L
+  step <- max(1L, min(n, step))
+  d <- steps[[step]]
+  dots <- lapply(seq_len(n), function(i) shiny::tags$button(
+    type = "button", class = if (i == step) "ngcd-mg-dot is-current" else "ngcd-mg-dot",
+    title = steps[[i]]$title, onclick = sprintf(
+      "Shiny.setInputValue('mg_goto', %d, {priority:'event'})", i), as.character(i)))
+  nav <- shiny::div(class = "ngcd-mg-navbtns",
+    shiny::actionButton("mg_prev", "< Previous", class = "btn btn-sm btn-outline-secondary"),
+    shiny::actionButton("mg_next", "Next >", class = "btn btn-sm btn-ndsu"))
+  header <- shiny::div(class = "ngcd-mg-head",
+    shiny::span(class = "ngcd-mg-count", sprintf("Figure %d of %d", step, n)),
+    shiny::div(class = "ngcd-mg-dots", dots), nav)
+  extra <- if (identical(d$id, "dist")) shiny::uiOutput("mg_trait_ui") else NULL
+  bslib::card(
+    bslib::card_header(d$title),
+    header,
+    shiny::p(class = "ngcd-mg-desc", d$desc),
+    extra,
+    plotly::plotlyOutput(d$outputId, height = d$height))
+}

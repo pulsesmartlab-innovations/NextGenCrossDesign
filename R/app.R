@@ -630,19 +630,8 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           bslib::nav_panel("Selected crosses", DT::DTOutput("res_selected")),
           bslib::nav_panel("Candidate scores", DT::DTOutput("res_candidate")),
           bslib::nav_panel("Modelling graphics",
-            shiny::uiOutput("mg_trait_ui"),
-            bslib::layout_columns(col_widths = c(6, 6),
-              bslib::card(bslib::card_header("Predicted cross-score distribution"),
-                plotly::plotlyOutput("mg_dist", height = "340px")),
-              bslib::card(bslib::card_header("Per-trait score ridgeline"),
-                plotly::plotlyOutput("mg_ridge", height = "340px"))),
-            bslib::layout_columns(col_widths = c(6, 6),
-              bslib::card(bslib::card_header("Score x confidence (selected, by risk)"),
-                plotly::plotlyOutput("mg_conf", height = "340px")),
-              bslib::card(bslib::card_header("Score vs diversity (kinship)"),
-                plotly::plotlyOutput("mg_div", height = "340px"))),
-            bslib::card(bslib::card_header("Trait-model reliability (cross-validation)"),
-              plotly::plotlyOutput("mg_reliab", height = "300px"))),
+            ngcd_mg_css(),
+            shiny::uiOutput("mg_guided")),
           bslib::nav_panel("Portfolio & risk", plotly::plotlyOutput("res_portfolio", height = "520px")),
           bslib::nav_panel("Parent use", DT::DTOutput("res_parentuse")),
           bslib::nav_panel("Family sizes", shiny::uiOutput("res_family_ui")),
@@ -2167,6 +2156,17 @@ workbench_server <- function(cfg) {
 
     # Modelling graphics (guided redesign, Task 9): render from the real result
     # schema (candidate_crosses / selected_crosses). Empty-safe builders.
+    # The charts are presented one at a time in a guided sequence (mg_step),
+    # each with a short explanation, mirroring the run report's figures.
+    mg_step <- shiny::reactiveVal(1L)
+    mg_n <- length(ngcd_mg_steps())
+    shiny::observeEvent(input$mg_next, mg_step(min(mg_n, mg_step() + 1L)))
+    shiny::observeEvent(input$mg_prev, mg_step(max(1L, mg_step() - 1L)))
+    shiny::observeEvent(input$mg_goto, {
+      i <- suppressWarnings(as.integer(input$mg_goto))
+      if (length(i) == 1L && !is.na(i)) mg_step(max(1L, min(mg_n, i)))
+    })
+    output$mg_guided <- shiny::renderUI({ shiny::req(res()); ngcd_mg_guided_panel(mg_step()) })
     output$mg_trait_ui <- shiny::renderUI({
       r <- res(); shiny::req(r)
       traits <- sub("_value$", "", ngcd_trait_value_cols(r$candidate_crosses))

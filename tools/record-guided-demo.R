@@ -67,6 +67,13 @@ ui <- ns$workbench_ui(cfg, dev = dev)
 server <- function(input, output, session) {
   `%||%` <- function(a, b) if (is.null(a) || !length(a)) b else a
   ns$ngcd_guided_nav_init(input, output, session, dev = dev, res_fn = function() DEMO)
+  # guided sequential modelling-graphics navigation (mirrors workbench_server)
+  mg_step <- shiny::reactiveVal(1L); mg_n <- length(ns$ngcd_mg_steps())
+  shiny::observeEvent(input$mg_next, mg_step(min(mg_n, mg_step() + 1L)))
+  shiny::observeEvent(input$mg_prev, mg_step(max(1L, mg_step() - 1L)))
+  shiny::observeEvent(input$mg_goto, { i <- suppressWarnings(as.integer(input$mg_goto))
+    if (length(i) == 1L && !is.na(i)) mg_step(max(1L, min(mg_n, i))) })
+  output$mg_guided <- shiny::renderUI(ns$ngcd_mg_guided_panel(mg_step()))
   output$mg_trait_ui <- shiny::renderUI({
     traits <- sub("_value$", "", ns$ngcd_trait_value_cols(DEMO$candidate_crosses))
     shiny::selectInput("mg_trait", "Distribution trait",

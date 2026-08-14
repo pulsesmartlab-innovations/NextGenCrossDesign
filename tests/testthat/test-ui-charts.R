@@ -111,3 +111,41 @@ test_that("trait-model reliability chart renders and is empty-safe", {
   expect_true(is_plotly(ngcd_chart_trait_reliability(NULL)))
   expect_true(is_plotly(ngcd_chart_trait_reliability(data.frame(trait = "x"))))  # missing reliability col
 })
+
+# --- guided sequential presentation of the modelling graphics --------------
+test_that("mg step list is ordered and complete", {
+  s <- ngcd_mg_steps()
+  expect_equal(length(s), 5L)
+  expect_equal(vapply(s, `[[`, "", "id"), c("dist", "ridge", "conf", "div", "reliab"))
+  expect_equal(vapply(s, `[[`, "", "outputId"),
+               c("mg_dist", "mg_ridge", "mg_conf", "mg_div", "mg_reliab"))
+  # every step carries a title and a non-trivial explanation
+  expect_true(all(nzchar(vapply(s, `[[`, "", "title"))))
+  expect_true(all(nchar(vapply(s, `[[`, "", "desc")) > 40))
+})
+
+test_that("guided panel renders the current figure with nav controls", {
+  h <- as.character(ngcd_mg_guided_panel(1))
+  expect_true(grepl("Figure 1 of 5", h))
+  expect_true(grepl("Predicted cross-score distribution", h))
+  expect_true(grepl('id="mg_dist"', h))         # step 1 chart present
+  expect_true(grepl("mg_trait_ui", h))          # trait selector only on step 1
+  expect_true(grepl("mg_prev", h) && grepl("mg_next", h))
+  expect_true(grepl("mg_goto", h))              # clickable dots
+  # a later step shows its own chart and no trait selector
+  h3 <- as.character(ngcd_mg_guided_panel(3))
+  expect_true(grepl("Figure 3 of 5", h3))
+  expect_true(grepl('id="mg_conf"', h3))
+  expect_false(grepl("mg_trait_ui", h3))
+})
+
+test_that("guided panel clamps out-of-range and bad steps", {
+  expect_true(grepl("Figure 1 of 5", as.character(ngcd_mg_guided_panel(0))))
+  expect_true(grepl("Figure 5 of 5", as.character(ngcd_mg_guided_panel(99))))
+  expect_true(grepl("Figure 1 of 5", as.character(ngcd_mg_guided_panel(NA))))
+})
+
+test_that("mg css is a style tag", {
+  expect_s3_class(ngcd_mg_css(), "shiny.tag")
+  expect_true(grepl("ngcd-mg-dot", as.character(ngcd_mg_css())))
+})

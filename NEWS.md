@@ -17,8 +17,10 @@
   predicted cross-score distribution (per trait), per-trait score ridgeline,
   score x confidence coloured by risk bin, score vs diversity (kinship) with
   the selected plan highlighted over all candidates, and per-trait
-  cross-validation (marker-effect) reliability. Empty-safe before a run.
-  New module: `R/ui_charts.R`.
+  cross-validation (marker-effect) reliability. The panel presents them one
+  figure at a time in a guided sequence -- each with a short, report-style
+  explanation and Previous/Next navigation plus clickable step dots -- rather
+  than on a single board. Empty-safe before a run. New module: `R/ui_charts.R`.
 
 # nextgenCrossWorkbench 0.25.1
 

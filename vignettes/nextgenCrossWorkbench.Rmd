@@ -228,9 +228,11 @@ recommended K marked) is shown here directly.
 
 ### Modelling graphics
 
-The **Modelling graphics** sub-tab renders five interactive `plotly` views built
-directly from the run's own candidate and selected crosses — no extra
-configuration, and empty-safe before a run:
+The **Modelling graphics** sub-tab presents five interactive `plotly` views built
+directly from the run's own candidate and selected crosses. They are shown **one
+figure at a time** in a guided sequence — each with a short explanation and
+Previous / Next navigation (plus clickable step dots), mirroring the run report's
+figures. All are empty-safe before a run:
 
 1. **Predicted cross-score distribution** — a histogram of the merit score over
    every candidate cross, with an optional per-trait view.
