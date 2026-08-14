@@ -44,25 +44,40 @@ ngcd_guided_css <- function() {
   shiny::tags$style(shiny::HTML("
   .ngcd-guided-bar{background:var(--bs-body-bg,#fff);
     border-bottom:1px solid var(--bs-border-color,#e6eae8);
-    padding:10px 16px 6px;margin-bottom:10px}
-  .ngcd-guided-bar .ngcd-guided-nav{display:flex;gap:8px;justify-content:flex-end;
-    margin-top:4px}
+    padding:10px 16px 8px;margin-bottom:10px}
+  .ngcd-guided-bar .ngcd-guided-row{display:flex;justify-content:space-between;
+    align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap}
+  .ngcd-guided-bar .ngcd-guided-nav{display:flex;gap:8px}
+  .ngcd-guided-bar .ngcd-guided-summary{font-size:.85rem;
+    color:var(--bs-secondary-color,#5c6b64)}
+  .ngcd-guided-bar .ngcd-guided-summary-label{font-weight:600;
+    color:var(--bs-primary,#00583d);margin-right:4px}
   "))
 }
 
 # The guided bar: a progress stepper + Back/Next, shown above the tab content.
 # Rendered from a uiOutput the server refreshes as the current tab changes.
-ngcd_guided_bar_ui <- function() {
+# `hide_nav` hides the raw navbar links for the minimalist look (the clickable
+# stepper + Back/Next remain, so you are never stranded). Escape hatch:
+# options(ngcd.wizard.hidenav = FALSE) keeps the tabs visible.
+ngcd_guided_bar_ui <- function(hide_nav = isTRUE(getOption("ngcd.wizard.hidenav", TRUE))) {
+  hide_css <- if (isTRUE(hide_nav))
+    shiny::tags$style(shiny::HTML(".navbar .navbar-nav{display:none !important}")) else NULL
   shiny::tagList(
     ngcd_wizard_css(),   # the stepper's dot/flex styling (defined in wizard.R)
     ngcd_guided_css(),
+    hide_css,
     shiny::div(class = "ngcd-guided-bar",
       shiny::uiOutput("ngcd_guided_stepper"),
-      shiny::div(class = "ngcd-guided-nav",
-        shiny::actionButton("ngcd_guided_back", "< Back",
-          class = "btn-outline-secondary btn-sm"),
-        shiny::actionButton("ngcd_guided_next", "Next >",
-          class = "btn-primary btn-sm")))
+      shiny::div(class = "ngcd-guided-row",
+        shiny::div(class = "ngcd-guided-summary",
+          shiny::tags$span(class = "ngcd-guided-summary-label", "Summary:"),
+          shiny::textOutput("ngcd_guided_summary", inline = TRUE)),
+        shiny::div(class = "ngcd-guided-nav",
+          shiny::actionButton("ngcd_guided_back", "< Back",
+            class = "btn-outline-secondary btn-sm"),
+          shiny::actionButton("ngcd_guided_next", "Next >",
+            class = "btn-primary btn-sm"))))
   )
 }
 
@@ -127,10 +142,20 @@ ngcd_guided_flat_apply <- function(session, target, nav_id = "nav", cfg_id = "cf
 # Wire the guided bar into a (non-modular) server: renders the stepper reflecting
 # the current (outer, inner) tab and moves through the flat steps on Back/Next.
 ngcd_guided_nav_init <- function(input, output, session, dev = FALSE,
-                                 nav_id = "nav", cfg_id = "cfg_nav") {
+                                 nav_id = "nav", cfg_id = "cfg_nav",
+                                 res_fn = function() NULL) {
   steps <- ngcd_guided_flat_steps(dev)
   output$ngcd_guided_stepper <- shiny::renderUI(
-    ngcd_wizard_stepper(steps, ngcd_guided_flat_index(steps, input[[nav_id]], input[[cfg_id]])))
+    ngcd_wizard_stepper(steps, ngcd_guided_flat_index(steps, input[[nav_id]], input[[cfg_id]]),
+                        click_input = "ngcd_guided_goto"))
+  # compact run-summary line in the bar (safe: header-only, no sidebar)
+  output$ngcd_guided_summary <- shiny::renderText(
+    ngcd_guided_summary_line(input, has_result = !is.null(res_fn())))
+  # clickable stepper: jump straight to a step by id
+  shiny::observeEvent(input$ngcd_guided_goto, {
+    i <- match(input$ngcd_guided_goto, vapply(steps, function(s) s$id, character(1)))
+    if (!is.na(i)) ngcd_guided_flat_apply(session, steps[[i]], nav_id, cfg_id)
+  }, ignoreInit = TRUE)
   shiny::observeEvent(input$ngcd_guided_next,
     ngcd_guided_flat_apply(session,
       ngcd_guided_flat_target(steps, input[[nav_id]], input[[cfg_id]],  1L), nav_id, cfg_id),
@@ -140,4 +165,59 @@ ngcd_guided_nav_init <- function(input, output, session, dev = FALSE,
       ngcd_guided_flat_target(steps, input[[nav_id]], input[[cfg_id]], -1L), nav_id, cfg_id),
     ignoreInit = TRUE)
   invisible(steps)
+}
+
+# ---- live run-summary (guided sidebar) -------------------------------------
+# Build grouped key/value rows for ngcd_wizard_summary() from the user's REAL
+# inputs + run status. Safe on NULL inputs (renders "-" / omits absent rows).
+ngcd_guided_summary_groups <- function(input, has_result = FALSE) {
+  g <- function(id, d = NULL) {
+    v <- tryCatch(input[[id]], error = function(e) NULL)
+    if (is.null(v) || (is.character(v) && !length(v))) d else v
+  }
+  wf <- switch(as.character(g("workflow", "standard")),
+               standard = "Standard (diploid)", polyploid = "Autotetraploid",
+               subgenome = "Disomic-subgenome", as.character(g("workflow", "standard")))
+  ds <- switch(as.character(g("data_source", "demo")),
+               demo = "Bundled demo", upload = "Uploaded CSVs", as.character(g("data_source", "-")))
+  obj <- switch(as.character(g("objective_mode", "single")),
+                single = "Single trait", multi = "Multi-trait index",
+                as.character(g("objective_mode", "-")))
+  basic <- list(list(k = "Workflow", v = wf),
+                list(k = "Data source", v = ds),
+                list(k = "Objective", v = obj))
+  traits <- g("traits_to_use")
+  if (!is.null(traits) && length(traits)) basic <- c(basic, list(list(k = "Traits", v = traits)))
+
+  alloc <- list()
+  nc <- g("n_crosses"); if (!is.null(nc)) alloc <- c(alloc, list(list(k = "Crosses", v = as.character(nc))))
+  mu <- g("max_uses_per_parent"); if (!is.null(mu)) alloc <- c(alloc, list(list(k = "Max uses / parent", v = as.character(mu))))
+
+  groups <- list(list(title = "Setup", rows = basic))
+  if (length(alloc)) groups <- c(groups, list(list(title = "Allocation", rows = alloc)))
+  groups <- c(groups, list(list(title = "Run",
+    rows = list(list(k = "Result", v = if (isTRUE(has_result)) "ready" else "not run yet")))))
+  groups
+}
+
+# Compact one-line run summary for the guided bar (ASCII separators). Safe on
+# NULL inputs. Rendered as text in the header - no layout risk (unlike a
+# page_navbar sidebar, which broke on newer bslib).
+ngcd_guided_summary_line <- function(input, has_result = FALSE) {
+  g <- function(id, d = NULL) {
+    v <- tryCatch(input[[id]], error = function(e) NULL)
+    if (is.null(v) || (is.character(v) && !length(v))) d else v
+  }
+  wf <- switch(as.character(g("workflow", "standard")),
+               standard = "Standard", polyploid = "Autotetraploid",
+               subgenome = "Disomic-subgenome", as.character(g("workflow", "standard")))
+  ds <- switch(as.character(g("data_source", "demo")),
+               demo = "demo data", upload = "uploaded CSVs", as.character(g("data_source", "-")))
+  parts <- c(wf, ds)
+  tr <- g("traits_to_use")
+  if (!is.null(tr) && length(tr))
+    parts <- c(parts, paste0(length(tr), " trait", if (length(tr) != 1) "s" else ""))
+  nc <- g("n_crosses"); if (!is.null(nc)) parts <- c(parts, paste0(nc, " crosses"))
+  parts <- c(parts, if (isTRUE(has_result)) "result ready" else "not run yet")
+  paste(parts, collapse = "  |  ")
 }

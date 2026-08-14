@@ -2454,7 +2454,7 @@ workbench_server <- function(cfg) {
     # Guided redesign: when enabled, drive the existing tabset with the guided
     # stepper + Back/Next. Off by default; no effect on the classic layout.
     if (isTRUE(getOption("ngcd.wizard", FALSE))) {
-      ngcd_guided_nav_init(input, output, session, dev = isTRUE(cfg$developer_mode))
+      ngcd_guided_nav_init(input, output, session, dev = isTRUE(cfg$developer_mode), res_fn = res)
     }
   }
 }

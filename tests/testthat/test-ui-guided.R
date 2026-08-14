@@ -96,3 +96,73 @@ test_that("init wires the flat stepper and moves without error", {
     expect_true(TRUE)
   })
 })
+
+# --- live run-summary sidebar ----------------------------------------------
+test_that("run-summary groups reflect real inputs and status", {
+  inp <- list(workflow = "polyploid", data_source = "upload", objective_mode = "multi",
+              traits_to_use = c("yield", "disease"), n_crosses = 25, max_uses_per_parent = 3)
+  gr <- ngcd_guided_summary_groups(inp, has_result = TRUE)
+  expect_equal(vapply(gr, `[[`, "", "title"), c("Setup", "Allocation", "Run"))
+  h <- as.character(ngcd_wizard_summary(gr))
+  expect_true(grepl("Autotetraploid", h))          # workflow mapped
+  expect_true(grepl("Multi-trait index", h))       # objective mapped
+  expect_true(grepl("ngcd-wiz-chip", h))           # traits as chips
+  expect_true(grepl("ready", h))                   # run status
+
+  # empty/NULL inputs -> safe defaults, "not run yet"
+  g0 <- ngcd_guided_summary_groups(list(), has_result = FALSE)
+  h0 <- as.character(ngcd_wizard_summary(g0))
+  expect_true(grepl("Standard \\(diploid\\)", h0))
+  expect_true(grepl("not run yet", h0))
+})
+
+test_that("compact summary line reflects inputs + status", {
+  s <- ngcd_guided_summary_line(list(workflow = "polyploid", data_source = "upload",
+         traits_to_use = c("a", "b"), n_crosses = 20), has_result = TRUE)
+  expect_true(grepl("Autotetraploid", s))
+  expect_true(grepl("uploaded CSVs", s))
+  expect_true(grepl("2 traits", s))
+  expect_true(grepl("20 crosses", s))
+  expect_true(grepl("result ready", s))
+  expect_true(grepl("Standard", ngcd_guided_summary_line(list())))     # NULL-safe defaults
+  expect_true(grepl("not run yet", ngcd_guided_summary_line(list())))
+})
+
+test_that("nav_init renders the summary text into output$ngcd_guided_summary", {
+  server <- function(input, output, session)
+    ngcd_guided_nav_init(input, output, session, dev = FALSE, res_fn = function() NULL)
+  shiny::testServer(server, {
+    session$setInputs(nav = "Data", cfg_nav = "Selection objective",
+                      workflow = "standard", n_crosses = 10)
+    expect_true(grepl("not run yet", output$ngcd_guided_summary))
+    expect_true(grepl("10 crosses", output$ngcd_guided_summary))
+  })
+})
+
+# --- clickable stepper + safe navbar hiding --------------------------------
+test_that("stepper is clickable when click_input is set", {
+  s <- ngcd_guided_flat_steps(FALSE)
+  h_plain <- as.character(ngcd_wizard_stepper(s, 1))
+  expect_false(grepl("onclick", h_plain))               # no clicks by default (e.g. demo)
+  h_click <- as.character(ngcd_wizard_stepper(s, 1, click_input = "ngcd_guided_goto"))
+  # onclick present (quotes are HTML-escaped in the attribute; browser un-escapes)
+  expect_true(grepl("onclick", h_click))
+  expect_true(grepl("setInputValue", h_click))
+  expect_true(grepl("ngcd_guided_goto", h_click))
+  expect_true(grepl("cursor:pointer", h_click))
+})
+
+test_that("guided bar hides navbar by default, keeps it with the escape hatch", {
+  expect_true(grepl("navbar-nav\\{display:none", as.character(ngcd_guided_bar_ui(hide_nav = TRUE))))
+  expect_false(grepl("navbar-nav\\{display:none", as.character(ngcd_guided_bar_ui(hide_nav = FALSE))))
+})
+
+test_that("goto jumps straight to a step by id", {
+  server <- function(input, output, session)
+    ngcd_guided_nav_init(input, output, session, dev = FALSE, res_fn = function() NULL)
+  shiny::testServer(server, {
+    session$setInputs(nav = "Data", cfg_nav = "Selection objective")
+    session$setInputs(ngcd_guided_goto = "allocation")   # jump to Mate allocation
+    expect_true(TRUE)                                     # no error wiring the jump
+  })
+})

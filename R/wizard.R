@@ -91,8 +91,10 @@ ngcd_wizard_css <- function() {
 # ---- UI builders -----------------------------------------------------------
 
 # Numbered stepper. `current` is 1-based. Completed steps show a check (done
-# style); the current step is filled; later steps are muted.
-ngcd_wizard_stepper <- function(steps, current) {
+# style); the current step is filled; later steps are muted. When `click_input`
+# is set, each step becomes clickable and sets that Shiny input to the step's id
+# (so the server can jump to it) - lets users navigate without the navbar.
+ngcd_wizard_stepper <- function(steps, current, click_input = NULL) {
   n <- length(steps)
   current <- ngcd_wiz_clamp(current, n)
   done <- ngcd_wiz_completed(current, n)
@@ -102,9 +104,15 @@ ngcd_wizard_stepper <- function(steps, current) {
     else if (done[i]) cls <- paste(cls, "is-done")
     label <- steps[[i]]$label
     if (isTRUE(steps[[i]]$optional)) label <- paste0(label, "*")
-    shiny::tags$li(class = cls,
+    attrs <- list(class = cls)
+    sid <- steps[[i]]$id
+    if (!is.null(click_input) && !is.null(sid)) {
+      attrs$onclick <- sprintf("Shiny.setInputValue('%s','%s',{priority:'event'})", click_input, sid)
+      attrs$style <- "cursor:pointer"
+    }
+    do.call(shiny::tags$li, c(attrs, list(
       shiny::div(class = "dot", if (done[i]) shiny::HTML("&#10003;") else as.character(i)),
-      shiny::div(class = "lab", label))
+      shiny::div(class = "lab", label))))
   })
   shiny::tags$ol(class = "ngcd-wiz-steps", items)
 }
