@@ -67,6 +67,12 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
 
     bslib::page_navbar(theme = theme, fillable = FALSE, id = "nav", padding = "16px",
 
+      # Guided redesign: off by default. options(ngcd.wizard = TRUE) turns the
+      # existing tabs into a guided, one-screen-at-a-time flow - a stepper +
+      # Back/Next drive this same tabset and the raw navbar links are hidden.
+      # No inputs are moved or duplicated; all 141 parameters work as-is.
+      header = if (isTRUE(getOption("ngcd.wizard", FALSE))) ngcd_guided_bar_ui(),
+
       if (isTRUE(dev)) bslib::nav_panel("Setup",
         ngcd_section("Local R & backend", "Point the app at your R install in config.yml, then verify here."),
         ngcd_guide("Setup", "Setup", shiny::tagList(
@@ -239,7 +245,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
         shiny::div(class = "help-hint", "Quality control runs on the Run tab (step 1 · Quality control), where its putative-duplicate figure is shown."))))),
 
       bslib::nav_panel("Configure",
-        bslib::navset_tab(
+        bslib::navset_tab(id = "cfg_nav",
           bslib::nav_panel("Selection objective",
         ngcd_section("Selection objective",
           "Trait directions are explicit - risk traits may decrease."),
@@ -623,6 +629,18 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           bslib::nav_panel("Report", shiny::uiOutput("res_report")),
           bslib::nav_panel("Selected crosses", DT::DTOutput("res_selected")),
           bslib::nav_panel("Candidate scores", DT::DTOutput("res_candidate")),
+          bslib::nav_panel("Modelling graphics",
+            shiny::uiOutput("mg_trait_ui"),
+            bslib::layout_columns(col_widths = c(6, 6),
+              bslib::card(bslib::card_header("Predicted cross-score distribution"),
+                plotly::plotlyOutput("mg_dist", height = "340px")),
+              bslib::card(bslib::card_header("Per-trait score ridgeline"),
+                plotly::plotlyOutput("mg_ridge", height = "340px"))),
+            bslib::layout_columns(col_widths = c(6, 6),
+              bslib::card(bslib::card_header("Score x confidence (selected, by risk)"),
+                plotly::plotlyOutput("mg_conf", height = "340px")),
+              bslib::card(bslib::card_header("Score vs diversity (kinship)"),
+                plotly::plotlyOutput("mg_div", height = "340px")))),
           bslib::nav_panel("Portfolio & risk", plotly::plotlyOutput("res_portfolio", height = "520px")),
           bslib::nav_panel("Parent use", DT::DTOutput("res_parentuse")),
           bslib::nav_panel("Family sizes", shiny::uiOutput("res_family_ui")),
@@ -2144,6 +2162,25 @@ workbench_server <- function(cfg) {
       ngcd_dt(df[, unique(c(keep, extra)), drop = FALSE], page = 15, priority_col = "priority_tier")
     })
     output$res_candidate <- DT::renderDT({ r <- res(); shiny::req(r); ngcd_dt(r$candidate_crosses, page = 15) })
+
+    # Modelling graphics (guided redesign, Task 9): render from the real result
+    # schema (candidate_crosses / selected_crosses). Empty-safe builders.
+    output$mg_trait_ui <- shiny::renderUI({
+      r <- res(); shiny::req(r)
+      traits <- sub("_value$", "", ngcd_trait_value_cols(r$candidate_crosses))
+      if (!length(traits)) return(NULL)
+      shiny::selectInput("mg_trait", "Distribution trait",
+        choices = c("Overall cross score" = "", stats::setNames(traits, traits)), width = "320px")
+    })
+    output$mg_dist  <- plotly::renderPlotly({ r <- res(); shiny::req(r)
+      tr <- if (isTRUE(nzchar(input$mg_trait %||% ""))) input$mg_trait else NULL
+      ngcd_chart_cross_scores(r$candidate_crosses, trait = tr) })
+    output$mg_ridge <- plotly::renderPlotly({ r <- res(); shiny::req(r)
+      ngcd_chart_cross_scores_ridge(r$candidate_crosses) })
+    output$mg_conf  <- plotly::renderPlotly({ r <- res(); shiny::req(r)
+      ngcd_chart_cross_confidence(r$selected_crosses) })
+    output$mg_div   <- plotly::renderPlotly({ r <- res(); shiny::req(r)
+      ngcd_chart_cross_diversity(r$candidate_crosses, r$selected_crosses) })
     output$res_portfolio <- plotly::renderPlotly({
       r <- res(); shiny::req(r)
       p <- ngcd_portfolio_plotly(r)
@@ -2413,5 +2450,11 @@ workbench_server <- function(cfg) {
           filename = function() f, content = function(file) file.copy(file.path(rd, f), file, overwrite = TRUE))
       })
     })
+
+    # Guided redesign: when enabled, drive the existing tabset with the guided
+    # stepper + Back/Next. Off by default; no effect on the classic layout.
+    if (isTRUE(getOption("ngcd.wizard", FALSE))) {
+      ngcd_guided_nav_init(input, output, session, dev = isTRUE(cfg$developer_mode))
+    }
   }
 }
