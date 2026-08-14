@@ -640,7 +640,9 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               bslib::card(bslib::card_header("Score x confidence (selected, by risk)"),
                 plotly::plotlyOutput("mg_conf", height = "340px")),
               bslib::card(bslib::card_header("Score vs diversity (kinship)"),
-                plotly::plotlyOutput("mg_div", height = "340px")))),
+                plotly::plotlyOutput("mg_div", height = "340px"))),
+            bslib::card(bslib::card_header("Trait-model reliability (cross-validation)"),
+              plotly::plotlyOutput("mg_reliab", height = "300px"))),
           bslib::nav_panel("Portfolio & risk", plotly::plotlyOutput("res_portfolio", height = "520px")),
           bslib::nav_panel("Parent use", DT::DTOutput("res_parentuse")),
           bslib::nav_panel("Family sizes", shiny::uiOutput("res_family_ui")),
@@ -2181,6 +2183,8 @@ workbench_server <- function(cfg) {
       ngcd_chart_cross_confidence(r$selected_crosses) })
     output$mg_div   <- plotly::renderPlotly({ r <- res(); shiny::req(r)
       ngcd_chart_cross_diversity(r$candidate_crosses, r$selected_crosses) })
+    output$mg_reliab <- plotly::renderPlotly({ r <- res(); shiny::req(r)
+      ngcd_chart_trait_reliability(r$effect_summary) })
     output$res_portfolio <- plotly::renderPlotly({
       r <- res(); shiny::req(r)
       p <- ngcd_portfolio_plotly(r)

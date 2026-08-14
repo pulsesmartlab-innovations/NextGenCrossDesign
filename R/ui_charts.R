@@ -243,3 +243,21 @@ ngcd_chart_cross_diversity <- function(cc, sc = NULL) {
     yaxis = list(title = "Predicted cross score", gridcolor = pal$grid),
     legend = list(orientation = "h"))
 }
+
+# 5. Trait-model reliability: per-trait cross-validation reliability (bar).
+#    Reads effect_summary (trait, marker_effect_reliability, [direction]).
+ngcd_chart_trait_reliability <- function(es) {
+  if (!is.data.frame(es) || !nrow(es) || !all(c("trait", "marker_effect_reliability") %in% names(es)))
+    return(ngcd_chart_empty("No trait reliability yet"))
+  pal <- ngcd_chart_palette()
+  rel <- suppressWarnings(as.numeric(es$marker_effect_reliability))
+  o <- order(rel)
+  dir <- if ("direction" %in% names(es)) as.character(es$direction)[o] else rep("maximize", nrow(es))
+  col <- ifelse(grepl("max|incr", tolower(dir)), pal$primary, pal$observed)
+  plotly::layout(
+    plotly::plot_ly(y = es$trait[o], x = rel[o], type = "bar", orientation = "h",
+      marker = list(color = col),
+      text = sprintf("%.2f", rel[o]), textposition = "auto"),
+    xaxis = list(title = "Cross-validation reliability", gridcolor = pal$grid, range = c(0, 1)),
+    yaxis = list(title = "", categoryorder = "array", categoryarray = es$trait[o]))
+}

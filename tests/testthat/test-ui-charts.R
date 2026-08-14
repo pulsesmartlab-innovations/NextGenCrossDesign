@@ -102,3 +102,12 @@ test_that("workbench-native builders are empty-safe", {
   expect_true(is_plotly(ngcd_chart_cross_confidence(wb_cc())))          # no cross_confidence
   expect_true(is_plotly(ngcd_chart_cross_diversity(data.frame(x = 1)))) # missing cols
 })
+
+test_that("trait-model reliability chart renders and is empty-safe", {
+  es <- data.frame(trait = c("yield", "disease"),
+                   marker_effect_reliability = c(0.62, 0.81),
+                   direction = c("maximize", "minimize"), stringsAsFactors = FALSE)
+  expect_true(is_plotly(ngcd_chart_trait_reliability(es)))
+  expect_true(is_plotly(ngcd_chart_trait_reliability(NULL)))
+  expect_true(is_plotly(ngcd_chart_trait_reliability(data.frame(trait = "x"))))  # missing reliability col
+})
