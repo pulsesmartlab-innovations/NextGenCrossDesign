@@ -21,8 +21,9 @@ knitr::opts_chunk$set(
 **nextgenCrossWorkbench** is a point-and-click [`shiny`](https://shiny.posit.co/)
 front-end for **genomic cross prediction** and **mate allocation** in plant and
 animal breeding programs. It turns a genomic-selection cross-design pipeline into
-a guided web application over plain CSV inputs, organized as four workflow stages —
-**Data · Configure · Run · Results**.
+a guided web application over plain CSV inputs, organized as the stages you work
+through in order — **Data → Objective → Scoring → Filters → Allocation → Outputs
+→ Run → Results**.
 
 The workbench predicts the genetic merit of every possible cross between a set of
 genotyped, phenotyped parents, then builds a mating plan that trades off
@@ -32,16 +33,17 @@ breeding-genetics computations are performed by the companion
 workbench drives as a *separate, user-configured R process*. The front-end
 installs and launches independently of the backend.
 
-This vignette explains the input files, how to configure and launch the app, and
-the analysis workflow — the standard diploid workflow, the three-way selection
-objective (single trait, a computed multi-trait index, or your own index column),
-multi-trait joint superiority, per-trait check-line vetoes, the cross-priority
-**portfolio & risk** view, family-size allocation, the gain–diversity Pareto
-explorer, robust (posterior) allocation, and the dosage-aware polyploid and
-disomic-subgenome design workflows. The method, metric, parent-type and
-breeding-system menus are read from the backend's capability registry, so they
-always match the installed engine; any capability the backend marks
-*experimental* or *guarded* is automatically hidden from the menus.
+This vignette explains the input files, how to configure and launch the app
+(including the opt-in **guided view**), and the analysis workflow — the standard
+diploid workflow, the three-way selection objective (single trait, a computed
+multi-trait index, or your own index column), multi-trait joint superiority,
+per-trait check-line vetoes, the interactive **modelling graphics**, the
+cross-priority **portfolio & risk** view, family-size allocation, the
+gain–diversity Pareto explorer, robust (posterior) allocation, and the
+dosage-aware polyploid and disomic-subgenome design workflows. The method, metric,
+parent-type and breeding-system menus are read from the backend's capability
+registry, so they always match the installed engine; any capability the backend
+marks *experimental* or *guarded* is automatically hidden from the menus.
 
 ```{r}
 library(nextgenCrossWorkbench)
@@ -53,7 +55,7 @@ The front-end and the backend are installed independently:
 
 ```{r eval = FALSE}
 # 1. the backend engine (performs the computations; a separate R process)
-R CMD INSTALL nextgenCrossDesign_0.17.2.tar.gz
+R CMD INSTALL nextgenCrossDesign_0.18.0.tar.gz
 
 # 2. this front-end (pulls its dependencies from CRAN)
 install.packages("nextgenCrossWorkbench", dependencies = TRUE)
@@ -134,21 +136,40 @@ Shiny server:
 app <- workbench_app("~/cross-workbench")
 ```
 
+### The guided view
+
+By default the workbench presents its screens as a set of tabs. Setting one
+option turns the same screens into a **minimalist, guided flow** — one screen at a
+time, in pipeline order — without moving, renaming, or removing any control:
+
+```{r eval = FALSE}
+options(ngcd.wizard = TRUE)        # set before run_workbench()
+run_workbench("~/cross-workbench")
+```
+
+The guided view adds a **clickable progress stepper** (Data → Objective →
+Scoring → Filters → Allocation → Outputs → Run → Results) that drives both the
+top-level stages and the Configure sub-tabs; **Back / Next** navigation; a **live
+one-line run summary** (workflow, data source, traits, number of crosses, and run
+status); and a minimalist look with the raw navbar hidden. It is fully opt-in and
+non-destructive: every backend parameter keeps working, and with the option off
+the classic tabbed UI is byte-for-byte unchanged. To keep the tabs visible while
+still using the stepper, set `options(ngcd.wizard.hidenav = FALSE)`.
+
 ## The analysis workflow
 
-The app is organized as **four workflow stages** in the top navigation bar —
-**Data · Configure · Run · Results** — that follow the order you actually work in:
-load and check your data, configure the design, run it, then explore the plan.
-Every screen has a collapsible "how to use this section" guide (collapsed by
-default; a single **Show guided tour** toggle opens them all).
+The app follows the order you actually work in: load and check your data,
+configure the design, run it, then explore the plan. Every screen has a
+collapsible "how to use this section" guide (collapsed by default; a single
+**Show guided tour** toggle opens them all).
 
 **Data** — load or upload inputs, map columns (auto-guessed), review ID/marker
 alignment checks, and edit tables in place. Naming a **target crop** adds a
 crop-suitability note to the results (how well the diploid path is validated for
 that crop archetype); most crops are handled on the standard diploid path. A
-**Data quality** sub-tab holds duplicate-parent detection, missingness/MAF
-filters, optional LD pruning, and a residual-heterozygosity audit with a
-one-click exclusion.
+**Data quality** panel holds duplicate-parent detection, missingness/MAF filters,
+optional LD pruning, and a residual-heterozygosity audit with a one-click
+exclusion.
 
 **Configure** groups every design choice into five sections, in pipeline order:
 
@@ -158,7 +179,7 @@ one-click exclusion.
    your phenotype file). Single- and multiple-trait modes both run full
    trait-by-trait prediction; for multiple traits you pick how they combine
    (automatic, relative weights, economic weights, desired gains) and can add a
-   **multi-trait joint P(superior progeny)** column (below). Economic-weight and
+   **multi-trait joint P(superior progeny)** column. Economic-weight and
    desired-gain *values* come from your trait-direction file.
 2. **Prediction & scoring** — the effect & variance model (recombination and GRM
    methods, marker-effect reliability floor, optional training-set augmentation
@@ -169,9 +190,7 @@ one-click exclusion.
    type** (*Inbred* / *DH* / *RIL*). Parent type describes the parents you cross,
    not the progeny: *Inbred* and *DH* expect fully fixed lines and block
    heterozygous parents as a data error, while *RIL* accepts the residual
-   heterozygosity recombinant inbred lines retain after finite selfing (if Data
-   flagged non-inbred parents, either drop them on the Data screen or set Parent
-   type = RIL here).
+   heterozygosity recombinant inbred lines retain after finite selfing.
 3. **Cross filters & genetic constraints** — candidate-level screens applied
    *before* allocation: the **per-trait check-line veto** (below), lethal-allele
    guarding, and marker-target steering.
@@ -192,24 +211,43 @@ QC is a real gate — it blocks the design only on *blockers* (a duplicate-genot
 or other hard issue disables the downstream steps), while warnings pass through.
 Each stage's result is cached, so a downstream stage never recomputes upstream
 work, and changing a setting marks only that stage and the ones after it as
-needing a re-run; staged execution is byte-identical to the old one-shot run. Each
-activity screen carries a collapsible **Figure** tag that reveals that step's
-chart in place (putative duplicates after QC, trait-model reliability after Fit &
-score, the index distribution after Build index, the gain–diversity frontier and
-parent use after Allocate & rank). Every step assembles a JSON configuration,
-materializes any edited tables, and drives the backend out-of-process; errors and
-backend warnings are surfaced with plain-language hints. (Automatic cross-number
-selection and the exported workbook/figures still use the full one-shot run.)
+needing a re-run; staged execution is byte-identical to the old one-shot run.
+Every step assembles a JSON configuration, materializes any edited tables, and
+drives the backend out-of-process; errors and backend warnings are surfaced with
+plain-language hints.
 
 **Results** — a KPI row (crosses, mean gain, group coancestry, unique parents,
 maximum parent use, mean progeny inbreeding) above sub-tabs for the ranked plan,
-candidate scores, parent use, **family sizes**, the **Portfolio & risk** view
-(below), the gain–diversity frontier, the **Pareto explorer**, QC audit, input
-matching, marker effects, and method/settings provenance, plus a self-contained
-**interactive HTML report** downloadable as HTML or PDF, and a **Diagnostics &
-tuning** tab (below). When the automatic cross-number optimizer runs, a
-**diminishing-returns chart** (gain vs K with the recommended K marked) is shown
-here directly.
+candidate scores, the **Modelling graphics** (below), parent use, **family
+sizes**, the **Portfolio & risk** view (below), the gain–diversity frontier, the
+**Pareto explorer**, QC audit, input matching, marker effects, and method/settings
+provenance, plus a self-contained **interactive HTML report** downloadable as HTML
+or PDF, and a **Diagnostics & tuning** tab (below). When the automatic
+cross-number optimizer runs, a **diminishing-returns chart** (gain vs K with the
+recommended K marked) is shown here directly.
+
+### Modelling graphics
+
+The **Modelling graphics** sub-tab presents five interactive `plotly` views built
+directly from the run's own candidate and selected crosses. They are shown **one
+figure at a time** in a guided sequence — each with a short explanation and
+Previous / Next navigation (plus clickable step dots), mirroring the run report's
+figures. All are empty-safe before a run:
+
+1. **Predicted cross-score distribution** — a histogram of the merit score over
+   every candidate cross, with an optional per-trait view.
+2. **Per-trait score ridgeline** — overlaid density curves, one per trait.
+3. **Score × confidence (by risk)** — selected crosses by predicted score against
+   cross confidence, coloured by estimation-risk bin.
+4. **Score vs diversity (kinship)** — every candidate by score against pairwise
+   kinship, with the selected plan highlighted, so the gain–diversity trade-off is
+   visible cross by cross.
+5. **Trait-model reliability (cross-validation)** — a per-trait bar of
+   marker-effect reliability, coloured by selection direction.
+
+The charts share a colourblind-safe palette and read the result schema directly
+(`candidate_crosses` / `selected_crosses` and `effect_summary`), so they always
+reflect the exact run on screen.
 
 ### Diagnostics & tuning
 
@@ -264,10 +302,9 @@ Rather than fixing the number of crosses, the Allocation screen can **sweep the
 number of crosses K** and recommend a value using a diminishing-returns (elbow /
 kneedle) rule, an effective-population-size floor, or a coancestry budget. When
 the sweep runs, the Results screen shows an interactive **diminishing-returns
-chart** — mean gain against K with the recommended K highlighted (plus an
-effective-size or coancestry overlay for those rules) — and states the chosen K
-and rule, so you can see *why* that number was picked and where extra crosses
-stop adding gain.
+chart** — mean gain against K with the recommended K highlighted — and states the
+chosen K and rule, so you can see *why* that number was picked and where extra
+crosses stop adding gain.
 
 ### Family-size allocation
 
@@ -283,11 +320,10 @@ how many should each cross get?".
 For multi-trait runs, the **Objective** screen can add a joint superiority column:
 the probability that a cross throws progeny clearing your target on *every*
 selected trait at once. It uses the estimated cross-trait genetic covariance, so it
-captures the joint distribution a per-trait probability misses (a cross can be
-strong for one trait yet rarely produce progeny that are simultaneously good for
-all). Targets default to each trait's population mean in its selection direction and
-can be set per trait. The result is shown as a `p_superior_progeny_mt` column on the
-selected-crosses table.
+captures the joint distribution a per-trait probability misses. Targets default to
+each trait's population mean in its selection direction and can be set per trait.
+The result is shown as a `p_superior_progeny_mt` column on the selected-crosses
+table.
 
 ### Per-trait check-line veto
 
@@ -298,13 +334,12 @@ whose mid-parent value for that trait falls on the *worse* side of the check. Th
 comparison is made on a consistent basis you choose (**GEBV** or **phenotype**),
 and the worse side follows the trait's selection direction (increase → reject
 below the check; decrease → reject above). By default violators are only
-**flagged** (so you see them on the plan with per-trait check columns); ticking
-**exclude threshold violators** drops them from the candidate pool *before*
-allocation, exactly like the lethal-allele guard. The objective itself is never
-touched — this is a candidate-eligibility filter that works with any multi-trait
-method — and it is available in the single- and multiple-trait objective modes
-(not when you supply your own pre-computed index column). A run note reports how
-many crosses were flagged or removed.
+**flagged**; ticking **exclude threshold violators** drops them from the candidate
+pool *before* allocation, exactly like the lethal-allele guard. The objective
+itself is never touched — this is a candidate-eligibility filter that works with
+any multi-trait method — and it is available in the single- and multiple-trait
+objective modes (not when you supply your own pre-computed index column). A run
+note reports how many crosses were flagged or removed.
 
 ### Pareto frontier explorer
 
@@ -335,8 +370,7 @@ can read each cross's *profile* at a glance — a high-level/low-spread
 **workhorse**, a high-upside **breakthrough** bet, a **long shot**, or a cross to
 **deprioritize** — instead of a single opaque ranking. This is a decision-support
 view layered on top of the priority tiers; it does not change how crosses are
-scored or allocated. Run notes summarize the plan's portfolio mix and estimation
-risk, and the same summary appears in the downloadable report.
+scored or allocated.
 
 ## Polyploid and clonal design
 
@@ -357,13 +391,10 @@ Options include modeling dominance/heterosis (for selecting clones on genotypic
 value), double reduction (autopolyploids, ploidy ≥ 4), a ploidy-aware genomic
 relationship matrix, and ploidy-aware QC. The resulting plan reports each cross's
 predicted mean, variance, dominance-aware usefulness, parent genomic estimated
-breeding values, and pairwise kinship.
-
-Like the Standard workflow, the autotetraploid design runs as the same **stepped,
-compute-once pipeline** on the Run screen — **Quality control → Fit effects & score
-→ Allocate & rank** (single-trait, so no selection-index step), each step gated on
-its upstream step, cached, and carrying its own inline figure, and byte-identical to
-the one-shot run.
+breeding values, and pairwise kinship. Like the Standard workflow, the
+autotetraploid design runs as the same **stepped, compute-once pipeline** on the
+Run screen (Quality control → Fit effects & score → Allocate & rank; single-trait,
+so no selection-index step) and is byte-identical to the one-shot run.
 
 ### Disomic-subgenome (true allopolyploid) design
 
@@ -381,41 +412,25 @@ bp-per-cM rate, converted automatically). Each subgenome contributes the exact
 doubled-haploid/RIL family variance — the marker-effect contrasts weighted by the
 recombination kernel `(1 − 2r) = exp(−2·d/100)` under Haldane, where `d` is the
 map distance in cM — and the subgenome contributions are **summed**. That sum is
-*exact* under disomic inheritance: homoeologues never pair at meiosis, so there is no
-recombination between subgenomes and the cross-subgenome covariance is zero. It is the
-*same* recombination-aware calculation the Standard workflow uses, applied per
-subgenome. Without chromosome + position columns the app falls back to an
-unlinked-loci approximation (reported as `unlinked`) and says so in the run notes. The
+*exact* under disomic inheritance: homoeologues never pair at meiosis, so there is
+no recombination between subgenomes and the cross-subgenome covariance is zero.
+Without chromosome + position columns the app falls back to an unlinked-loci
+approximation (reported as `unlinked`) and says so in the run notes. The
 relationship matrix follows your chosen **GRM method** (VanRaden or Yang), computed
 per subgenome and averaged.
 
-Like the Standard and Polyploid workflows, the disomic-subgenome design runs as a
-**stepped, compute-once pipeline** on the Run screen rather than a single button:
-**Quality control → Fit effects & score → Allocate & rank** — three steps, because
-the path is single-trait there is no selection-index step. Each step's button
-unlocks only after its upstream step completes and reveals its own inline figure
-(kept vs. dropped markers per subgenome after QC, the scoring metric and candidate
-count after Fit & score, the gain–diversity frontier after Allocate & rank). Each
-step's result is cached, so upstream work is never recomputed; changing the
-subgenome map column re-runs from QC, and changing the DH/RIL progeny target re-runs
-from Fit & score, while unrelated settings leave completed steps intact. The stepped
-run is **byte-identical** to running the whole subgenome design in one shot — the
-steps only decide *when* each part of the same calculation happens, not *what* it
-computes.
-
-This path is deliberately **not crop-specific**: most polyploid crops (wheat, canola)
-are genotyped and analysed as diploid, so use the *Standard* workflow for those and
-reserve this path for data you genuinely want modelled as separate diploid subgenomes.
-For **autopolyploids** such as potato (tetrasomic, dosages 0..4), use the *Polyploid*
-workflow at the appropriate ploidy instead — the disomic-subgenome path is only for
-species whose subgenomes each segregate as a diploid.
+This path is deliberately **not crop-specific**: most polyploid crops (wheat,
+canola) are genotyped and analysed as diploid, so use the *Standard* workflow for
+those and reserve this path for data you genuinely want modelled as separate
+diploid subgenomes. For **autopolyploids** such as potato (tetrasomic, dosages
+0..4), use the *Polyploid* workflow at the appropriate ploidy instead.
 
 ## Reproducibility and provenance
 
-Set a random **seed** on the Output screen for reproducible optimization.
-Every run records its full settings, which are shown on the Results
-"Method & settings" tab and embedded in the downloadable report, so a plan can
-always be traced back to the exact configuration that produced it.
+Set a random **seed** on the Outputs screen for reproducible optimization. Every
+run records its full settings, which are shown on the Results "Method & settings"
+tab and embedded in the downloadable report, so a plan can always be traced back
+to the exact configuration that produced it.
 
 ## References
 
@@ -435,3 +450,4 @@ always be traced back to the exact configuration that produced it.
   and total genetic covariance matrices. *Genetics* 219(3):iyab122.
 - Amadeu, R.R., et al. (2016). AGHmatrix: R package to construct relationship
   matrices for autotetraploid and diploid species. *The Plant Genome* 9(3).
+```

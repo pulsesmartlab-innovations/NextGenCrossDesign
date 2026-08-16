@@ -1,3 +1,27 @@
+# nextgenCrossWorkbench 0.26.0
+
+* **Opt-in guided workbench view.** Set `options(ngcd.wizard = TRUE)` before
+  `run_workbench()` to turn the existing tabs into a guided, one-screen-at-a-time
+  flow: a clickable progress stepper (Data → Objective → Scoring → Filters →
+  Allocation → Outputs → Run → Results, driving both the top tabs and the
+  Configure sub-tabs), Back/Next navigation, a live one-line run summary
+  (workflow, data source, traits, crosses, run status), and a minimalist look
+  with the raw navbar hidden. No inputs are moved or renamed and every parameter
+  keeps working, so the classic UI is byte-for-byte unchanged when the option is
+  off. The navbar-hiding has an escape hatch:
+  `options(ngcd.wizard.hidenav = FALSE)` keeps the tabs visible. New modules:
+  `R/wizard.R`, `R/ui_guided.R`.
+
+* **New modelling graphics in Results.** A "Modelling graphics" panel renders
+  five interactive plotly views from the run's candidate/selected crosses:
+  predicted cross-score distribution (per trait), per-trait score ridgeline,
+  score x confidence coloured by risk bin, score vs diversity (kinship) with
+  the selected plan highlighted over all candidates, and per-trait
+  cross-validation (marker-effect) reliability. The panel presents them one
+  figure at a time in a guided sequence -- each with a short, report-style
+  explanation and Previous/Next navigation plus clickable step dots -- rather
+  than on a single board. Empty-safe before a run. New module: `R/ui_charts.R`.
+
 # nextgenCrossWorkbench 0.25.1
 
 * **Docs: the user vignette now covers staged polyploid and disomic-subgenome
