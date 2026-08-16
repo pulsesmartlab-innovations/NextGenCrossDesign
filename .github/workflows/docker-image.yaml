@@ -7,6 +7,19 @@
 # Runs only when the deployment assets or this workflow change — a full image
 # build (apt + CRAN + backend C++ kernel + frontend + vignette render) is
 # minutes-expensive, and the package itself is already gated by R-CMD-check.
+#
+# PUBLISHING. Until now this workflow built the image, smoke-tested it and then
+# threw it away, so the only route to the registry was someone running
+# `docker push` by hand — which is why the published image sat at frontend
+# 0.25.1 / backend ~0.17 while main moved on to 0.26.0 / 0.20.0. The publish job
+# below closes that gap: it pushes to GHCR using the built-in GITHUB_TOKEN, so no
+# personal registry login and no local Docker are involved.
+#
+# Publishing is deliberate, never incidental: it happens ONLY on a manual
+# workflow_dispatch with publish = true. Pushes to main and pull requests build
+# and smoke-test exactly as before and never touch the registry. The push is also
+# gated behind the smoke test, so a container that does not serve HTTP 200 cannot
+# reach the registry.
 name: docker-image
 
 on:
@@ -20,14 +33,32 @@ on:
       - 'deploy/**'
       - '.github/workflows/docker-image.yaml'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Push the smoke-tested image to GHCR'
+        type: boolean
+        default: true
+      platforms:
+        description: 'Platforms to publish (arm64 builds under QEMU and is slow)'
+        type: string
+        default: 'linux/amd64,linux/arm64'
 
 permissions:
   contents: read
+  packages: write
+
+# One publish at a time, so two dispatches cannot race for the same tags.
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   docker-build:
     runs-on: ubuntu-latest
     name: build & smoke-test deployment image
+    timeout-minutes: 300
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/ngcd-workbench
     steps:
       - name: Checkout frontend
         uses: actions/checkout@v4
@@ -35,6 +66,7 @@ jobs:
       # The image bundles BOTH packages (the frontend drives the backend as a
       # subprocess). The backend lives in a separate, public repo; check it out
       # so we can build its source tarball for the image's BACKEND_TARBALL arg.
+      # No ref is pinned, so this tracks the backend's default branch.
       - name: Checkout backend (nextgenCrossDesignR)
         uses: actions/checkout@v4
         with:
@@ -58,7 +90,14 @@ jobs:
           FE_TARBALL=$(ls nextgenCrossWorkbench_*.tar.gz | head -1)
           echo "BE_TARBALL=$BE_TARBALL" >> "$GITHUB_ENV"
           echo "FE_TARBALL=$FE_TARBALL" >> "$GITHUB_ENV"
+          # Versions are derived from the tarball names, so the image tag can never
+          # disagree with what is actually inside it.
+          BE_VERSION=$(echo "$BE_TARBALL" | sed -E 's/^nextgenCrossDesign_(.+)\.tar\.gz$/\1/')
+          FE_VERSION=$(echo "$FE_TARBALL" | sed -E 's/^nextgenCrossWorkbench_(.+)\.tar\.gz$/\1/')
+          echo "BE_VERSION=$BE_VERSION" >> "$GITHUB_ENV"
+          echo "FE_VERSION=$FE_VERSION" >> "$GITHUB_ENV"
           echo "built backend=$BE_TARBALL frontend=$FE_TARBALL"
+          echo "versions: backend=$BE_VERSION frontend=$FE_VERSION"
 
       # Single-arch (native amd64, no emulation) build loaded into the local
       # docker so the smoke test can run it. This is the step that fails on a
@@ -95,3 +134,71 @@ jobs:
           docker rm -f "$cid" >/dev/null 2>&1 || true
           if [ -z "$ok" ]; then echo "app did not serve HTTP 200"; exit 1; fi
           echo "HTTP 200 OK"
+
+      # ---- publish (manual dispatch only, and only after the smoke test) -------
+
+      # Report what is about to be published BEFORE pushing, so a dispatch that
+      # would ship an unexpected backend is visible in the log rather than only
+      # discoverable afterwards by inspecting the image.
+      - name: Publish plan
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        run: |
+          echo "image     : $IMAGE"
+          echo "tags      : ${FE_VERSION}, latest"
+          echo "frontend  : ${FE_VERSION}"
+          echo "backend   : ${BE_VERSION}  (bundled; the frontend's minimum is inst/BACKEND_VERSION)"
+          echo "platforms : ${{ inputs.platforms }}"
+
+      # arm64 is emulated via QEMU; it is correct but slow for an image that
+      # compiles the backend's C++ kernel. Drop it from `platforms` for a fast
+      # amd64-only publish.
+      - name: Set up QEMU
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Multi-arch images cannot be --load-ed, so this rebuilds under buildx and
+      # pushes directly. The smoke test above has already gated it on the native
+      # arch. Both bundled versions are recorded as labels, so `docker inspect`
+      # answers "what backend is actually in this image?" without guesswork --
+      # the question that let the published image drift several versions behind.
+      - name: Build and push to GHCR
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: ${{ inputs.platforms }}
+          push: true
+          provenance: false
+          build-args: |
+            BACKEND_TARBALL=${{ env.BE_TARBALL }}
+            FRONTEND_TARBALL=${{ env.FE_TARBALL }}
+          tags: |
+            ${{ env.IMAGE }}:${{ env.FE_VERSION }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.title=NextGenCrossDesign workbench
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.FE_VERSION }}
+            io.ngcd.frontend.version=${{ env.FE_VERSION }}
+            io.ngcd.backend.version=${{ env.BE_VERSION }}
+
+      - name: Published
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        run: |
+          echo "pushed ${IMAGE}:${FE_VERSION} and ${IMAGE}:latest"
+          echo "bundled backend ${BE_VERSION} / frontend ${FE_VERSION}"
+          echo "verify with: docker inspect ${IMAGE}:${FE_VERSION} --format '{{json .Config.Labels}}'"
