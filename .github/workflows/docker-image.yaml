@@ -1,25 +1,23 @@
-# Builds the ShinyProxy deployment image (deploy/Dockerfile) and smoke-tests it,
-# so a broken Dockerfile is caught by CI rather than only by manual local runs.
-# The other workflow (R-CMD-check) exercises the R package but NOT the Docker
-# build, which is where recent breakage lived (e.g. an invalid R CMD INSTALL
-# flag, a vignette that failed to render into the image).
+# Builds the ShinyProxy deployment image (deploy/Dockerfile), smoke-tests it, and can publish
+# it to GHCR.
 #
-# Runs only when the deployment assets or this workflow change — a full image
-# build (apt + CRAN + backend C++ kernel + frontend + vignette render) is
-# minutes-expensive, and the package itself is already gated by R-CMD-check.
+# WHY THIS IS SPLIT INTO THREE JOBS. The previous single-job version built arm64 under QEMU
+# emulation. That worked, but the image compiles the backend's C++ kernel and the whole CRAN
+# dependency tree, so the emulated half ran for over three hours -- and because buildx pushes
+# the manifest only after every platform finishes, a run that hit the timeout published
+# nothing at all. Both repos are public, so GitHub's native ARM runners (ubuntu-24.04-arm) are
+# available at no cost: each architecture now builds on its own hardware in parallel, and the
+# manifest list is assembled afterwards from the per-platform digests.
 #
-# PUBLISHING. Until now this workflow built the image, smoke-tested it and then
-# threw it away, so the only route to the registry was someone running
-# `docker push` by hand — which is why the published image sat at frontend
-# 0.25.1 / backend ~0.17 while main moved on to 0.26.0 / 0.20.0. The publish job
-# below closes that gap: it pushes to GHCR using the built-in GITHUB_TOKEN, so no
-# personal registry login and no local Docker are involved.
+# Two things this buys beyond speed:
+#   * arm64 is now SMOKE-TESTED. Under QEMU that was too expensive to be worth doing, so the
+#     arm64 image was published having never been run. Now both architectures start the app
+#     and must serve HTTP 200 natively before either is published.
+#   * a failing architecture fails fast, on its own runner, instead of surfacing hours later.
 #
-# Publishing is deliberate, never incidental: it happens ONLY on a manual
-# workflow_dispatch with publish = true. Pushes to main and pull requests build
-# and smoke-test exactly as before and never touch the registry. The push is also
-# gated behind the smoke test, so a container that does not serve HTTP 200 cannot
-# reach the registry.
+# Publishing stays deliberate: it happens ONLY on a manual workflow_dispatch with
+# publish = true. Pushes to main and pull requests build and smoke-test and never touch the
+# registry. The manifest is only assembled if every platform's smoke test passed.
 name: docker-image
 
 on:
@@ -38,35 +36,41 @@ on:
         description: 'Push the smoke-tested image to GHCR'
         type: boolean
         default: true
-      platforms:
-        description: 'Platforms to publish (arm64 builds under QEMU and is slow)'
-        type: string
-        default: 'linux/amd64,linux/arm64'
+      arm64:
+        description: 'Also build/publish linux/arm64 (native runner, no emulation)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   packages: write
 
-# One publish at a time, so two dispatches cannot race for the same tags.
 concurrency:
   group: docker-image-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/ngcd-workbench
+
 jobs:
-  docker-build:
+  # ---------------------------------------------------------------------------
+  # 1. Source tarballs, built once on amd64 and shared with every platform job.
+  #    This keeps R off the ARM runner entirely -- it only needs Docker.
+  # ---------------------------------------------------------------------------
+  tarballs:
     runs-on: ubuntu-latest
-    name: build & smoke-test deployment image
-    timeout-minutes: 300
-    env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/ngcd-workbench
+    name: build source tarballs
+    outputs:
+      be_tarball: ${{ steps.build.outputs.be_tarball }}
+      fe_tarball: ${{ steps.build.outputs.fe_tarball }}
+      be_version: ${{ steps.build.outputs.be_version }}
+      fe_version: ${{ steps.build.outputs.fe_version }}
     steps:
       - name: Checkout frontend
         uses: actions/checkout@v4
 
       # The image bundles BOTH packages (the frontend drives the backend as a
-      # subprocess). The backend lives in a separate, public repo; check it out
-      # so we can build its source tarball for the image's BACKEND_TARBALL arg.
-      # No ref is pinned, so this tracks the backend's default branch.
+      # subprocess). No ref is pinned, so this tracks the backend's default branch.
       - name: Checkout backend (nextgenCrossDesignR)
         uses: actions/checkout@v4
         with:
@@ -78,52 +82,93 @@ jobs:
           r-version: release
           use-public-rspm: true
 
-      # Source tarballs only — vignettes are rendered INSIDE the image
-      # (deploy/Dockerfile has pandoc + knitr), so no host pandoc / deps are
-      # needed here, and R CMD build --no-build-vignettes just packages source.
+      # Source tarballs only -- vignettes are rendered INSIDE the image
+      # (deploy/Dockerfile has pandoc + knitr).
       - name: Build source tarballs
+        id: build
         run: |
           set -euo pipefail
           R CMD build backend-src --no-build-vignettes --no-manual
           R CMD build .           --no-build-vignettes --no-manual
-          BE_TARBALL=$(ls nextgenCrossDesign_*.tar.gz | head -1)
-          FE_TARBALL=$(ls nextgenCrossWorkbench_*.tar.gz | head -1)
-          echo "BE_TARBALL=$BE_TARBALL" >> "$GITHUB_ENV"
-          echo "FE_TARBALL=$FE_TARBALL" >> "$GITHUB_ENV"
-          # Versions are derived from the tarball names, so the image tag can never
-          # disagree with what is actually inside it.
-          BE_VERSION=$(echo "$BE_TARBALL" | sed -E 's/^nextgenCrossDesign_(.+)\.tar\.gz$/\1/')
-          FE_VERSION=$(echo "$FE_TARBALL" | sed -E 's/^nextgenCrossWorkbench_(.+)\.tar\.gz$/\1/')
-          echo "BE_VERSION=$BE_VERSION" >> "$GITHUB_ENV"
-          echo "FE_VERSION=$FE_VERSION" >> "$GITHUB_ENV"
-          echo "built backend=$BE_TARBALL frontend=$FE_TARBALL"
-          echo "versions: backend=$BE_VERSION frontend=$FE_VERSION"
+          BE=$(ls nextgenCrossDesign_*.tar.gz | head -1)
+          FE=$(ls nextgenCrossWorkbench_*.tar.gz | head -1)
+          # Versions come from the tarball names, so an image tag can never disagree
+          # with what is actually inside it.
+          echo "be_tarball=$BE" >> "$GITHUB_OUTPUT"
+          echo "fe_tarball=$FE" >> "$GITHUB_OUTPUT"
+          echo "be_version=$(echo "$BE" | sed -E 's/^nextgenCrossDesign_(.+)\.tar\.gz$/\1/')" >> "$GITHUB_OUTPUT"
+          echo "fe_version=$(echo "$FE" | sed -E 's/^nextgenCrossWorkbench_(.+)\.tar\.gz$/\1/')" >> "$GITHUB_OUTPUT"
+          echo "backend=$BE frontend=$FE"
 
-      # Single-arch (native amd64, no emulation) build loaded into the local
-      # docker so the smoke test can run it. This is the step that fails on a
-      # broken Dockerfile — the whole point of this workflow.
-      - name: Build deployment image
-        run: |
-          set -euo pipefail
-          docker build \
-            -f deploy/Dockerfile \
-            --build-arg BACKEND_TARBALL="$BE_TARBALL" \
-            --build-arg FRONTEND_TARBALL="$FE_TARBALL" \
-            -t ngcd-workbench:ci \
-            --load .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-tarballs
+          path: '*.tar.gz'
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # 2. One job per architecture, each on its OWN native runner, in parallel.
+  #    Every platform is built, started, and required to serve HTTP 200 before
+  #    anything is published.
+  # ---------------------------------------------------------------------------
+  build:
+    needs: tarballs
+    name: ${{ matrix.platform }} build & smoke-test
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout frontend
+        uses: actions/checkout@v4
+        # arm64 is opt-out via the dispatch input; other events always build both.
+        if: matrix.arch == 'amd64' || github.event_name != 'workflow_dispatch' || inputs.arm64
+
+      - uses: actions/download-artifact@v4
+        if: matrix.arch == 'amd64' || github.event_name != 'workflow_dispatch' || inputs.arm64
+        with:
+          name: source-tarballs
+
+      - uses: docker/setup-buildx-action@v3
+        if: matrix.arch == 'amd64' || github.event_name != 'workflow_dispatch' || inputs.arm64
+
+      # Native build loaded locally so the app can actually be started. Under QEMU this
+      # was impractical for arm64, which is why the arm64 image was previously published
+      # having never been run.
+      - name: Build (native, load for smoke test)
+        if: matrix.arch == 'amd64' || github.event_name != 'workflow_dispatch' || inputs.arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: ngcd-workbench:ci-${{ matrix.arch }}
+          build-args: |
+            BACKEND_TARBALL=${{ needs.tarballs.outputs.be_tarball }}
+            FRONTEND_TARBALL=${{ needs.tarballs.outputs.fe_tarball }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
       - name: Smoke-test (vignette bundled + app serves HTTP 200)
+        if: matrix.arch == 'amd64' || github.event_name != 'workflow_dispatch' || inputs.arm64
         run: |
           set -euo pipefail
-          # 1. the rendered user-guide vignette must be present in the container
-          docker run --rm --entrypoint Rscript ngcd-workbench:ci -e '
+          docker run --rm --entrypoint Rscript ngcd-workbench:ci-${{ matrix.arch }} -e '
             v <- vignette(package = "nextgenCrossWorkbench")
             if (nrow(v$results) < 1L) stop("no vignette bundled in the image")
             h <- system.file("doc", "nextgenCrossWorkbench.html", package = "nextgenCrossWorkbench")
             if (!nzchar(h) || !file.exists(h)) stop("rendered vignette HTML missing from inst/doc")
             cat("vignette OK: ", paste(v$results[, "Item"], collapse = ", "), "\n", sep = "")'
-          # 2. the app itself must come up and serve HTTP 200
-          cid=$(docker run -d -p 3838:3838 ngcd-workbench:ci)
+          cid=$(docker run -d -p 3838:3838 ngcd-workbench:ci-${{ matrix.arch }})
           ok=""
           for i in $(seq 1 40); do
             code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3838/ || true)
@@ -132,73 +177,104 @@ jobs:
           done
           echo "--- container logs (tail) ---"; docker logs "$cid" 2>&1 | tail -20 || true
           docker rm -f "$cid" >/dev/null 2>&1 || true
-          if [ -z "$ok" ]; then echo "app did not serve HTTP 200"; exit 1; fi
-          echo "HTTP 200 OK"
-
-      # ---- publish (manual dispatch only, and only after the smoke test) -------
-
-      # Report what is about to be published BEFORE pushing, so a dispatch that
-      # would ship an unexpected backend is visible in the log rather than only
-      # discoverable afterwards by inspecting the image.
-      - name: Publish plan
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
-        run: |
-          echo "image     : $IMAGE"
-          echo "tags      : ${FE_VERSION}, latest"
-          echo "frontend  : ${FE_VERSION}"
-          echo "backend   : ${BE_VERSION}  (bundled; the frontend's minimum is inst/BACKEND_VERSION)"
-          echo "platforms : ${{ inputs.platforms }}"
-
-      # arm64 is emulated via QEMU; it is correct but slow for an image that
-      # compiles the backend's C++ kernel. Drop it from `platforms` for a fast
-      # amd64-only publish.
-      - name: Set up QEMU
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Buildx
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
-        uses: docker/setup-buildx-action@v3
+          if [ -z "$ok" ]; then echo "app did not serve HTTP 200 on ${{ matrix.platform }}"; exit 1; fi
+          echo "HTTP 200 OK on ${{ matrix.platform }}"
 
       - name: Log in to GHCR
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && (matrix.arch == 'amd64' || inputs.arm64)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Multi-arch images cannot be --load-ed, so this rebuilds under buildx and
-      # pushes directly. The smoke test above has already gated it on the native
-      # arch. Both bundled versions are recorded as labels, so `docker inspect`
-      # answers "what backend is actually in this image?" without guesswork --
-      # the question that let the published image drift several versions behind.
-      - name: Build and push to GHCR
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+      # Push the ALREADY-SMOKE-TESTED layers by digest (cached from the build above, so this
+      # is near-instant). Tags are applied later, once every platform has passed.
+      - name: Push by digest
+        id: push
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && (matrix.arch == 'amd64' || inputs.arm64)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
-          platforms: ${{ inputs.platforms }}
-          push: true
-          provenance: false
+          platforms: ${{ matrix.platform }}
           build-args: |
-            BACKEND_TARBALL=${{ env.BE_TARBALL }}
-            FRONTEND_TARBALL=${{ env.FE_TARBALL }}
-          tags: |
-            ${{ env.IMAGE }}:${{ env.FE_VERSION }}
-            ${{ env.IMAGE }}:latest
+            BACKEND_TARBALL=${{ needs.tarballs.outputs.be_tarball }}
+            FRONTEND_TARBALL=${{ needs.tarballs.outputs.fe_tarball }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
           labels: |
             org.opencontainers.image.title=NextGenCrossDesign workbench
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ env.FE_VERSION }}
-            io.ngcd.frontend.version=${{ env.FE_VERSION }}
-            io.ngcd.backend.version=${{ env.BE_VERSION }}
+            org.opencontainers.image.version=${{ needs.tarballs.outputs.fe_version }}
+            io.ngcd.frontend.version=${{ needs.tarballs.outputs.fe_version }}
+            io.ngcd.backend.version=${{ needs.tarballs.outputs.be_version }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
 
-      - name: Published
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+      - name: Export digest
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && (matrix.arch == 'amd64' || inputs.arm64)
         run: |
-          echo "pushed ${IMAGE}:${FE_VERSION} and ${IMAGE}:latest"
-          echo "bundled backend ${BE_VERSION} / frontend ${FE_VERSION}"
-          echo "verify with: docker inspect ${IMAGE}:${FE_VERSION} --format '{{json .Config.Labels}}'"
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${{ matrix.arch }}-${{ steps.push.outputs.digest }}"
+          echo "digest for ${{ matrix.platform }}: ${{ steps.push.outputs.digest }}"
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && (matrix.arch == 'amd64' || inputs.arm64)
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # 3. Assemble the manifest list. Only reached if EVERY platform job succeeded,
+  #    so a tag can never point at an image that failed its smoke test.
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: [tarballs, build]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    name: assemble manifest & tag
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish plan
+        run: |
+          echo "image    : $IMAGE"
+          echo "tags     : ${{ needs.tarballs.outputs.fe_version }}, latest"
+          echo "frontend : ${{ needs.tarballs.outputs.fe_version }}"
+          echo "backend  : ${{ needs.tarballs.outputs.be_version }}"
+          echo "digests  :"; ls -1 /tmp/digests
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          set -euo pipefail
+          # filenames are "<arch>-sha256:...."; strip the arch prefix to recover the digest
+          refs=$(for f in *; do echo -n "${IMAGE}@${f#*-} "; done)
+          echo "assembling: $refs"
+          docker buildx imagetools create \
+            -t "${IMAGE}:${{ needs.tarballs.outputs.fe_version }}" \
+            -t "${IMAGE}:latest" \
+            $refs
+
+      - name: Verify what was published
+        run: |
+          set -euo pipefail
+          echo "--- manifest (architectures) ---"
+          docker buildx imagetools inspect "${IMAGE}:${{ needs.tarballs.outputs.fe_version }}"
+          echo "pushed ${IMAGE}:${{ needs.tarballs.outputs.fe_version }} and ${IMAGE}:latest"
+          echo "bundled backend ${{ needs.tarballs.outputs.be_version }} / frontend ${{ needs.tarballs.outputs.fe_version }}"
