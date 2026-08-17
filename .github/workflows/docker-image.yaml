@@ -211,12 +211,15 @@ jobs:
             io.ngcd.backend.version=${{ needs.tarballs.outputs.be_version }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
 
+      # The digest goes in the file CONTENT, not the filename: a digest is "sha256:<hex>" and
+      # actions/upload-artifact rejects colons in paths (Windows compatibility), which failed
+      # the first publish after both images had already been pushed.
       - name: Export digest
         if: github.event_name == 'workflow_dispatch' && inputs.publish && (matrix.arch == 'amd64' || inputs.arm64)
         run: |
           set -euo pipefail
           mkdir -p /tmp/digests
-          touch "/tmp/digests/${{ matrix.arch }}-${{ steps.push.outputs.digest }}"
+          echo "${{ steps.push.outputs.digest }}" > "/tmp/digests/${{ matrix.arch }}"
           echo "digest for ${{ matrix.platform }}: ${{ steps.push.outputs.digest }}"
 
       - uses: actions/upload-artifact@v4
@@ -263,8 +266,8 @@ jobs:
         working-directory: /tmp/digests
         run: |
           set -euo pipefail
-          # filenames are "<arch>-sha256:...."; strip the arch prefix to recover the digest
-          refs=$(for f in *; do echo -n "${IMAGE}@${f#*-} "; done)
+          # each file is named for its architecture and contains that platform's digest
+          refs=$(for f in *; do echo -n "${IMAGE}@$(cat "$f") "; done)
           echo "assembling: $refs"
           docker buildx imagetools create \
             -t "${IMAGE}:${{ needs.tarballs.outputs.fe_version }}" \
