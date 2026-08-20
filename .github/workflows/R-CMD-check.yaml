@@ -1,19 +1,93 @@
 # Automated checks for the nextgenCrossWorkbench frontend package: R CMD check
-# (which builds/installs the package and runs the tests/testthat suite) on every
-# push to main and every pull request.
+# (which builds/installs the package and runs the tests/testthat suite).
+#
+# COST GATING (added when the repositories moved back to private).
+# Private repositories are billed with platform multipliers -- macOS x10,
+# Linux x1 -- and on this repo's own runs the macOS leg dominates the bill:
+#
+#     macos check    3.8 real x10 = 38.2 billable
+#     ubuntu check   3.2 real x1  =  3.2 billable
+#
+# So macOS is 92% of the cost of this workflow for 54% of the wall time. Two
+# filters, matching the backend:
+#
+#   1. PATH FILTER  - documentation-only changes skip the expensive steps.
+#   2. PLATFORM     - pull requests do the real work on Linux only; macOS does
+#                     its real work on pushes to main and on tags, so
+#                     cross-platform breakage is still caught before a release.
+#
+# The jobs always RUN and always report their status context, with the filters
+# applied to the steps inside, rather than being skipped at job level. A skipped
+# job reports no context at all, which permanently blocks any branch protection
+# that requires that check by name -- the backend hit exactly that (merge refused
+# with 405). This repository has no ruleset today, but the pattern is kept
+# identical so adding one later cannot silently break merges.
+#
+# The docker-image workflow is already cost-gated by its own `paths:` filter
+# (it only builds when deploy/** changes) and publishes only on manual dispatch.
 name: R-CMD-check
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      full:
+        description: 'Force the full platform matrix'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  # Plain git diff rather than a third-party path-filter action: auditable and
+  # with no supply-chain surface.
+  scope:
+    runs-on: ubuntu-latest
+    name: decide scope
+    outputs:
+      code: ${{ steps.decide.outputs.code }}
+      allplat: ${{ steps.decide.outputs.allplat }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: decide
+        run: |
+          set -euo pipefail
+          EVENT="${{ github.event_name }}"
+          FORCE="${{ github.event_name == 'workflow_dispatch' && inputs.full }}"
+          if [ "$EVENT" = "pull_request" ]; then
+            FILES=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          elif [ "$EVENT" = "push" ] && [ -n "${{ github.event.before }}" ] && \
+               git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null; then
+            FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
+          else
+            FILES=""
+          fi
+          if [ -z "$FILES" ]; then
+            CODE=true
+          elif echo "$FILES" | grep -qvE '^(README\.md|NEWS\.md|LICENSE|\.gitignore|man/figures/|docs/|_to_delete/)'; then
+            CODE=true
+          else
+            CODE=false
+          fi
+          [ "$FORCE" = "true" ] && CODE=true
+          if [ "$FORCE" = "true" ] || [ "$EVENT" = "push" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            ALLPLAT=true
+          else
+            ALLPLAT=false
+          fi
+          echo "code=$CODE"       >> "$GITHUB_OUTPUT"
+          echo "allplat=$ALLPLAT" >> "$GITHUB_OUTPUT"
+          echo "event=$EVENT code=$CODE allplat=$ALLPLAT"
+          echo "changed files:"; echo "$FILES" | head -30
+
   check:
+    needs: scope
     runs-on: ${{ matrix.config.os }}
     name: check (${{ matrix.config.os }}, R ${{ matrix.config.r }})
     strategy:
@@ -25,20 +99,29 @@ jobs:
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
+      RUN: ${{ needs.scope.outputs.code == 'true' && (matrix.config.os == 'ubuntu-latest' || needs.scope.outputs.allplat == 'true') }}
     steps:
+      - name: Why this leg is or is not doing work
+        run: echo "code=${{ needs.scope.outputs.code }} allplat=${{ needs.scope.outputs.allplat }} RUN=$RUN"
+        shell: bash
+
       - uses: actions/checkout@v4
+        if: env.RUN == 'true'
 
       - uses: r-lib/actions/setup-r@v2
+        if: env.RUN == 'true'
         with:
           r-version: ${{ matrix.config.r }}
           use-public-rspm: true
 
       - uses: r-lib/actions/setup-r-dependencies@v2
+        if: env.RUN == 'true'
         with:
           extra-packages: any::rcmdcheck
           needs: check
 
       - uses: r-lib/actions/check-r-package@v2
+        if: env.RUN == 'true'
         with:
           upload-snapshots: true
           # The frontend spawns the backend as an external process, so R CMD
