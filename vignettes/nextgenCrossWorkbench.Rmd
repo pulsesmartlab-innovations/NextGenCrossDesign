@@ -55,7 +55,7 @@ The front-end and the backend are installed independently:
 
 ```{r eval = FALSE}
 # 1. the backend engine (performs the computations; a separate R process)
-R CMD INSTALL nextgenCrossDesign_0.18.0.tar.gz
+R CMD INSTALL nextgenCrossDesign_0.22.0.tar.gz
 
 # 2. this front-end (pulls its dependencies from CRAN)
 install.packages("nextgenCrossWorkbench", dependencies = TRUE)

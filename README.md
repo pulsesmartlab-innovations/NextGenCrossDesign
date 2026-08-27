@@ -152,10 +152,10 @@ backend in the same R library.
 ```r
 # 1. the backend (compiles native code — needs Rtools/Xcode/build-essential)
 #    Floor is nextgenCrossDesign >= 0.7.0 (required_backend_version in config.yml).
-remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.18.0")
+remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.22.0")
 
 #    …or from a local source tarball:
-R CMD INSTALL nextgenCrossDesign_0.18.0.tar.gz
+R CMD INSTALL nextgenCrossDesign_0.22.0.tar.gz
 
 # 2. this front-end — from CRAN once published:
 install.packages("nextgenCrossWorkbench", dependencies = TRUE)
@@ -189,7 +189,7 @@ tagged release, refresh it with:
 
 ```r
 Rscript tools/update-backend.R          # installs the version this workbench requires
-Rscript tools/update-backend.R 0.18.0   # or a specific version
+Rscript tools/update-backend.R 0.22.0   # or a specific version
 ```
 
 The script reads `required_backend_version` from `config.template.yml`, installs
@@ -200,7 +200,7 @@ scope (`Sys.setenv(GITHUB_PAT = "ghp_…")`); to skip the token, install from a
 built tarball instead:
 
 ```r
-NGCD_BACKEND_TARBALL=/path/nextgenCrossDesign_0.18.0.tar.gz Rscript tools/update-backend.R
+NGCD_BACKEND_TARBALL=/path/nextgenCrossDesign_0.22.0.tar.gz Rscript tools/update-backend.R
 ```
 
 You rarely need to touch the app for a backend update: the workbench calls the
