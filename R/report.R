@@ -11,6 +11,21 @@
 #   * The gain-diversity frontier is included whenever the run produced one.
 # ===========================================================================
 
+# Per-trait cross-validation reliability, from whichever column carries it.
+# The backend hardcodes marker_effect_reliability to NA at both construction
+# sites in 39_cross_prediction_runner.R; the quantity the figure is about is
+# cv_predictive_r2 (from ng_ridge_cv_predict in 02_effects.R). Prefer that and
+# keep the old column as a fallback in case it is ever populated. One helper so
+# the narrative sentence, the static figure and the plotly figure agree.
+ngcd_reliability_values <- function(es) {
+  if (!is.data.frame(es) || !nrow(es)) return(numeric(0))
+  num <- function(nm) if (nm %in% names(es))
+    suppressWarnings(as.numeric(es[[nm]])) else rep(NA_real_, nrow(es))
+  v <- num("cv_predictive_r2")
+  if (!any(is.finite(v))) v <- num("marker_effect_reliability")
+  v
+}
+
 NGCD_TIER_COL <- c(highly_priority = "#00583d", priority = "#4a9c78",
                    medium_priority = "#e0a800", low_priority = "#c0562f")
 NGCD_TIER_ORD <- c("highly_priority", "priority", "medium_priority", "low_priority")
@@ -106,10 +121,12 @@ ngcd_exec_summary_html <- function(res, figs = NULL) {
 
   rel_txt <- ""
   es <- res$effect_summary
-  if (is.data.frame(es) && "marker_effect_reliability" %in% names(es)) {
-    o <- order(es$marker_effect_reliability, decreasing = TRUE)
-    top <- es$trait[o][1]; topv <- es$marker_effect_reliability[o][1]
-    low <- es$trait[o][length(o)]; lowv <- es$marker_effect_reliability[o][length(o)]
+  rel <- ngcd_reliability_values(es)
+  if (any(is.finite(rel))) {
+    keep <- is.finite(rel); es <- es[keep, , drop = FALSE]; rel <- rel[keep]
+    o <- order(rel, decreasing = TRUE)
+    top <- es$trait[o][1]; topv <- rel[o][1]
+    low <- es$trait[o][length(o)]; lowv <- rel[o][length(o)]
     lowcap <- if (is.finite(lowv) && lowv < 0.2) sprintf(" Interpret %s cautiously (low model reliability, %.2f).", low, lowv) else ""
     rel_txt <- sprintf("Marker-effect reliability was highest for <b>%s</b> (%.2f) and lowest for <b>%s</b> (%.2f).%s",
                        top, topv, low, lowv, lowcap)
@@ -167,7 +184,7 @@ ngcd_has_tiers    <- function(res) { sc <- res$selected_crosses; is.data.frame(s
 ngcd_has_scores   <- function(res) { cc <- res$candidate_crosses; is.data.frame(cc) && "multi_trait_score" %in% names(cc) && nrow(cc) > 0 }
 ngcd_has_scatter  <- function(res) { cc <- res$candidate_crosses; is.data.frame(cc) && all(c("multi_trait_score","pair_kinship") %in% names(cc)) && nrow(cc) > 0 }
 ngcd_has_parents  <- function(res) { sc <- res$selected_crosses; is.data.frame(sc) && all(c("parent1","parent2") %in% names(sc)) && nrow(sc) > 0 }
-ngcd_has_reliab   <- function(res) { es <- res$effect_summary; is.data.frame(es) && "marker_effect_reliability" %in% names(es) && nrow(es) > 0 }
+ngcd_has_reliab   <- function(res) { es <- res$effect_summary; is.data.frame(es) && nrow(es) > 0 && "trait" %in% names(es) && any(is.finite(ngcd_reliability_values(es))) }
 ngcd_has_traitmap <- function(res) { sc <- res$selected_crosses; is.data.frame(sc) && length(grep("_value$", names(sc))) > 0 && nrow(sc) > 0 }
 ngcd_has_frontier <- function(res) { fr <- res$plan_summary$frontier; is.data.frame(fr) && nrow(fr) > 1 }
 ngcd_sweep_curve <- function(res) {
@@ -212,11 +229,16 @@ ngcd_fig_parent_use <- function(res) {
 }
 ngcd_fig_reliability <- function(res) {
   es <- res$effect_summary
-  o <- order(es$marker_effect_reliability)
+  rel <- ngcd_reliability_values(es)
+  keep <- is.finite(rel); es <- es[keep, , drop = FALSE]; rel <- rel[keep]
+  o <- order(rel)
   dir <- if ("direction" %in% names(es)) es$direction[o] else rep("maximize", nrow(es))
   col <- ifelse(grepl("max|incr", tolower(dir)), "#00583d", "#c0562f")
   par(mar = c(4, 8, 3, 1))
-  barplot(es$marker_effect_reliability[o], names.arg = es$trait[o], horiz = TRUE, las = 1,
+  # Predictive R2 goes negative when a trait predicts worse than its own mean;
+  # let the axis show that rather than clipping the bar away.
+  barplot(rel[o], names.arg = es$trait[o], horiz = TRUE, las = 1,
+          xlim = c(min(0, min(rel)), max(1, max(rel))),
           col = col, border = NA, xlab = "Cross-validation reliability", main = "Trait model reliability")
 }
 ngcd_fig_scatter <- function(res) {
@@ -307,6 +329,15 @@ ngcd_ply_score_dist <- function(res) {
 }
 # Per-cross hover text tying a selected cross to its real parent values: the
 # multi-trait score plus each trait's mid-parent GEBV (<trait>_mean_gebv).
+# Stable per-cross key used by the linked-selection layer. Empty vector when the
+# frame has no parent columns, so a figure without them simply does not link.
+# NULL (not character(0)) when the ids cannot be built: plotly drops a NULL
+# attribute, whereas a zero-length one fails to recycle against x/y and errors.
+ngcd_cross_ids <- function(df) {
+  if (!is.data.frame(df) || !nrow(df) || !all(c("parent1", "parent2") %in% names(df)))
+    return(NULL)
+  paste(df$parent1, df$parent2, sep = NGCD_LINK_SEP)
+}
 ngcd_cross_hover <- function(df, gebv_cols) {
   txt <- paste0(df$parent1, " x ", df$parent2)
   if ("multi_trait_score" %in% names(df))
@@ -322,11 +353,16 @@ ngcd_ply_scatter <- function(res) {
   cc <- res$candidate_crosses; sc <- res$selected_crosses
   gebv_cols <- if (is.data.frame(sc)) grep("_mean_gebv$", names(sc), value = TRUE) else character(0)
   p <- plotly::plot_ly()
+  # customdata carries the cross id (parent1 US parent2) on every point; the
+  # linked-selection layer in report_link.R reads its keys straight off the
+  # figure rather than re-deriving this point order.
   p <- plotly::add_trace(p, x = cc$pair_kinship, y = cc$multi_trait_score, type = "scattergl", mode = "markers",
+    customdata = ngcd_cross_ids(cc),
     marker = list(color = "rgba(154,165,160,0.35)", size = 4), name = "candidates", hoverinfo = "none")
   if (is.data.frame(sc) && "priority_tier" %in% names(sc)) for (t in NGCD_TIER_ORD) {
     s <- sc[sc$priority_tier == t, , drop = FALSE]; if (!nrow(s)) next
     p <- plotly::add_trace(p, x = s$pair_kinship, y = s$multi_trait_score, type = "scatter", mode = "markers",
+      customdata = ngcd_cross_ids(s),
       marker = list(color = unname(NGCD_TIER_COL[t]), size = 9), name = gsub("_"," ",t),
       text = ngcd_cross_hover(s, gebv_cols), hoverinfo = "text")
   }
@@ -380,11 +416,14 @@ ngcd_ply_parent_use <- function(res) {
 }
 ngcd_ply_reliability <- function(res) {
   es <- res$effect_summary
-  o <- order(es$marker_effect_reliability); dir <- if ("direction" %in% names(es)) es$direction[o] else "maximize"
+  rel <- ngcd_reliability_values(es)
+  keep <- is.finite(rel); es <- es[keep, , drop = FALSE]; rel <- rel[keep]
+  o <- order(rel); dir <- if ("direction" %in% names(es)) es$direction[o] else "maximize"
   col <- ifelse(grepl("max|incr", tolower(dir)), "#00583d", "#c0562f")
-  plotly::layout(plotly::plot_ly(y = es$trait[o], x = es$marker_effect_reliability[o], type = "bar", orientation = "h",
+  plotly::layout(plotly::plot_ly(y = es$trait[o], x = rel[o], type = "bar", orientation = "h",
     marker = list(color = col), hoverinfo = "x+y"),
-    title = "Trait model reliability", xaxis = list(title = "Reliability"),
+    title = "Trait model reliability",
+    xaxis = list(title = "Cross-validation reliability", range = c(min(0, min(rel)), max(1, max(rel)))),
     yaxis = list(title = "", categoryorder = "array", categoryarray = es$trait[o]))
 }
 ngcd_ply_trait_heatmap <- function(res) {
@@ -644,10 +683,21 @@ ngcd_report_html <- function(res, path) {
       j <- tryCatch(ngcd_fig_json(f$ply(res)), error = function(e) NULL)
       if (!is.null(j)) {
         divid <- paste0("plot_", f$id)
-        body <- sprintf("<div class='ngcd-plot' id='%s'></div>", divid)
+        linked <- f$id %in% names(NGCD_LINK_FIGS)
+        # Keep the lasso/box tools only on the figures that can actually emit a
+        # selection event; offering them on a heatmap would look functional and
+        # silently do nothing.
+        rm_tools <- if (f$id %in% NGCD_LINK_BRUSHABLE) "[]" else "['lasso2d','select2d']"
+        hint <- if (linked)
+          sprintf("<p class='ngcd-linkhint'>%s</p>",
+                  if (f$id %in% NGCD_LINK_BRUSHABLE)
+                    "Linked figure - box/lasso select or click to highlight the same crosses and parent lines in the other figures."
+                  else
+                    "Linked figure - click a cell to highlight the same crosses and parent lines in the other figures.") else ""
+        body <- sprintf("%s<div class='ngcd-plot' id='%s'></div>", hint, divid)
         scripts <- c(scripts, sprintf(
-          "Plotly.newPlot('%s', %s.data, %s.layout, {responsive:true, displaylogo:false, modeBarButtonsToRemove:['lasso2d','select2d']});",
-          divid, j, j))
+          "NGCD_PLOTS.push(Plotly.newPlot('%s', %s.data, %s.layout, {responsive:true, displaylogo:false, modeBarButtonsToRemove:%s}));",
+          divid, j, j, rm_tools))
       }
     }
     if (!nzchar(body)) {  # fallback: static PNG
@@ -663,9 +713,20 @@ ngcd_report_html <- function(res, path) {
       f$id, f$title, f$desc, body))
   }
 
+  # Linked selection across the cross-space and line-space figures. Only wired
+  # for figures actually present in this run, and only once every newPlot has
+  # resolved (plotly attaches its event emitter to the div at that point).
+  link_ids <- NGCD_LINK_FIGS[intersect(vapply(figs, function(f) f$id, character(1)),
+                                       names(NGCD_LINK_FIGS))]
+  link_js <- if (interactive && length(link_ids) > 1L)
+    paste0("window.NGCD_LINK = ", ngcd_link_model(res, link_ids), ";\n",
+           "Promise.all(NGCD_PLOTS).then(function(){", ngcd_link_js(), "});") else ""
+  link_bar <- if (nzchar(link_js)) ngcd_link_toolbar_html() else ""
+
   render_js <- if (interactive)
-    paste0("<script type='text/javascript'>document.addEventListener('DOMContentLoaded',function(){",
-           paste(scripts, collapse = "\n"), "});</script>") else ""
+    paste0("<script type='text/javascript'>var NGCD_PLOTS=[];",
+           "document.addEventListener('DOMContentLoaded',function(){",
+           paste(scripts, collapse = "\n"), "\n", link_js, "});</script>") else ""
 
   head_html <- paste0(
     "<!DOCTYPE html><html><head><meta charset='utf-8'>",
@@ -685,6 +746,7 @@ ngcd_report_html <- function(res, path) {
     ".ngcd-plot{width:100%;height:440px}img{max-width:100%;border:1px solid #d7ded9;border-radius:6px}",
     ".top{font-size:12px;margin-top:6px}.top a{color:#5c6b64;text-decoration:none}",
     ".foot{color:#5c6b64;font-size:12px;border-top:1px solid #d7ded9;margin-top:30px;padding-top:10px}",
+    ngcd_link_css(),
     "</style>")
   body_html <- paste0(
     "</head><body><a id='top'></a>",
@@ -698,6 +760,9 @@ ngcd_report_html <- function(res, path) {
     "<h2>Figures</h2>",
     if (!interactive) "<p class='cap'>Static figures shown (install the R package <b>plotly</b> for interactive, zoomable charts).</p>" else
       "<p class='cap'>Charts are interactive: hover for values, drag to zoom, double-click to reset.</p>",
+    if (nzchar(link_bar))
+      "<p class='cap'>Figures marked <i>linked</i> share one selection: highlight crosses and their parent lines light up too, and vice versa. Double-click a chart, or use Clear selection, to reset.</p>" else "",
+    link_bar,
     paste(secs, collapse = "\n"),
     "<div class='foot'>Generated ", format(Sys.time(), "%Y-%m-%d %H:%M"),
     " &middot; nextgenCrossDesign backend v", res$package_version %||% "?",
