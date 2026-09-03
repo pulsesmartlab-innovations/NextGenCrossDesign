@@ -30,6 +30,11 @@ line and encode `p_beat_check` as marker opacity.
 - Every config key must invalidate a stage or `tests/testthat/test-pipeline-state.R:262`
   reports it as orphaned.
 - Removed backend parameters — do not send them: `check_basis`, `exclude_threshold_violators`.
+- **`check_progeny_size` has no default and must come from the user.** The backend hard-errors
+  if `trait_checks` is supplied without it, because progeny per family scales P(beat check)
+  directly — a default would report a probability computed from a number nobody chose. The UI
+  must therefore collect it (Task 3) and block the run with a clear message rather than
+  substituting a value.
 - Run one test file with
   `Rscript -e 'devtools::load_all("."); testthat::test_file("tests/testthat/test-<name>.R")'`.
 
@@ -298,6 +303,28 @@ and the helpText below the panel header:
 Delete the `exclude_threshold_violators` checkbox, the `check_basis` select, and every
 `basis_<trait>` input.
 
+Add the progeny-size input immediately above the pickers — it has no default value, so the
+breeder must type their own number:
+
+```r
+        shiny::numericInput("check_progeny_size",
+          "Progeny per family you will raise", value = NA, min = 1, step = 10),
+        shiny::div(class = "help-hint",
+          "Used only for the ", shiny::tags$b("P(beat check)"), " column: the chance a cross ",
+          "throws at least one line past the check. There is no default — the number has to be ",
+          "yours, because raising 50 progeny and raising 500 give different answers."),
+```
+
+and gate the run on it in the same place the other required-input validations live:
+
+```r
+      if (!is.null(trait_checks_df)) {
+        shiny::validate(shiny::need(
+          isTRUE(is.finite(input$check_progeny_size)) && input$check_progeny_size >= 1,
+          "Enter the progeny per family before running with check lines."))
+      }
+```
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `Rscript -e 'devtools::load_all("."); testthat::test_file("tests/testthat/test-trait-checks.R")'`
@@ -337,6 +364,8 @@ test_that("check args are forwarded and the removed parameters never are", {
   expect_equal(rownames(out$check_geno), "CHK_A")
   expect_null(out$check_basis)
   expect_null(out$exclude_threshold_violators)
+  # progeny size is passed straight through, never defaulted on the way
+  expect_equal(ngcd_coerce_backend_args(c(args, list(check_progeny_size = 250)))$check_progeny_size, 250)
 })
 ```
 
@@ -365,7 +394,8 @@ In `inst/app/tools/run_cross_prediction_json.R`, beside the existing `trait_chec
   args_in$exclude_threshold_violators <- NULL
 ```
 
-In `R/app.R`, add `check_geno = rv$data$check_geno` to the backend args next to `trait_checks`,
+In `R/app.R`, add `check_geno = rv$data$check_geno` and
+`check_progeny_size = input$check_progeny_size` to the backend args next to `trait_checks`,
 and delete the `check_basis` / `exclude_threshold_violators` entries.
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -713,6 +743,7 @@ Expected diff and nothing else:
 
 ```
 > check_id_col
+> check_progeny_size
 > f_check
 < check_basis
 < exclude_threshold_violators
