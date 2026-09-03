@@ -30,6 +30,7 @@ Developed at North Dakota State University (PulseSmartLab).
 - [Run](#run)
 - [Guided walkthrough (with screenshots)](#guided-walkthrough)
 - [Modelling graphics](#modelling-graphics)
+- [Explore: linked figures](#explore-linked-figures)
 - [Diagnostics & tuning](#diagnostics--tuning)
 - [The interactive report](#the-interactive-report)
 - [Polyploid / clonal design workflow](#polyploid--clonal-design-workflow)
@@ -55,6 +56,12 @@ explanation: the score distribution, a per-trait ridgeline, score × confidence
 coloured by risk, score vs diversity, and per-trait cross-validation reliability:
 
 ![Modelling graphics](man/figures/demo-modelling-graphics.gif)
+
+**Explore — one selection across four figures** — click a cross, a parent, or a
+heatmap cell in any of the four linked figures; the other three dim to the same
+selection and the tables below filter to it:
+
+![Linked selection in Explore](man/figures/demo-explore-linked.gif)
 
 ---
 
@@ -345,7 +352,8 @@ out-of-process; errors are surfaced with plain-language hints.
 
 A KPI row (crosses, mean gain, group coancestry, unique parents, max parent use,
 mean progeny inbreeding) sits above sub-tabs for the ranked plan, candidate
-scores, the **Modelling graphics** (below), parent use, family sizes, the
+scores, the **Modelling graphics** and the linked **Explore** view (both below),
+parent use, family sizes, the
 **Portfolio & risk** view, the gain-diversity frontier, the Pareto explorer, QC
 audit, input matching, marker effects, and method/settings provenance — plus the
 self-contained interactive report.
@@ -372,14 +380,60 @@ figures. All five are empty-safe before a run:
 4. **Score vs diversity (kinship)** — every candidate by score against pairwise
    kinship, with the selected plan highlighted, so the gain–diversity trade-off is
    visible at the cross level.
-5. **Trait-model reliability (cross-validation)** — a per-trait bar of
-   marker-effect reliability, coloured by selection direction, showing which
-   traits the model predicts most dependably.
+5. **Trait-model reliability (cross-validation)** — a per-trait bar of the
+   model's **cross-validated predictive R²**, coloured by selection direction,
+   showing which traits the model predicts most dependably. The scale is an R²,
+   so it goes negative when a trait is predicted worse than its own mean — the
+   clearest signal that a trait is adding noise rather than information.
 
 The charts share a colourblind-safe NDSU palette and are hover-, zoom- and
 pan-able. They read the result schema directly (`candidate_crosses` /
 `selected_crosses` and `effect_summary`), so they always reflect the exact run on
 screen.
+
+---
+
+## Explore: linked figures
+
+The **Explore (linked)** sub-tab puts four figures on one screen and gives them a
+single shared selection, so a question asked in one is answered in the others.
+
+![Explore — four linked figures](man/figures/guided-09-explore.png)
+
+The four are not in the same unit of analysis, which is the point:
+
+| Figure | One mark is | Gesture |
+|--------|-------------|---------|
+| Score vs diversity (kinship) | a **cross** | click, or Box / Lasso from the chart toolbar |
+| Parent use in plan | a **parent line** | click, or Box / Lasso |
+| Selected crosses by trait rank | a **cross** (one row) | click any cell |
+| Putative duplicate similarity | a **parent line** (row/column) | click any cell |
+
+So linking is a translation between the two, in both directions:
+
+- pick **crosses** → those crosses stay lit, and so do the lines that parent them;
+- pick **lines** → those lines stay lit, and so do the **plan** crosses that use
+  them. Deliberately the plan and not every scored candidate: a commonly-used
+  parent otherwise lights up most of the scatter, which is correct and unreadable.
+
+Three rules keep it predictable:
+
+1. **Selection always dims what is not selected** — the same visual language in
+   every figure, never a highlight box in one and dimming in another.
+2. **Three states are visibly distinct**: nothing selected (nothing dimmed);
+   selected and matched here (the rest dimmed); selected but **nothing here
+   matches** (everything dimmed). The third case matters — clicking a
+   candidate-only cross leaves the plan-only figures with no match, and showing
+   them undimmed would read as "the click did nothing".
+3. **One clearing gesture** — the **Clear** button in the selection bar.
+   Double-click keeps its usual plotly meaning of resetting zoom.
+
+The tables underneath (selected crosses, candidates, parent use) filter to the
+current selection, and the selection is session-only: it always starts empty and
+a new run clears it.
+
+Highlighting is applied in the browser rather than re-rendered from R, so it is
+immediate and cannot fall out of step with what you clicked.
 
 ---
 
@@ -450,6 +504,7 @@ entry point and its optimization, robustness, and polyploid routines:
 | Cross filters | per-trait check-line veto (GEBV/phenotype basis, flag or exclude); lethal-allele guarding; marker-target steering |
 | Decision support | single-trait portfolio & risk profile (level × upside × estimation risk); `constraint_diagnostics` / `priority_risk_diagnostics` run notes |
 | Modelling graphics | score distribution, per-trait ridgeline, score × confidence by risk, score vs diversity (kinship), per-trait cross-validation reliability |
+| Explore (linked) | one selection shared across score-vs-kinship, parent use, trait-rank and duplicate-similarity figures, in both the cross and parent-line spaces; click or Box/Lasso; filters the result tables |
 | Breeding system | DH / RIL (infinite or finite selfing); Haldane/Kosambi; VanRaden/Yang GRM |
 | Allocation | OCS / greedy / evolutionary / MIP / AlphaMate-style; parent-use, kinship, quota constraints; unified mate-relatedness control |
 | Cross number | fixed, or automatic sweep with elbow / kneedle / Ne-floor / coancestry-budget selection |

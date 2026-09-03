@@ -247,10 +247,22 @@ ngcd_chart_cross_diversity <- function(cc, sc = NULL) {
 # 5. Trait-model reliability: per-trait cross-validation reliability (bar).
 #    Reads effect_summary (trait, marker_effect_reliability, [direction]).
 ngcd_chart_trait_reliability <- function(es) {
-  if (!is.data.frame(es) || !nrow(es) || !all(c("trait", "marker_effect_reliability") %in% names(es)))
+  if (!is.data.frame(es) || !nrow(es) || !"trait" %in% names(es))
     return(ngcd_chart_empty("No trait reliability yet"))
   pal <- ngcd_chart_palette()
-  rel <- suppressWarnings(as.numeric(es$marker_effect_reliability))
+  # The backend hardcodes marker_effect_reliability to NA at both construction
+  # sites in 39_cross_prediction_runner.R; the value the figure is about lives
+  # in cv_predictive_r2 (computed by ng_ridge_cv_predict in 02_effects.R).
+  # Prefer that, and keep the old column as a fallback in case it is ever filled.
+  num <- function(nm) if (nm %in% names(es)) suppressWarnings(as.numeric(es[[nm]])) else rep(NA_real_, nrow(es))
+  rel <- num("cv_predictive_r2")
+  if (!any(is.finite(rel))) rel <- num("marker_effect_reliability")
+  # All-NA is the common case when cross-validation did not run. Say so instead
+  # of drawing empty axes, which reads as a broken figure.
+  if (!any(is.finite(rel)))
+    return(ngcd_chart_empty("No cross-validation reliability in this run"))
+  keep <- is.finite(rel)
+  es <- es[keep, , drop = FALSE]; rel <- rel[keep]
   o <- order(rel)
   dir <- if ("direction" %in% names(es)) as.character(es$direction)[o] else rep("maximize", nrow(es))
   col <- ifelse(grepl("max|incr", tolower(dir)), pal$primary, pal$observed)
@@ -258,7 +270,10 @@ ngcd_chart_trait_reliability <- function(es) {
     plotly::plot_ly(y = es$trait[o], x = rel[o], type = "bar", orientation = "h",
       marker = list(color = col),
       text = sprintf("%.2f", rel[o]), textposition = "auto"),
-    xaxis = list(title = "Cross-validation reliability", gridcolor = pal$grid, range = c(0, 1)),
+    # Predictive R2 goes negative when a trait's model predicts worse than the
+    # trait mean - exactly the case a breeder must see - so do not clip at 0.
+    xaxis = list(title = "Cross-validation reliability", gridcolor = pal$grid,
+                 range = c(min(0, min(rel, na.rm = TRUE)), 1)),
     yaxis = list(title = "", categoryorder = "array", categoryarray = es$trait[o]))
 }
 

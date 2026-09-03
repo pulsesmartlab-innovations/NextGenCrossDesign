@@ -632,6 +632,7 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           bslib::nav_panel("Modelling graphics",
             ngcd_mg_css(),
             shiny::uiOutput("mg_guided")),
+          bslib::nav_panel("Explore (linked)", ngcd_explore_ui()),
           bslib::nav_panel("Portfolio & risk", plotly::plotlyOutput("res_portfolio", height = "520px")),
           bslib::nav_panel("Parent use", DT::DTOutput("res_parentuse")),
           bslib::nav_panel("Family sizes", shiny::uiOutput("res_family_ui")),
@@ -1054,8 +1055,14 @@ workbench_server <- function(cfg) {
           imp_sel("subgenome_col", "Subgenome (per marker)", names(m), c("Subgenome","subgenome","genome","sg")),
         shiny::selectInput("pos_unit", "Position unit",
           c("auto (detect)" = "auto", "bp" = "bp", "cM" = "cM", "Morgans (M)" = "M"), selected = "auto"),
-        shiny::conditionalPanel("input.pos_unit == 'bp'",
-          shiny::numericInput("bp_per_cm", "bp per cM (to derive cM)", 1e6, min = 1)),
+        # 'auto' can resolve to bp (resolve_map() below), so this must carry the
+        # same condition as the bp position-column panel underneath it. With
+        # 'bp' alone the widget never renders on the default 'auto' setting,
+        # input$bp_per_cm stays NULL, and the backend refuses the run with
+        # "bp_per_cm must be supplied explicitly when map_position_unit = 'bp'".
+        shiny::conditionalPanel("input.pos_unit == 'bp' || input.pos_unit == 'auto'",
+          shiny::numericInput("bp_per_cm", "bp per cM (to derive cM)",
+                              NGCD_BP_PER_CM_DEFAULT, min = 1)),
         shiny::conditionalPanel("input.pos_unit == 'bp' || input.pos_unit == 'auto'",
           imp_sel("map_pos_bp_col", "Position (bp / auto)", names(m), c("Position_BP","pos","position","bp"))),
         shiny::conditionalPanel("input.pos_unit == 'cM' || input.pos_unit == 'M'",
@@ -1182,14 +1189,21 @@ workbench_server <- function(cfg) {
       colvals <- function(col) if (!is.null(col) && col %in% mapcols)
         suppressWarnings(as.numeric(mapdf[[col]])) else numeric(0)
 
+      # The backend refuses bp positions without an explicit bp_per_cm, so this
+      # must never hand it a NULL. input$bp_per_cm is NULL until Shiny has
+      # registered the widget (it lives in a conditionalPanel), so fall back to
+      # the same default the numericInput advertises -- otherwise the UI shows a
+      # value it never actually sends and every bp map dies in the runner.
+      bp_ratio <- function() num_or_null(input$bp_per_cm) %||% NGCD_BP_PER_CM_DEFAULT
+
       if (pu == "auto") {
         vals <- colvals(bpcol)
         med  <- if (length(vals)) suppressWarnings(stats::median(vals[is.finite(vals)], na.rm = TRUE)) else NA_real_
         if (is.finite(med) && med > 10000)
-          return(list(map_position_unit = "bp", map_pos_bp_col = bpcol, bp_per_cm = num_or_null(input$bp_per_cm)))
+          return(list(map_position_unit = "bp", map_pos_bp_col = bpcol, bp_per_cm = bp_ratio()))
         return(list(map_position_unit = "cM", map_pos_cm_col = bpcol %||% cmcol, map_pos_cm_divisor = 1))
       }
-      if (pu == "bp") return(list(map_position_unit = "bp", map_pos_bp_col = bpcol, bp_per_cm = num_or_null(input$bp_per_cm)))
+      if (pu == "bp") return(list(map_position_unit = "bp", map_pos_bp_col = bpcol, bp_per_cm = bp_ratio()))
       if (pu == "M")  return(list(map_position_unit = "cM", map_pos_cm_col = cmcol, map_pos_cm_divisor = 0.01))
       list(map_position_unit = "cM", map_pos_cm_col = cmcol, map_pos_cm_divisor = 1)  # cM
     }
@@ -2185,6 +2199,9 @@ workbench_server <- function(cfg) {
       ngcd_chart_cross_diversity(r$candidate_crosses, r$selected_crosses) })
     output$mg_reliab <- plotly::renderPlotly({ r <- res(); shiny::req(r)
       ngcd_chart_trait_reliability(r$effect_summary) })
+    # Results > Explore: four figures sharing one selection (see ui_explore.R).
+    ngcd_explore_server(input, output, session, res)
+
     output$res_portfolio <- plotly::renderPlotly({
       r <- res(); shiny::req(r)
       p <- ngcd_portfolio_plotly(r)

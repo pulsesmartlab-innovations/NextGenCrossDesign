@@ -7,6 +7,13 @@
 
 PKG <- "nextgenCrossWorkbench"
 
+# Fallback bp:cM ratio used when the map is in base pairs and the user has not
+# set one. Defined once so the numericInput's displayed default and
+# resolve_map()'s fallback cannot drift apart. This is a rough genome-wide
+# average, NOT a species-specific value -- it scales every recombination-aware
+# progeny variance, so a run that relies on it is reported as an assumption.
+NGCD_BP_PER_CM_DEFAULT <- 1e6
+
 `%||%` <- function(a, b) {
   if (is.null(a) || length(a) == 0L || (is.character(a) && !nzchar(a[1]))) b else a
 }
