@@ -510,7 +510,9 @@ git commit -m "feat(diagnostics): check run notes report the reference instead o
 **Interfaces:**
 - Consumes: `res$trait_check_reference`.
 - Produces: `ngcd_check_line(res, trait = NULL)` → single numeric or `NA_real_`;
-  `ngcd_chart_mean_vs_diversity(df, check_line = NULL, check_label = NULL)` → plotly widget
+  `ngcd_chart_mean_vs_diversity(df, check_line = NULL, check_label = NULL, mean_axis = NULL)`
+  → plotly widget. **`mean_axis` has no guessing default**: `"y"` draws a horizontal line,
+  `"x"` a vertical one, `NULL` draws none.
   carrying a horizontal reference shape and marker opacity from `p_beat_check`.
 
 - [ ] **Step 1: Write the failing test**
@@ -537,12 +539,23 @@ test_that("check line resolves for single trait and declines for a rank index", 
 test_that("the scatter carries a reference shape when a check line is given", {
   df <- data.frame(pair_kinship = c(0.1, 0.2), multi_trait_score = c(9, 4),
                    p_beat_check = c(0.98, 0.71), stringsAsFactors = FALSE)
-  p <- ngcd_chart_mean_vs_diversity(df, check_line = 6, check_label = "CHK_A")
+  # mean on y -> HORIZONTAL line spanning x
+  p <- ngcd_chart_mean_vs_diversity(df, check_line = 6, check_label = "CHK_A", mean_axis = "y")
   expect_s3_class(p, "plotly")
-  shapes <- p$x$layout$shapes
-  expect_true(length(shapes) >= 1L)
-  expect_equal(shapes[[1]]$y0, 6)
-  expect_equal(shapes[[1]]$y1, 6)
+  sh <- p$x$layout$shapes
+  expect_true(length(sh) >= 1L)
+  expect_equal(sh[[1]]$y0, 6); expect_equal(sh[[1]]$y1, 6)
+  expect_equal(sh[[1]]$xref, "paper")
+
+  # mean on x (diversity-vs-mean scatter) -> VERTICAL line spanning y
+  pv <- ngcd_chart_mean_vs_diversity(df, check_line = 6, check_label = "CHK_A", mean_axis = "x")
+  shv <- pv$x$layout$shapes
+  expect_equal(shv[[1]]$x0, 6); expect_equal(shv[[1]]$x1, 6)
+  expect_equal(shv[[1]]$yref, "paper")
+
+  # no mean-bearing axis -> NO line at all
+  pn <- ngcd_chart_mean_vs_diversity(df, check_line = 6, check_label = "CHK_A", mean_axis = NULL)
+  expect_true(is.null(pn$x$layout$shapes) || length(pn$x$layout$shapes) == 0L)
 })
 ```
 
@@ -605,15 +618,29 @@ ngcd_chart_mean_vs_diversity <- function(df, check_line = NULL, check_label = NU
                                       y_col, df[[y_col]],
                                       if ("p_beat_check" %in% names(df))
                                         sprintf("<br>P(beat check): %.2f", df$p_beat_check) else ""))
-  if (!is.null(check_line) && is.finite(check_line)) {
-    p <- plotly::layout(p, shapes = list(list(
-      type = "line", xref = "paper", x0 = 0, x1 = 1,
-      y0 = check_line, y1 = check_line,
-      line = list(color = "#B00020", width = 2, dash = "dash"))),
-      annotations = list(list(
-        xref = "paper", x = 1, y = check_line, xanchor = "right", yanchor = "bottom",
-        text = sprintf("check: %s", check_label %||% "reference"),
-        showarrow = FALSE, font = list(color = "#B00020", size = 11))))
+  # The check has a value on the MEAN axis and none on the other, so the line is perpendicular
+  # to whichever axis carries the mean. A plot with no mean-bearing axis passes mean_axis = NULL
+  # and gets no line -- a reference on a rank-vs-rank or kinship-vs-kinship plot is meaningless.
+  if (!is.null(check_line) && is.finite(check_line) && !is.null(mean_axis)) {
+    lab <- check_label %||% "reference"
+    stroke <- list(color = "#B00020", width = 2, dash = "dash")
+    shp <- if (identical(mean_axis, "y")) {
+      list(type = "line", xref = "paper", x0 = 0, x1 = 1,
+           y0 = check_line, y1 = check_line, line = stroke)
+    } else {
+      list(type = "line", yref = "paper", y0 = 0, y1 = 1,
+           x0 = check_line, x1 = check_line, line = stroke)
+    }
+    ann <- if (identical(mean_axis, "y")) {
+      list(xref = "paper", x = 1, y = check_line, xanchor = "right", yanchor = "bottom",
+           text = sprintf("check: %s", lab), showarrow = FALSE,
+           font = list(color = "#B00020", size = 11))
+    } else {
+      list(yref = "paper", y = 1, x = check_line, xanchor = "left", yanchor = "top",
+           text = sprintf("check: %s", lab), showarrow = FALSE,
+           font = list(color = "#B00020", size = 11))
+    }
+    p <- plotly::layout(p, shapes = list(shp), annotations = list(ann))
   }
   plotly::layout(p, xaxis = list(title = "Diversity (pair kinship)"),
                  yaxis = list(title = "Predicted mean"))
@@ -621,7 +648,10 @@ ngcd_chart_mean_vs_diversity <- function(df, check_line = NULL, check_label = NU
 ```
 
 Wire it into the results tab: call `ngcd_check_line(res)` and pass the result plus the check id
-into `ngcd_chart_mean_vs_diversity()`. When it is `NA` and checks are configured, render
+into `ngcd_chart_mean_vs_diversity()`, passing `mean_axis = "y"` for the existing mean-on-y
+scatter. A future diversity-on-y / mean-on-x view passes `mean_axis = "x"` and gets a vertical
+line from the same helper with no further change. When the line is `NA` and checks are
+configured, render
 `ngcd_callout(kind = "note", "No single reference line applies to a rank-based index — see the per-trait panel below.")`.
 
 - [ ] **Step 4: Add the per-trait panel for multi-trait runs**
