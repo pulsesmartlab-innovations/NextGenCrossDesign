@@ -30,6 +30,12 @@ line and encode `p_beat_check` as marker opacity.
 - Every config key must invalidate a stage or `tests/testthat/test-pipeline-state.R:262`
   reports it as orphaned.
 - Removed backend parameters — do not send them: `check_basis`, `exclude_threshold_violators`.
+- **Both check inputs are offered; the RUN decides which is consulted.** `check_geno` serves a
+  GEBV mean source, `check_pheno` a phenotypic one. Note the backend currently **requires**
+  `check_geno` whenever `trait_checks` is supplied (it also uses it for the parent-id collision
+  check), so the genotype file is mandatory even on a phenotype-scored run while the phenotype
+  file is what actually produces the value there. If that requirement is relaxed backend-side,
+  loosen the UI validation to match — do not diverge from it unilaterally.
 - **`check_progeny_size` has no default and must come from the user.** The backend hard-errors
   if `trait_checks` is supplied without it, because progeny per family scales P(beat check)
   directly — a default would report a probability computed from a number nobody chose. The UI
@@ -130,8 +136,9 @@ git commit -m "refactor(checks): drop the basis argument from ngcd_build_trait_c
 - Test: `tests/testthat/test-data-import.R`
 
 **Interfaces:**
-- Produces: input ids `f_check` (fileInput) and `check_id_col` (selectInput);
-  `rv$data$check_geno` holding the parsed data frame; `output$check_step` rendering the
+- Produces: input ids `f_check` and `f_check_pheno` (fileInputs) and `check_id_col`
+  (selectInput);
+  `rv$data$check_geno` and `rv$data$check_pheno` holding the parsed data frames; `output$check_step` rendering the
   preview + id-column picker + alignment badge.
 
 - [ ] **Step 1: Write the failing test**
@@ -143,6 +150,7 @@ test_that("the check file is a distinct optional input, separate from the parent
   ui <- ngcd_app_ui()
   html <- as.character(ui)
   expect_true(grepl("f_check", html, fixed = TRUE))
+  expect_true(grepl("f_check_pheno", html, fixed = TRUE))
   expect_true(grepl("imp-check", html, fixed = TRUE))
   # the card must say plainly that checks are never crossed
   expect_true(grepl("never crossed", html, fixed = TRUE))
@@ -164,19 +172,28 @@ In `R/app.R`, after the trait-direction card (the block ending at :201), insert:
                   bslib::card(bslib::card_header("5 · Check lines (optional)"),
                     shiny::fileInput("f_check", "Check genotype CSV",
                                      accept = c(".csv", ".txt", ".tsv")),
+                    shiny::fileInput("f_check_pheno", "Check phenotype CSV",
+                                     accept = c(".csv", ".txt", ".tsv")),
                     shiny::div(class = "help-hint",
                       "Standard varieties you benchmark against. They are ",
                       shiny::tags$b("never crossed"),
                       " — they appear as a reference line on the results charts and as ",
-                      "reference columns in the workbook. Same markers and coding as the ",
-                      "genotype file."),
+                      "reference columns in the workbook. The genotype file needs the same ",
+                      "markers and coding as your parents; the phenotype file needs the same ",
+                      "trait columns as your phenotype file. ",
+                      shiny::tags$b("Supply both if you have them"),
+                      " — the run decides which it needs, so the check is always measured the ",
+                      "same way as the parents it is compared against. Without the phenotype ",
+                      "file, a run that scores on phenotypes has no value for the check and ",
+                      "reports it as not evaluable."),
                     shiny::uiOutput("check_step")))),
 ```
 
 In the file-reading block at `R/app.R:770`, add the check file alongside the others:
 
 ```r
-      rv$data$check_geno <- rd(input$f_check$datapath)
+      rv$data$check_geno  <- rd(input$f_check$datapath)
+      rv$data$check_pheno <- rd(input$f_check_pheno$datapath)
 ```
 
 Add the step renderer near the other `*_step` outputs:
@@ -394,7 +411,7 @@ In `inst/app/tools/run_cross_prediction_json.R`, beside the existing `trait_chec
   args_in$exclude_threshold_violators <- NULL
 ```
 
-In `R/app.R`, add `check_geno = rv$data$check_geno` and
+In `R/app.R`, add `check_geno = rv$data$check_geno`, `check_pheno = rv$data$check_pheno` and
 `check_progeny_size = input$check_progeny_size` to the backend args next to `trait_checks`,
 and delete the `check_basis` / `exclude_threshold_violators` entries.
 
@@ -775,6 +792,7 @@ Expected diff and nothing else:
 > check_id_col
 > check_progeny_size
 > f_check
+> f_check_pheno
 < check_basis
 < exclude_threshold_violators
 ```
