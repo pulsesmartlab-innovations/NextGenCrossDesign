@@ -166,3 +166,84 @@ test_that("risk/portfolio helpers no-op when columns absent (multi-trait/old bac
   expect_length(ng("ngcd_diag_priority_risk")(list(selected_crosses = data.frame(a = 1))), 0)
   expect_length(ng("ngcd_diag_portfolio")(list(selected_crosses = data.frame(a = 1))), 0)
 })
+
+test_that("check run notes report counts and never mention exclusion", {
+  res <- list(trait_check_reference = list(
+    active = data.frame(trait = c("yield", "matur"), check = c("CHK_A", "CHK_B"),
+                        reject_if = c("below", "above"), stringsAsFactors = FALSE),
+    diagnostics = list(n_wrong_side = list(yield = 3L, matur = 0L),
+                       n_not_evaluable = 0L, n_candidates = 20L)))
+  items <- ngcd_diag_trait_check(res)
+  expect_gte(length(items), 1L)
+  txt <- paste(vapply(items, function(x) paste(unlist(x), collapse = " "), character(1)),
+               collapse = " ")
+  expect_true(grepl("3", txt, fixed = TRUE))
+  expect_false(grepl("exclude", tolower(txt), fixed = TRUE))
+  expect_true(all(vapply(items, function(x) x$severity != "warn", logical(1))))
+})
+
+test_that("no checks configured produces no notes", {
+  expect_equal(length(ngcd_diag_trait_check(list())), 0L)
+})
+
+test_that("no notes are emitted when a reference exists but nothing is wrong side", {
+  res <- list(trait_check_reference = list(
+    active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
+                        stringsAsFactors = FALSE),
+    diagnostics = list(n_wrong_side = list(yield = 0L), n_not_evaluable = 0L,
+                       n_pev_unavailable = 0L, n_candidates = 20L),
+    p_beat_all_checks_note = NULL))
+  expect_length(ngcd_diag_trait_check(res), 0L)
+})
+
+test_that("n_pev_unavailable is surfaced as a warn (same overconfidence bug, confined scope)", {
+  res <- list(trait_check_reference = list(
+    active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
+                        stringsAsFactors = FALSE),
+    diagnostics = list(n_wrong_side = list(yield = 0L), n_not_evaluable = 0L,
+                       n_pev_unavailable = 4L, n_candidates = 20L)))
+  items <- ngcd_diag_trait_check(res)
+  expect_true(length(items) >= 1L)
+  pev_items <- Filter(function(x) grepl("marker-effect uncertainty", x$title), items)
+  expect_length(pev_items, 1L)
+  expect_equal(pev_items[[1]]$severity, "warn")
+  expect_true(grepl("4", pev_items[[1]]$title, fixed = TRUE))
+})
+
+test_that("p_beat_all_checks_note is surfaced when present and skipped when NULL (single-check run)", {
+  base_diag <- list(n_wrong_side = list(yield = 0L), n_not_evaluable = 0L,
+                     n_pev_unavailable = 0L, n_candidates = 20L)
+  spec <- data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
+                      stringsAsFactors = FALSE)
+
+  res_multi <- list(trait_check_reference = list(
+    active = spec, diagnostics = base_diag,
+    p_beat_all_checks_note = "Monte Carlo approximation; N draws = 20000."))
+  items_multi <- ngcd_diag_trait_check(res_multi)
+  joint <- Filter(function(x) grepl("all checks", x$title), items_multi)
+  expect_length(joint, 1L)
+  expect_match(joint[[1]]$detail, "Monte Carlo", fixed = TRUE)
+
+  res_single <- list(trait_check_reference = list(
+    active = spec, diagnostics = base_diag, p_beat_all_checks_note = NULL))
+  items_single <- ngcd_diag_trait_check(res_single)
+  expect_length(Filter(function(x) grepl("all checks", x$title), items_single), 0L)
+})
+
+test_that("no trait_check reports never imply a cross can be excluded", {
+  res <- list(trait_check_reference = list(
+    active = data.frame(trait = c("yield", "matur"), check = c("CHK_A", "CHK_B"),
+                        reject_if = c("below", "above"), stringsAsFactors = FALSE),
+    diagnostics = list(n_wrong_side = list(yield = 3L, matur = 2L),
+                       n_not_evaluable = 1L, n_pev_unavailable = 2L, n_candidates = 20L),
+    p_beat_all_checks_note = "Monte Carlo approximation."))
+  items <- ngcd_diag_trait_check(res)
+  txt <- tolower(paste(vapply(items, function(x) paste(unlist(x), collapse = " "),
+                              character(1)), collapse = " "))
+  expect_false(grepl("exclude", txt, fixed = TRUE))
+  expect_false(grepl("drop", txt, fixed = TRUE))
+  expect_false(grepl("reject", txt, fixed = TRUE))
+  expect_false(grepl("violat", txt, fixed = TRUE))
+  expect_true(grepl("still ranked", txt, fixed = TRUE) || grepl("still selectable", txt, fixed = TRUE)
+              || grepl("reference only", txt, fixed = TRUE))
+})

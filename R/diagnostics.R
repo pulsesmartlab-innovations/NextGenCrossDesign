@@ -394,26 +394,51 @@ ngcd_diag_portfolio <- function(res) {
     msg, "Open the 'Portfolio & risk' tab: x = genetic SD (upside), y = mean (level), colour = risk."))
 }
 
-# -- per-trait check-threshold veto (backend 0.14.0) ------------------------
+# -- trait-check reference lines (backend 0.24.x) ---------------------------
+# A check is a benchmark genotype: reference-only, never crossed, no variance,
+# and it never excludes a cross. These notes report counts against the
+# reference line; they must never imply a cross was, or could be, dropped.
 ngcd_diag_trait_check <- function(res) {
-  d <- res$trait_check_diagnostics
-  if (is.null(d)) return(list())
+  ref <- res$trait_check_reference
+  if (is.null(ref)) return(list())
+  d <- ref$diagnostics %||% list()
+  spec <- if (is.data.frame(ref$active)) ref$active else data.frame()
+  n_tot <- suppressWarnings(as.integer(d$n_candidates %||% NA_integer_))
   out <- list()
-  nf <- suppressWarnings(as.integer(d$n_flagged %||% 0))
-  nx <- suppressWarnings(as.integer(d$n_excluded %||% 0))
-  ne <- suppressWarnings(as.integer(d$n_not_evaluable %||% 0))
-  ntr <- if (is.data.frame(d$active)) nrow(d$active) else 0L
-  if (is.finite(nf) && nf > 0)
-    out <- c(out, list(ngcd_diag_item("trait_check", if (nx > 0) "warn" else "note",
-      sprintf("%d cross(es) fail a per-trait check%s", nf,
-              if (nx > 0) sprintf("; %d excluded from the plan", nx) else " (flagged, kept)"),
-      sprintf("Their mid-parent is on the worse side of your check line for %d trait(s).", ntr),
-      "Turn on 'exclude threshold violators' to drop them, or relax/remove the trait check.")))
-  if (is.finite(ne) && ne > 0)
+  for (k in seq_len(nrow(spec))) {
+    tr <- spec$trait[[k]]
+    nw <- suppressWarnings(as.integer(d$n_wrong_side[[tr]] %||% 0L))
+    if (!is.finite(nw) || nw <= 0L) next
+    side <- if (identical(spec$reject_if[[k]], "below")) "below" else "above"
     out <- c(out, list(ngcd_diag_item("trait_check", "note",
-      sprintf("%d trait-check comparison(s) were not evaluable", ne),
-      "A parent or the check line had no value on the chosen basis (e.g. phenotype missing).",
-      "Use a GEBV basis, or pick a check line/traits that are measured.")))
+      sprintf("%d of %d cross(es) fall %s the %s check for %s", nw, n_tot, side,
+              spec$check[[k]], tr),
+      "Their mid-parent is on the worse side of your check line for this trait.",
+      "Reference only - these crosses are still ranked and can still be selected. Check the P(beat check) column before discarding one.")))
+  }
+  ne <- suppressWarnings(as.integer(d$n_not_evaluable %||% 0L))
+  if (is.finite(ne) && ne > 0L) {
+    out <- c(out, list(ngcd_diag_item("trait_check", "note",
+      sprintf("%d check comparison(s) were not evaluable", ne),
+      "The check line had no value on the source this run used for that trait.",
+      "Give the check a record on that source, or pick a check line that is measured.")))
+  }
+  npev <- suppressWarnings(as.integer(d$n_pev_unavailable %||% 0L))
+  if (is.finite(npev) && npev > 0L) {
+    out <- c(out, list(ngcd_diag_item("trait_check", "warn",
+      sprintf("%d cross(es) had no marker-effect uncertainty available", npev),
+      paste("For these, P(beat check) used within-family variance only, with no posterior",
+            "uncertainty in the marker effects. That makes the probability too confident -",
+            "it reads closer to 0 or 1 than the evidence supports."),
+      "Treat those probabilities as an upper bound on certainty; prefer crosses whose estimate carries full uncertainty.")))
+  }
+  note <- ref$p_beat_all_checks_note
+  if (!is.null(note) && nzchar(as.character(note)[[1L]])) {
+    out <- c(out, list(ngcd_diag_item("trait_check", "note",
+      "P(beat all checks) is a Monte Carlo approximation",
+      as.character(note)[[1L]],
+      "Use it to compare crosses, not as an exact probability. The per-trait P(beat check) columns are closed-form and exact.")))
+  }
   out
 }
 
