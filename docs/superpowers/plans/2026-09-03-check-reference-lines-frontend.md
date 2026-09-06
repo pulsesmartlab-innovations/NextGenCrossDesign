@@ -619,6 +619,14 @@ Test: with a stubbed version below the floor AND a check configured, the run is 
 message names both versions; below the floor with NO check configured, the run proceeds (only the
 existing advisory chip changes); at or above the floor, no refusal either way.
 
+**Also cover Task 3's gate while you are here.** Task 3 added the `check_progeny_size` run gate at
+these same three entry points, and it currently has **no regression test** — a reviewer verified
+it by hand only. Since you are writing gate tests for these exact call sites, cover both gates in
+one pass. The direction that matters most is the negative one: **a run with no check configured
+must NOT be blocked by either gate.** That is the regression this program has already shipped once
+(Task 2 made the optional check file mandatory for every diploid run), so assert it explicitly
+rather than only asserting that the gates fire.
+
 - [ ] **Step 2: `priority_check_weight` control and forwarding**
 
 The backend added `priority_check_weight` (default 0) so a breeder can let failing checks nudge a
