@@ -1,3 +1,32 @@
+# nextgenCrossWorkbench 0.27.0
+
+* **Check lines are references, not filters.** Requires backend nextgenCrossDesign >= 0.24.0
+  (enforced at run time; a version below that reports a mismatch instead of running). Check
+  genotypes are uploaded in their own file (Data > Check lines) and are never crossed, never
+  mated, and never scored themselves -- a check contributes exactly one benchmark value per
+  trait. **A check never excludes a cross.** Crosses on the worse side of a check's line are
+  still ranked, still shown, and still selectable; the point of this release is to stop implying
+  otherwise. The exclude-violators toggle and the per-trait check-basis control are gone: nothing
+  is dropped by a check, and the reference always follows the run's own mean source (GEBV or
+  phenotype) so it sits on the same scale as the axis it is drawn on.
+* **New report figure: per-trait check reference panels.** Each checked trait gets its own facet
+  (mid-parent mean vs. diversity, with that trait's check as a dashed line on its own scale) in
+  Results > Modelling graphics and in the downloadable run report (HTML and PDF). This is
+  deliberately a NEW panel, not a line added to the existing "Selected vs all candidates"
+  scatter or the gain-diversity frontier: both of those plot an aggregate multi-trait score, and
+  a check's value has no honest place on an aggregate axis. A run with no check configured shows
+  no panel and no empty placeholder.
+* Marker opacity on the check panels now carries P(beat check), so a below-check cross with a
+  superior tail is visible instead of looking like a discard.
+* Multi-trait runs additionally get a `p_beat_all_checks` column when more than one trait is
+  checked -- the Monte Carlo-approximated probability that a progeny beats every check at once
+  (the per-trait `p_beat_check` columns remain exact/closed-form). The run report's Diagnostics
+  section explains its cost and its approximation caveat.
+* Known limitation: the check line can, internally, be drawn on either axis (mean on y or on x).
+  Only the horizontal case (mean on y) has a consuming view today -- every check line a breeder
+  sees is horizontal, on these per-trait panels. The vertical orientation is implemented and
+  tested but unused; it is not part of this release's user-facing surface.
+
 # nextgenCrossWorkbench 0.26.0
 
 * **Opt-in guided workbench view.** Set `options(ngcd.wizard = TRUE)` before
