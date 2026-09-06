@@ -421,14 +421,29 @@ ngcd_diag_trait_check <- function(res) {
       "Their mid-parent is on the worse side of your check line for this trait.",
       "Reference only - these crosses are still ranked and can still be selected. Check the P(beat check) column before discarding one.")))
   }
-  ne <- suppressWarnings(as.integer(d$n_not_evaluable %||% 0L))
+  # n_not_evaluable / n_pev_unavailable come back from a real run as a NAMED LIST, one count
+  # per active trait (mirroring n_wrong_side above, see R/51_check_reference.R), not a single
+  # scalar aggregate. Sum across the active traits when given a list; a caller (or a hand-built
+  # fixture, e.g. tests/testthat/test-diagnostics.R) that passes a plain scalar still works
+  # unchanged via the else branch.
+  ng_diag_sum <- function(x, keys) {
+    if (is.list(x)) {
+      vals <- vapply(as.character(keys), function(k) {
+        v <- x[[k]]; if (is.null(v)) 0 else suppressWarnings(as.numeric(v))
+      }, numeric(1))
+      sum(vals, na.rm = TRUE)
+    } else {
+      suppressWarnings(as.numeric(x %||% 0))
+    }
+  }
+  ne <- suppressWarnings(as.integer(ng_diag_sum(d$n_not_evaluable, spec$trait)))
   if (is.finite(ne) && ne > 0L) {
     out <- c(out, list(ngcd_diag_item("trait_check", "note",
       sprintf("%d check comparison(s) were not evaluable", ne),
       "The check line had no value on the source this run used for that trait.",
       "Give the check a record on that source, or pick a check line that is measured.")))
   }
-  npev <- suppressWarnings(as.integer(d$n_pev_unavailable %||% 0L))
+  npev <- suppressWarnings(as.integer(ng_diag_sum(d$n_pev_unavailable, spec$trait)))
   if (is.finite(npev) && npev > 0L) {
     out <- c(out, list(ngcd_diag_item("trait_check", "warn",
       sprintf("%d cross(es) had no marker-effect uncertainty available", npev),
