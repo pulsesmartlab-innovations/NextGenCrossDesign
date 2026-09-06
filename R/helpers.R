@@ -717,6 +717,11 @@ ngcd_stage_key_patterns <- list(
   # Pareto explorer, and crop-aware recommendation stamped onto the FINAL
   # assembled result. Changing one of these therefore invalidates ONLY rank.
   rank = c(
+    # "priority_*_weight" already matches priority_check_weight (Task 5) - the
+    # weight that lets a failing check drop a cross's priority tier, forwarded
+    # as check_weight to the backend's ng_rank_cross_priority() - confirmed by
+    # test-pipeline-state.R's "changing priority_check_weight..." test rather
+    # than adding a redundant explicit entry.
     "priority_breaks", "priority_labels", "priority_*_weight",
     "crop", "cross_number_mode",
     "cross_sweep_k_min", "cross_sweep_k_max", "cross_sweep_k_step",

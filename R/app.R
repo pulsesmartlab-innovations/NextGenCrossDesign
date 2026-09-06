@@ -408,6 +408,11 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
           "throws at least one line past the check. There is no default - the number has to be ",
           "yours, because raising 50 progeny and raising 500 give different answers."),
         shiny::uiOutput("trait_check_pickers"),
+        shiny::numericInput("priority_check_weight",
+          "Priority weight for check failures", value = 0, min = 0, step = 0.05),
+        shiny::div(class = "help-hint",
+          "At 0 (the default) a check is reporting only. Raise it to let a cross that fails ",
+          "its check(s) drop a priority tier - it is never excluded outright."),
         bslib::accordion(open = FALSE,
           bslib::accordion_panel("Marker steering & lethal guarding",
             shiny::textAreaInput("marker_target_spec", "Marker targets ('marker,direction,target_freq,weight')", "", height = "70px"),
@@ -1200,6 +1205,15 @@ workbench_server <- function(cfg) {
                                     "above the check" = "below",
                                     "below the check" = "above"))))))
     })
+    # Count of traits with a check actually picked (a non-empty chk_<trait>).
+    # >1 is what triggers the backend's joint p_beat_all_checks Monte Carlo
+    # (150 draws/cross) inside the index stage - see the cost note on the
+    # "Build selection index" card (run_index_ui) below.
+    configured_check_count <- shiny::reactive({
+      traits <- full_trait_set()
+      if (!length(traits)) return(0L)
+      sum(vapply(traits, function(t) nzchar(as.character(input[[paste0("chk_", t)]] %||% "")), logical(1)))
+    })
     output$index_col_ui <- shiny::renderUI({
       c <- cols()
       idg <- input$phenotype_id_col %||% ngcd_guess_col(c$pheno, c("NAME","parent","id","line"))
@@ -1248,6 +1262,28 @@ workbench_server <- function(cfg) {
     check_progeny_size_blocked <- function(params) {
       if (is.null(params$trait_checks)) return(FALSE)
       !(isTRUE(is.finite(input$check_progeny_size)) && input$check_progeny_size >= 1)
+    }
+    # Hard version gate, scoped to check-configured runs only. Below backend
+    # 0.24.0 the <trait>_p_beat_check column still exists and still returns a
+    # number - it is simply the WRONG number, because the old code raised a
+    # *shared* posterior effect uncertainty to the k-th power (0.9997 on real
+    # barley data where the truth was 0.678). A run with NO check configured is
+    # entirely unaffected by this bug and must never be blocked here - only the
+    # advisory "Version OK" chip (setup_status) changes for it. Reuses
+    # cfg$required_backend_version (bumped to 0.24.0 in inst/BACKEND_VERSION) as
+    # the floor so this hard gate and that advisory chip can never drift apart.
+    # Shared by every run entry point (do_run, run_stage_manual, do_run_pipeline).
+    check_backend_version_message <- function(params) {
+      if (is.null(params$trait_checks)) return(NULL)
+      bv <- rv$backend$backend_version
+      if (is.null(bv) || !nzchar(bv)) return(NULL)   # unknown version: do not block
+      ok <- tryCatch(package_version(bv) >= package_version(cfg$required_backend_version),
+                     error = function(e) TRUE)
+      if (isTRUE(ok)) return(NULL)
+      paste0("Check lines need backend nextgenCrossDesign >= ", cfg$required_backend_version,
+             "; installed is ", bv, ". Below ", cfg$required_backend_version,
+             ", the check-probability columns (e.g. <trait>_p_beat_check) still return a number, ",
+             "but it is the wrong one - upgrade the backend before running with check lines configured.")
     }
     # A check line must never also be a candidate parent (the backend intersects
     # rownames(check_geno) with rownames(geno) and hard-errors on any overlap, but
@@ -1369,6 +1405,11 @@ workbench_server <- function(cfg) {
         # check_geno into the numeric matrix ng_run_cross_prediction() expects.
         check_geno = rv$data$check_geno,
         check_pheno = rv$data$check_pheno,
+        # The one influence a check is MEANT to have on the plan: at 0 (the
+        # default) it is reporting only; raising it lets ng_rank_cross_priority()
+        # (via its check_weight arg) drop a failing cross a priority tier
+        # without ever excluding it. Clamped >= 0 per the backend contract.
+        priority_check_weight = max(0, num_or_null(input$priority_check_weight) %||% 0),
         include_trait_gebv = isTRUE(input$include_trait_gebv),
         duplicate_action = input$duplicate_action, duplicate_threshold = input$duplicate_threshold,
         duplicate_maf_min = input$duplicate_maf_min, duplicate_max_missing_prop = input$duplicate_max_missing_prop,
@@ -1779,6 +1820,10 @@ workbench_server <- function(cfg) {
         shiny::showNotification("Enter the progeny per family before running with check lines.",
                                 type = "error"); return()
       }
+      version_msg <- check_backend_version_message(params)
+      if (!is.null(version_msg)) {
+        shiny::showNotification(version_msg, type = "error", duration = NULL); return()
+      }
       clash_msg <- check_id_clash_message()
       if (!is.null(clash_msg)) {
         shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
@@ -1936,6 +1981,10 @@ workbench_server <- function(cfg) {
         shiny::showNotification("Enter the progeny per family before running with check lines.",
                                 type = "error"); return()
       }
+      version_msg <- check_backend_version_message(params)
+      if (!is.null(version_msg)) {
+        shiny::showNotification(version_msg, type = "error", duration = NULL); return()
+      }
       clash_msg <- check_id_clash_message()
       if (!is.null(clash_msg)) {
         shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
@@ -2046,9 +2095,19 @@ workbench_server <- function(cfg) {
     output$run_index_ui <- shiny::renderUI({
       en <- identical(ngcd_stage_status("predict"), "done")
       hint <- if (!en) shiny::span(class = "help-hint", "  Fit effects & score first.") else NULL
+      # More than one check configured -> the backend also computes the joint
+      # p_beat_all_checks probability, a 150-draw Monte Carlo per cross
+      # (roughly 110s per 10,000 candidate crosses) inside this stage. Flag it
+      # so the pause reads as expected work, not a hang.
+      cost_note <- if (configured_check_count() > 1)
+        shiny::div(class = "help-hint", style = "margin-top:6px;",
+          "More than one check line is configured: this stage also runs a Monte Carlo ",
+          "estimate of the joint chance of beating every check at once, which can add a ",
+          "noticeable pause (roughly two minutes per 10,000 candidate crosses).")
       shiny::tagList(
         disable_if(shiny::actionButton("run_index", "Build selection index", class = "btn-ndsu"), !en),
-        shiny::div(class = "help-hint", style = "margin-top:6px;", stage_status_badge("index"), hint))
+        shiny::div(class = "help-hint", style = "margin-top:6px;", stage_status_badge("index"), hint),
+        cost_note)
     })
 
     # ---- on-demand Figure tags (activity screens) -- each `ngcd_figure_tag()`
@@ -2147,6 +2206,10 @@ workbench_server <- function(cfg) {
       if (check_progeny_size_blocked(params)) {
         shiny::showNotification("Enter the progeny per family before running with check lines.",
                                 type = "error"); return()
+      }
+      version_msg <- check_backend_version_message(params)
+      if (!is.null(version_msg)) {
+        shiny::showNotification(version_msg, type = "error", duration = NULL); return()
       }
       clash_msg <- check_id_clash_message()
       if (!is.null(clash_msg)) {

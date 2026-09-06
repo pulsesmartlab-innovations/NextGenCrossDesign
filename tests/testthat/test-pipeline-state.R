@@ -161,6 +161,29 @@ test_that("ngcd_pipeline_mark: changing a rank-only meta key marks ONLY rank sta
   expect_identical(pipeline2$stages$rank$status, "stale")
 })
 
+test_that("ngcd_pipeline_mark: changing priority_check_weight marks ONLY rank stale", {
+  # priority_check_weight (Task 5) is caught by the rank stage's existing
+  # "priority_*_weight" glob (ngcd_stage_key_patterns$rank in R/helpers.R) --
+  # this confirms the glob actually matches it, rather than adding a redundant
+  # explicit entry for it.
+  init <- ng("ngcd_pipeline_init"); mark <- ng("ngcd_pipeline_mark")
+  p0 <- c(sample_params(), list(priority_check_weight = 0))
+  pipeline <- done_pipeline(init, mark, p0, data_version = 1L)
+
+  p1 <- c(sample_params(), list(priority_check_weight = 0.5))
+  pipeline2 <- mark(pipeline, p1, data_version = 1L)
+
+  expect_identical(pipeline2$stages$qc$status, "done")
+  expect_identical(pipeline2$stages$predict$status, "done")
+  expect_identical(pipeline2$stages$index$status, "done")
+  expect_identical(pipeline2$stages$allocate$status, "done")
+  expect_identical(pipeline2$stages$rank$status, "stale")
+
+  sub <- ng("ngcd_stage_cfg_subset")
+  expect_true("priority_check_weight" %in% names(sub(p1, "rank")))
+  expect_false("priority_check_weight" %in% names(sub(p1, "index")))
+})
+
 # A representative FULL build_params() param set (R/app.R): every top-level key
 # build_params() can emit, including the conditional advanced-knob keys. Kept in
 # sync with build_params() so the partition test below fails the moment a NEW
@@ -204,6 +227,10 @@ full_build_params <- function() {
     cost_col = "cost", logistic_col = "log",
     # rank-stage keys (post-run meta + terminal output side-effects)
     crop = "wheat", priority_threshold_weight = 1,
+    # priority_check_weight (Task 5): default 0, lets a failing check nudge a
+    # cross's priority tier without ever excluding it. Consumed in ng_rank_cross_priority()
+    # via the rank stage's existing "priority_*_weight" glob -- NOT a new pattern.
+    priority_check_weight = 0,
     cross_number_mode = "auto",
     cross_sweep_k_min = 3L, cross_sweep_k_max = 30L, cross_sweep_k_step = 1L,
     cross_sweep_criterion = "elbow_relative", cross_sweep_relative_threshold = 0.05,

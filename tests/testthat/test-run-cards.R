@@ -103,3 +103,27 @@ test_that("the Run area renders adaptive stepped cards (multi=4, single=3, poly+
     expect_false(grepl("Build selection index", sh, fixed = TRUE))  # single-trait
   })
 })
+
+test_that("the 'Build selection index' card notes the joint check-probability cost with >1 check configured", {
+  # p_beat_all_checks (150-draw Monte Carlo per cross, ~110s per 10,000
+  # candidates) runs inside the index stage whenever more than one trait has
+  # a check -- without a note here, that pause reads as a hang.
+  srv <- nextgenCrossWorkbench:::workbench_server(
+    nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb")))
+  testServer(srv, {
+    do.call(session$setInputs, demo_inputs(objective_mode = "multi"))
+    session$flushReact()
+    html0 <- paste(as.character(output$run_index_ui), collapse = " ")
+    expect_false(grepl("Monte Carlo", html0))   # no check configured -> no note
+
+    session$setInputs(chk_yield = "CHK1")
+    session$flushReact()
+    html1 <- paste(as.character(output$run_index_ui), collapse = " ")
+    expect_false(grepl("Monte Carlo", html1))   # exactly one check -> no note (joint prob needs >1)
+
+    session$setInputs(chk_disease = "CHK1")
+    session$flushReact()
+    html2 <- paste(as.character(output$run_index_ui), collapse = " ")
+    expect_match(html2, "Monte Carlo")          # two checks configured -> note appears
+  })
+})
