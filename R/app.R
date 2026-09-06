@@ -879,7 +879,12 @@ workbench_server <- function(cfg) {
       # Disomic-subgenome needs genotype + phenotype + a marker map (with the
       # subgenome column); it does NOT use a trait-direction file (single trait).
       else if (is_subgenome()) ok1(rv$data$genotype) && ok1(rv$data$phenotype) && ok1(rv$data$map)
-      else all(vapply(rv$data, ok1, logical(1)))
+      # Standard workflow needs exactly these four required tables. Check-line
+      # data (rv$data$check_geno / check_pheno) is always optional and must
+      # NOT gate readiness - spell the required set out explicitly rather than
+      # folding over rv$data, so a future optional field can't silently become
+      # mandatory again.
+      else ok1(rv$data$genotype) && ok1(rv$data$phenotype) && ok1(rv$data$map) && ok1(rv$data$direction)
     })
     # phenotype trait-column picker for polyploid mode (single trait)
     output$poly_trait_ui <- shiny::renderUI({

@@ -49,6 +49,19 @@ test_that("demo data loads and reports ready + aligned", {
   })
 })
 
+test_that("data_ready() is TRUE for the four required tables with no check file", {
+  # Regression: rv$data grew optional check_geno/check_pheno keys (check-line
+  # import card), and the diploid branch of data_ready() used to fold over
+  # every element of rv$data - making the optional check file mandatory and
+  # blocking the Run button/staged runner whenever no check file was uploaded.
+  testServer(srv(), {
+    do.call(session$setInputs, demo_inputs())
+    expect_null(rv$data$check_geno)
+    expect_null(rv$data$check_pheno)
+    expect_true(data_ready())
+  })
+})
+
 test_that("build_params() does not crash when map column selectors are unset", {
   # Regression: resolve_map() indexed rv$data$map[[input$map_pos_bp_col]] with a
   # NULL/empty column id before the dynamic column selectors had populated, which
