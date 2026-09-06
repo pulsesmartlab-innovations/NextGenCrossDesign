@@ -284,6 +284,7 @@ ngcd_settings_registry <- function() {
     map_chr_col = "select", map_pos_bp_col = "select", map_pos_cm_col = "select",
     direction_trait_col = "select", direction_column_col = "select", direction_direction_col = "select",
     index_col = "select", cost_col = "select", logistic_col = "select", single_trait = "select",
+    check_id_col = "select",
     bp_per_cm = "num", map_pos_cm_divisor = "num", threshold_penalty_weight = "num",
     min_effect_reliability = "num", duplicate_threshold = "num", duplicate_maf_min = "num",
     duplicate_max_missing_prop = "num", duplicate_min_compared_markers = "num", ld_window = "num",

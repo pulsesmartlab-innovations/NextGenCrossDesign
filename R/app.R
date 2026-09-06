@@ -199,6 +199,26 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                   bslib::card(bslib::card_header("4 · Trait direction (optional)"),
                     shiny::fileInput("f_dir", "Trait direction CSV", accept = c(".csv", ".txt", ".tsv")),
                     shiny::uiOutput("dir_step")))),
+              shiny::conditionalPanel("input.workflow == 'standard'",
+                shiny::tags$div(id = "imp-check",
+                  bslib::card(bslib::card_header("5 · Check lines (optional)"),
+                    shiny::fileInput("f_check", "Check genotype CSV",
+                                     accept = c(".csv", ".txt", ".tsv")),
+                    shiny::fileInput("f_check_pheno", "Check phenotype CSV",
+                                     accept = c(".csv", ".txt", ".tsv")),
+                    shiny::div(class = "help-hint",
+                      "Standard varieties you benchmark against. They are ",
+                      shiny::tags$b("never crossed"),
+                      " - they appear as a reference line on the results charts and as ",
+                      "reference columns in the workbook. The genotype file needs the same ",
+                      "markers and coding as your parents; the phenotype file needs the same ",
+                      "trait columns as your phenotype file. ",
+                      shiny::tags$b("Supply both if you have them"),
+                      " - the run decides which it needs, so the check is always measured the ",
+                      "same way as the parents it is compared against. Without the phenotype ",
+                      "file, a run that scores on phenotypes has no value for the check and ",
+                      "reports it as not evaluable."),
+                    shiny::uiOutput("check_step")))),
               shiny::div(class = "help-hint", style = "margin-top:8px",
                 "Alignment options (drop rows/markers that don't line up across files):"),
               shiny::checkboxInput("restrict_shared_markers",
@@ -655,7 +675,8 @@ workbench_server <- function(cfg) {
   function(input, output, session) {
     rv <- shiny::reactiveValues(backend = NULL, result = NULL, last = NULL,
                                 run_dir = NULL, runlog = NULL, error = NULL, warnings = NULL,
-                                data = list(genotype = NULL, phenotype = NULL, map = NULL, direction = NULL),
+                                data = list(genotype = NULL, phenotype = NULL, map = NULL, direction = NULL,
+                                            check_geno = NULL, check_pheno = NULL),
                                 edited = FALSE,
                                 # Staged pipeline (Phase 2): compute-once state + staleness. data_version
                                 # is bumped every time the input tables mutate (load/reset/cell-edit) so
@@ -762,14 +783,20 @@ workbench_server <- function(cfg) {
         genotype  = if (!is.null(input$f_geno))  input$f_geno$datapath  else NULL,
         phenotype = if (!is.null(input$f_pheno)) input$f_pheno$datapath else NULL,
         map       = if (!is_poly() && !is.null(input$f_map)) input$f_map$datapath else NULL,
-        direction = if (!is_poly() && !is.null(input$f_dir)) input$f_dir$datapath else NULL)
+        direction = if (!is_poly() && !is.null(input$f_dir)) input$f_dir$datapath else NULL,
+        # Checks are standard-workflow-only (same gate as the trait-direction
+        # file) and never feed the candidate-parent pool - they get their own
+        # rv$data keys so they can never be mistaken for a parent.
+        check_geno  = if (!is_poly() && !is.null(input$f_check))       input$f_check$datapath       else NULL,
+        check_pheno = if (!is_poly() && !is.null(input$f_check_pheno)) input$f_check_pheno$datapath else NULL)
     })
 
     load_data <- function() {
       f <- src_files()
       rd <- function(p) if (!is.null(p) && file.exists(p)) ngcd_read_full(p) else NULL
       rv$data <- list(genotype = rd(f$genotype), phenotype = rd(f$phenotype),
-                      map = rd(f$map), direction = rd(f$direction))
+                      map = rd(f$map), direction = rd(f$direction),
+                      check_geno = rd(f$check_geno), check_pheno = rd(f$check_pheno))
       rv$edited <- FALSE
       rv$data_version <- rv$data_version + 1L   # input tables mutated -> qc..rank invalidate
     }
@@ -797,7 +824,8 @@ workbench_server <- function(cfg) {
     ngcd_data_specific <- c(
       "genotype_id_col","phenotype_id_col","map_marker_col","map_chr_col",
       "map_pos_bp_col","map_pos_cm_col","direction_trait_col","direction_column_col",
-      "direction_direction_col","index_col","cost_col","logistic_col","poly_trait_col")
+      "direction_direction_col","index_col","cost_col","logistic_col","poly_trait_col",
+      "check_id_col")
     shiny::observeEvent(input$reset_all, {
       if (!is.null(rv$defaults)) {
         keep <- c("data_source", "workflow", "traits_to_use", ngcd_data_specific)
@@ -816,10 +844,12 @@ workbench_server <- function(cfg) {
     output$load_status <- shiny::renderUI({
       if (!identical(input$data_source, "upload")) return(NULL)
       items <- list(
-        list(nm = "Genotype",        up = input$f_geno,  df = rv$data$genotype),
-        list(nm = "Phenotype",       up = input$f_pheno, df = rv$data$phenotype),
-        list(nm = "Marker map",      up = input$f_map,   df = rv$data$map),
-        list(nm = "Trait direction", up = input$f_dir,   df = rv$data$direction))
+        list(nm = "Genotype",        up = input$f_geno,        df = rv$data$genotype),
+        list(nm = "Phenotype",       up = input$f_pheno,       df = rv$data$phenotype),
+        list(nm = "Marker map",      up = input$f_map,         df = rv$data$map),
+        list(nm = "Trait direction", up = input$f_dir,         df = rv$data$direction),
+        list(nm = "Check genotype",  up = input$f_check,       df = rv$data$check_geno),
+        list(nm = "Check phenotype", up = input$f_check_pheno, df = rv$data$check_pheno))
       rows <- lapply(items, function(it) {
         if (is.null(it$up)) return(NULL)  # not uploaded yet
         fname <- it$up$name %||% ""
@@ -997,6 +1027,8 @@ workbench_server <- function(cfg) {
         list(n = "3 Map",       a = "imp-map",   up = input$f_map,   df = rv$data$map,
              show = (input$workflow %||% "standard") %in% c("standard", "subgenome")),
         list(n = "4 Direction", a = "imp-dir",   up = input$f_dir,   df = rv$data$direction,
+             show = identical(input$workflow %||% "standard", "standard")),
+        list(n = "5 Check",     a = "imp-check", up = input$f_check, df = rv$data$check_geno,
              show = identical(input$workflow %||% "standard", "standard")))
       # each chip is a link that jumps to its file's card (revisitable)
       chips <- lapply(Filter(function(x) isTRUE(x$show), items), function(x) {
@@ -1079,6 +1111,38 @@ workbench_server <- function(cfg) {
           imp_sel("direction_column_col", "Phenotype column", names(d), c("Trait","column","trait")),
           imp_sel("direction_direction_col", "Direction", names(d), c("Selection_direction","direction"))))
     })
+
+    # Check lines (optional, standard workflow only): a benchmark genotype is
+    # NEVER crossed, so it lives in its own rv$data keys (check_geno/check_pheno)
+    # rather than riding along with the candidate-parent pool. The genotype file
+    # drives this card's readiness state; the phenotype file is a fully optional
+    # annex (a run that scores on GEBV never needs it - see the card's help text).
+    output$check_step <- shiny::renderUI({
+      g <- rv$data$check_geno; st <- ngcd_import_state(input$f_check, g)
+      geno_ui <- if (identical(st$state, "ok")) {
+        pg <- rv$data$genotype
+        shared_note <- if (is.data.frame(pg) && ncol(pg)) {
+          shared <- length(intersect(names(g), names(pg)))
+          ngcd_callout(kind = if (shared > 1L) "info" else "warn",
+            sprintf("%d column(s) shared with the parent genotype file.%s", shared,
+                    if (shared > 1L) "" else
+                      " The check file must carry the same markers as the genotype file."))
+        } else NULL
+        shiny::tagList(imp_chip(st), imp_preview(g),
+          imp_id_sel("check_id_col", "Which column is the check ID?", g, c("NAME","id","line","check")),
+          shared_note)
+      } else imp_note(st,
+        "Optional: drop a check genotype CSV to add reference lines you benchmark crosses against.")
+
+      gph <- rv$data$check_pheno; pst <- ngcd_import_state(input$f_check_pheno, gph)
+      pheno_ui <- if (identical(pst$state, "ok"))
+        shiny::tagList(imp_chip(pst), imp_preview(gph))
+      else imp_note(pst, paste0("No check phenotype file loaded - a run that scores on ",
+                                "phenotypes will report the check as not evaluable."))
+
+      shiny::tagList(geno_ui, pheno_ui)
+    })
+
     # Trait choices come from the DIRECTION file (the backend filters
     # Traits come from the uploaded PHENOTYPE file's own columns (what the user
     # sees and selects). The trait-direction file, if supplied, only annotates
