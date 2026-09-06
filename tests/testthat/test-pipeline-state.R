@@ -181,6 +181,7 @@ full_build_params <- function() {
     # index-stage keys
     trait_weights = c(yield = 1), threshold_penalty_autoscale = TRUE,
     trait_checks = data.frame(trait = "yield", check = "chk", stringsAsFactors = FALSE),
+    check_progeny_size = 50,
     drop_lethal_carrier_crosses = FALSE, marker_target_spec = list(),
     lethal_spec = list(),
     # allocate-stage keys
@@ -211,7 +212,7 @@ full_build_params <- function() {
     pareto_explore = TRUE, pareto_lambdas = "0,0.5,1",
     multitrait_joint_prob = TRUE, multitrait_targets = "yield>=5",
     include_trait_gebv = FALSE, write_outputs = TRUE, write_figures = TRUE,
-    output_file = "crossing_plan.xlsx", check_progeny_size = 50,
+    output_file = "crossing_plan.xlsx",
     # execution-only / meta keys (see allow_list below)
     use_parallel = TRUE, n_threads = 2L))
 }
@@ -226,6 +227,38 @@ full_build_params <- function() {
 #                            standard build_params() run; allow-listed defensively)
 partition_allow_list <- c("schema", "use_parallel", "n_threads",
                           "workflow", "run_dir", "stage")
+
+test_that("ngcd_pipeline_mark: changing check_progeny_size marks index+allocate+rank stale, qc+predict stay done", {
+  # check_progeny_size is the k in the backend's P(beat check) formula and is
+  # consumed inside ng_cp__stage_index (nextgenCrossDesign R/39_cross_prediction_runner.R)
+  # -- it must invalidate the compute-once index stage (and everything
+  # downstream), NOT rank alone, or a breeder who raises progeny size after
+  # completing all stages sees a P(beat check) column that never recomputes.
+  init <- ng("ngcd_pipeline_init"); mark <- ng("ngcd_pipeline_mark")
+  p0 <- c(sample_params(),
+          list(trait_checks = data.frame(trait = "yield", check = "chk",
+                                          stringsAsFactors = FALSE),
+               check_progeny_size = 100))
+  pipeline <- done_pipeline(init, mark, p0, data_version = 1L)
+
+  p1 <- c(sample_params(),
+          list(trait_checks = data.frame(trait = "yield", check = "chk",
+                                          stringsAsFactors = FALSE),
+               check_progeny_size = 500))
+  pipeline2 <- mark(pipeline, p1, data_version = 1L)
+
+  expect_identical(pipeline2$stages$qc$status, "done")
+  expect_identical(pipeline2$stages$predict$status, "done")
+  expect_identical(pipeline2$stages$index$status, "stale")
+  expect_identical(pipeline2$stages$allocate$status, "stale")
+  expect_identical(pipeline2$stages$rank$status, "stale")
+
+  # And directly at the cfg-subset level: check_progeny_size belongs to index,
+  # not rank.
+  sub <- ng("ngcd_stage_cfg_subset")
+  expect_true("check_progeny_size" %in% names(sub(p1, "index")))
+  expect_false("check_progeny_size" %in% names(sub(p1, "rank")))
+})
 
 test_that("ngcd_stage_key_patterns: the 5-stage partition is collision-free", {
   sub <- ng("ngcd_stage_cfg_subset")

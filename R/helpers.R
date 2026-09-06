@@ -657,7 +657,16 @@ ngcd_stage_key_patterns <- list(
     "multi_trait_method", "trait_weights",
     "threshold_policy", "threshold_penalty_*",
     "lethal_spec", "drop_lethal_carrier_crosses",
-    "trait_checks",
+    # trait_checks / check_progeny_size: consumed inside the backend's own
+    # ng_cp__stage_index (nextgenCrossDesign R/39_cross_prediction_runner.R)
+    # -- check_progeny_size is the k in P(beat check) = 1 - Phi((tau-mu)/sigma)^k,
+    # and the probability columns are attached there via
+    # ng_attach_check_reference()/ng_attach_joint_check_probability(). Both
+    # belong to index, NOT rank: raising/lowering progeny size must invalidate
+    # the compute-once index stage (and everything downstream of it) so the
+    # P(beat check) numbers actually recompute, rather than silently keeping a
+    # stale k.
+    "trait_checks", "check_progeny_size",
     "marker_target_spec", "lambda_marker"),
   allocate = c(
     "n_crosses", "max_crosses_per_parent",
@@ -695,11 +704,7 @@ ngcd_stage_key_patterns <- list(
     # the one-shot full path -- see ngcd_run_uses_staged() -- because the staged
     # invocation never sets output_dir; but they still need a home in the
     # partition so toggling them is never a silent no-op.)
-    # check_progeny_size feeds only the P(beat check) column added onto the
-    # already-computed per-cross stats at emit time - same class as
-    # include_trait_gebv above, so it invalidates only rank.
-    "write_outputs", "write_figures", "output_file", "include_trait_gebv",
-    "check_progeny_size"))
+    "write_outputs", "write_figures", "output_file", "include_trait_gebv"))
 
 # Match `keys` against a vector of glob patterns ("*" = any chars; anything
 # without "*" must match exactly). Internal helper for ngcd_stage_cfg_subset().
