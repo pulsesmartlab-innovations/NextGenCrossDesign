@@ -969,8 +969,8 @@ ngcd_chart_mean_vs_diversity <- function(df, check_line = NULL, check_label = NU
 ```
 
 Wire it into the results tab: call `ngcd_check_line(res)` and pass the result plus the check id
-into `ngcd_chart_mean_vs_diversity()`, passing `mean_axis = "y"` for the existing mean-on-y
-scatter. A future diversity-on-y / mean-on-x view passes `mean_axis = "x"` and gets a vertical
+into `ngcd_chart_mean_vs_diversity()`, passing **`mean_axis = NULL`** for the existing
+candidate-scatter. A future diversity-on-y / mean-on-x view passes `mean_axis = "x"` and gets a vertical
 line from the same helper with no further change. When the line is `NA` and checks are
 configured, render
 `ngcd_callout(kind = "note", "No single reference line applies to a rank-based index — see the per-trait panel below.")`.
