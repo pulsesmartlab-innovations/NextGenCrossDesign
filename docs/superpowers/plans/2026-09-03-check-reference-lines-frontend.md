@@ -466,7 +466,86 @@ git commit -m "feat(runner): forward check_geno; stop sending the removed check 
 
 ---
 
-### Task 5: Run notes report a reference, not an exclusion
+### Task 5: Gating — version floor, stage invalidation, and the priority weight
+
+**This task exists because the pre-flight scan found these four requirements stated only in
+Global Constraints, with no task owning them.** A constraint nobody implements is a constraint
+that does not ship.
+
+**Files:**
+- Modify: `R/run_backend.R` or wherever the backend version is resolved (find it), `R/app.R`,
+  `R/config.R` (the config-key/stage registry — find the actual file)
+- Test: `tests/testthat/test-pipeline-state.R`, `tests/testthat/test-config.R`
+
+**Interfaces:**
+- Produces: a hard version gate; `priority_check_weight` as an input forwarded to the backend;
+  registered stage invalidation for every check input.
+
+- [ ] **Step 1: Hard-gate the backend version**
+
+The floor is **not** bookkeeping. Below 0.24.0 the column `<trait>_p_beat_check` still exists and
+still returns a number — it is simply the *wrong* number (0.9997 where the truth is 0.678),
+because the probability raised a shared posterior effect uncertainty to the k-th power. A
+workbench that accepted an older backend would show two incompatible quantities under one label.
+
+Find where the frontend resolves the backend version (grep for `packageVersion` /
+`nextgenCrossDesign`). Refuse to run a check-configured analysis when the installed backend is
+below 0.24.0, with a message naming the installed version and the required one. Do **not**
+degrade silently and do **not** merely hide the UI — a user with an old backend must be told why.
+
+Test: a stubbed version below the floor produces the refusal; at or above it, no refusal.
+
+- [ ] **Step 2: `priority_check_weight` control and forwarding**
+
+The backend added `priority_check_weight` (default 0) so a breeder can let failing checks nudge a
+cross down the priority tiers. It is the one influence the check is *meant* to have on the
+decision, and it is currently unreachable from the workbench.
+
+Add a numeric input beside the trait-check panel — default **0**, with help text saying that at 0
+the check is reporting only, and that raising it lets check failures lower a cross's priority
+tier without ever excluding it. Forward it in the backend args next to `trait_checks`.
+
+Test: the arg is forwarded; absent or 0, the tiers are unchanged.
+
+- [ ] **Step 3: Register stage invalidation for every check input**
+
+The Run tab is compute-once: a breeder can complete all five stages, then edit a check. If the
+affected stages do not recompute, they are shown a stale check result — which looks entirely
+correct. Register:
+
+| input | invalidates from |
+|---|---|
+| `f_check`, `f_check_pheno`, `check_id_col` | `index` |
+| every `chk_<trait>`, `dir_<trait>` | `index` |
+| `check_progeny_size` | `index` |
+| `priority_check_weight` | `rank` |
+
+`tests/testthat/test-pipeline-state.R:262` already reports any config key invalidating no stage as
+orphaned. Read how existing keys are registered and follow that mechanism exactly — do not invent
+a parallel one. Confirm the orphaned-key test sees each new key.
+
+Test: editing a check input after a completed run marks `index` (and downstream) stale; editing
+`priority_check_weight` marks only `rank` stale.
+
+- [ ] **Step 4: Signal the joint probability's cost**
+
+`p_beat_all_checks` runs a 150-draw Monte Carlo per cross, only when more than one trait has a
+check — roughly 110 s per 10,000 candidate crosses, landing entirely inside the `index` stage.
+Add a note to that stage card when more than one check is configured, so a two-minute pause reads
+as expected work rather than a hang.
+
+- [ ] **Step 5: Run the tests and commit**
+
+```bash
+Rscript -e 'devtools::load_all("."); testthat::test_file("tests/testthat/test-pipeline-state.R")'
+Rscript -e 'devtools::load_all("."); testthat::test_file("tests/testthat/test-config.R")'
+git add -A R/ tests/
+git commit -m "feat(gating): version floor, check-input stage invalidation, priority check weight"
+```
+
+---
+
+### Task 6: Run notes report a reference, not an exclusion
 
 **Files:**
 - Modify: `R/diagnostics.R:398-417`
@@ -555,7 +634,7 @@ git commit -m "feat(diagnostics): check run notes report the reference instead o
 
 ---
 
-### Task 6: Reference line and P(beat check) opacity on the charts
+### Task 7: Reference line and P(beat check) opacity on the charts
 
 **Files:**
 - Modify: `R/ui_charts.R`
@@ -774,7 +853,7 @@ git commit -m "feat(charts): check reference line, P(beat check) opacity, per-tr
 
 ---
 
-### Task 7: Report, version bump, input-ID baseline
+### Task 8: Report, version bump, input-ID baseline
 
 **Files:**
 - Modify: `R/report.R`, `DESCRIPTION`, `NEWS.md`, `.superpowers/sdd/baseline-input-ids.txt`
@@ -830,6 +909,7 @@ Expected diff and nothing else:
 > check_progeny_size
 > f_check
 > f_check_pheno
+> priority_check_weight
 < check_basis
 < exclude_threshold_violators
 ```
@@ -856,7 +936,7 @@ git commit -m "release: nextgenCrossWorkbench 0.27.0 — check reference lines"
 
 ---
 
-### Task 8: End-to-end verification against the real backend
+### Task 9: End-to-end verification against the real backend
 
 **Files:**
 - Test: `tests/testthat/test-e2e-surfacing.R`
