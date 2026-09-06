@@ -574,19 +574,50 @@ that does not ship.
 - Produces: a hard version gate; `priority_check_weight` as an input forwarded to the backend;
   registered stage invalidation for every check input.
 
-- [ ] **Step 1: Hard-gate the backend version**
+- [ ] **Step 1: Raise the advisory floor, and hard-gate check runs specifically**
 
-The floor is **not** bookkeeping. Below 0.24.0 the column `<trait>_p_beat_check` still exists and
-still returns a number — it is simply the *wrong* number (0.9997 where the truth is 0.678),
-because the probability raised a shared posterior effect uncertainty to the k-th power. A
-workbench that accepted an older backend would show two incompatible quantities under one label.
+The floor is **not** bookkeeping. Below backend 0.24.0 the column `<trait>_p_beat_check` still
+exists and still returns a number — it is simply the wrong number, because the probability raised
+a *shared* posterior effect uncertainty to the k-th power. On the real barley data that read
+0.9997 where the truth was 0.678. A workbench that accepted an older backend would show two
+incompatible quantities under one label.
 
-Find where the frontend resolves the backend version (grep for `packageVersion` /
-`nextgenCrossDesign`). Refuse to run a check-configured analysis when the installed backend is
-below 0.24.0, with a message naming the installed version and the required one. Do **not**
-degrade silently and do **not** merely hide the UI — a user with an old backend must be told why.
+**What already exists** (read it before writing anything): `ngcd_default_backend_version()` at
+`R/config.R:30` reads the floor from the `inst/BACKEND_VERSION` resource file, currently
+**`0.18.0`**. `R/config.R:221-228` computes `version_ok` and composes an upgrade message. But
+`version_ok` is **advisory only** — `R/app.R:712` renders it as a chip and `R/app.R:718` lists it
+in diagnostics. **Nothing blocks a run.** So the gate is genuinely new work; the plumbing to
+detect the version is not.
 
-Test: a stubbed version below the floor produces the refusal; at or above it, no refusal.
+Do two distinct things:
+
+1. **Bump `inst/BACKEND_VERSION` from `0.18.0` to `0.24.0`.** This is the advisory floor and it
+   drives the existing chip and message. This matches how this project has always paired a
+   frontend release with its backend.
+
+2. **Add hard enforcement for check-configured runs only.** Refuse to start when a check is
+   configured and the installed backend is below 0.24.0, with a message naming both the installed
+   version and the required one, and saying plainly that check probabilities from an older
+   backend are wrong rather than merely unsupported.
+
+**Why enforcement is scoped to check runs and not to every run:** today a user on an older
+backend sees a warning chip and can still work. Making the advisory floor globally blocking would
+newly refuse runs for people who have no checks configured and are unaffected by this bug —
+punishing them for a feature they are not using. The wrong-number risk is entirely confined to
+check runs, so that is exactly where the hard stop belongs.
+
+Gate at the same three run entry points Task 3 gated `check_progeny_size` at: `do_run`
+(`R/app.R:1731`), `run_stage_manual` (`R/app.R:1903`), and `do_run_pipeline` (`R/app.R:2108`).
+Follow the `showNotification` + `return()` idiom already used there — this app has no
+`shiny::validate()` gate site. For `run_stage_manual`, note the check work happens in the `index`
+stage, so a staged run must be refused too, not only the one-shot path.
+
+Do **not** degrade silently, and do **not** merely hide the check UI — a user on an old backend
+must be told why.
+
+Test: with a stubbed version below the floor AND a check configured, the run is refused and the
+message names both versions; below the floor with NO check configured, the run proceeds (only the
+existing advisory chip changes); at or above the floor, no refusal either way.
 
 - [ ] **Step 2: `priority_check_weight` control and forwarding**
 
