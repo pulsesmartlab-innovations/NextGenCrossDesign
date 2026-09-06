@@ -507,6 +507,24 @@ In `R/app.R`, add `check_geno = rv$data$check_geno`, `check_pheno = rv$data$chec
 `check_progeny_size = input$check_progeny_size` to the backend args next to `trait_checks`,
 and delete the `check_basis` / `exclude_threshold_violators` entries.
 
+- [ ] **Step 4a: Refuse a check ID that is also a parent ID, before the backend sees it**
+
+The backend intersects `rownames(check_geno)` with `rownames(geno)` and hard-errors on any
+overlap, because a line cannot be both a candidate parent and an untouchable benchmark. This is
+an easy mistake for a breeder to make — a released variety like `CONLON` is plausibly sitting in
+both the parent file and the check file — and the raw backend error does not name the offender
+helpfully.
+
+Catch it in the frontend before the run starts. Where the other pre-run validations live (find
+them — search for the existing "must be loaded" / readiness messages), add a check that the check
+IDs and the parent IDs are disjoint. The message must **name the clashing IDs** (cap the list at
+a handful and say "and N more" beyond that) and say plainly that a check line must not also be a
+parent. Do not silently drop the clashing rows from either file — the breeder has to decide which
+role that line plays.
+
+Test: with an ID present in both, the run is refused and the message contains that ID; with
+disjoint IDs, no refusal.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `Rscript -e 'devtools::load_all("."); testthat::test_file("tests/testthat/test-run-backend-edge.R")'`
