@@ -32,7 +32,7 @@ test_that("single-trait run with trait_checks surfaces risk/portfolio + trait-ch
     allocation_method = "ocs", use_ocs = TRUE, seed = 1,
     # one trait-check line: reject crosses whose yield mid-parent is on the wrong side
     # of elite parent P01 (direction left NULL -> resolved from trait_direction).
-    trait_checks = list(list(trait = "yield", check = "P01", direction = NULL, basis = "gebv")))
+    trait_checks = list(list(trait = "yield", check = "P01", direction = NULL)))
 
   cfgp <- file.path(rd, "config.json"); resp <- file.path(rd, "result.json")
   jsonlite::write_json(cfgj, cfgp, auto_unbox = TRUE, null = "null", pretty = TRUE)

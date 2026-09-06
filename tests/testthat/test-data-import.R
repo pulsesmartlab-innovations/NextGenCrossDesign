@@ -84,12 +84,13 @@ test_that("the check file is a distinct optional input, separate from the parent
 
 test_that("uploading a check genotype file populates its own store, preview, and ID picker - and never touches the parent pool", {
   skip_on_cran()
-  # NOTE: this test deliberately does NOT upload a parent phenotype file. Doing
-  # so currently triggers a pre-existing, unrelated bug at the trait_checks
-  # call site in build_params() (R/app.R ~1258): it still passes a `bases =`
-  # argument to ngcd_build_trait_checks(), which Task 1 (commit 10ce71d)
-  # already dropped from that function's signature. That call site is owned by
-  # Task 4, not this task, so it is left untouched here (see task-2-report.md).
+  # NOTE: this test deliberately does NOT upload a parent phenotype file. It
+  # used to trip a pre-existing, unrelated bug at the trait_checks call site in
+  # build_params() (R/app.R): a stale `bases =` argument to
+  # ngcd_build_trait_checks(), which Task 1 (commit 10ce71d) had already
+  # dropped from that function's signature. Fixed by the controller hotfix
+  # (a5d223d) and fully repointed by Task 3 - see task-2-report.md / this
+  # file's history for context; kept here only as a regression comment.
   gp <- tempfile(fileext = ".csv"); cg <- tempfile(fileext = ".csv")
   utils::write.csv(data.frame(NAME = c("P1", "P2", "P3"), S1 = c(0, 2, 0), S2 = c(2, 2, 0)), gp, row.names = FALSE)
   utils::write.csv(data.frame(NAME = c("Check1", "Check2"), S1 = c(2, 0), S2 = c(0, 2)), cg, row.names = FALSE)

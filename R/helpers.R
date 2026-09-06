@@ -657,7 +657,7 @@ ngcd_stage_key_patterns <- list(
     "multi_trait_method", "trait_weights",
     "threshold_policy", "threshold_penalty_*",
     "lethal_spec", "drop_lethal_carrier_crosses",
-    "trait_checks", "check_basis", "exclude_threshold_violators",
+    "trait_checks",
     "marker_target_spec", "lambda_marker"),
   allocate = c(
     "n_crosses", "max_crosses_per_parent",
@@ -695,7 +695,11 @@ ngcd_stage_key_patterns <- list(
     # the one-shot full path -- see ngcd_run_uses_staged() -- because the staged
     # invocation never sets output_dir; but they still need a home in the
     # partition so toggling them is never a silent no-op.)
-    "write_outputs", "write_figures", "output_file", "include_trait_gebv"))
+    # check_progeny_size feeds only the P(beat check) column added onto the
+    # already-computed per-cross stats at emit time - same class as
+    # include_trait_gebv above, so it invalidates only rank.
+    "write_outputs", "write_figures", "output_file", "include_trait_gebv",
+    "check_progeny_size"))
 
 # Match `keys` against a vector of glob patterns ("*" = any chars; anything
 # without "*" must match exactly). Internal helper for ngcd_stage_cfg_subset().

@@ -389,17 +389,24 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
         ngcd_guide("Configure", "Cross filters & genetic constraints", shiny::tagList(
           shiny::tags$p("Screen candidate crosses before allocation - flag or drop weak ones, steer toward useful alleles, and guard against lethal combinations."),
           shiny::tags$ul(
-            shiny::tags$li(shiny::tags$b("Trait-check veto"), ": flags (or excludes) crosses whose mid-parent value for a trait falls on the worse side of your check line, on either GEBV or phenotype basis. Active for Single-trait and Multiple-trait modes only."),
+            shiny::tags$li(shiny::tags$b("Check lines"),
+              ": shows, per trait, whether the mid-parent of each cross lands on the good side ",
+              "of a standard variety you benchmark against - as a reference line on the charts ",
+              "and as columns in the workbook. It never removes or reorders a cross."),
             shiny::tags$li(shiny::tags$b("Marker steering"), ": nudge the plan toward or away from target allele frequencies at named markers."),
             shiny::tags$li(shiny::tags$b("Lethal-allele guard"), ": excludes carrier x carrier matings for named recessive-lethal markers.")),
           shiny::tags$p(class = "help-hint", "Leave everything off/default if you don't have check lines or marker targets to apply.")),
           next_hint = "Mate allocation - turn scores into a mating plan."),
-        shiny::helpText("Flag/exclude crosses whose mid-parent for a trait is on the worse side of a check line."),
+        shiny::helpText("Reference only - checks are never crossed and never change the plan."),
         shiny::helpText(class = "help-hint",
           "Active for Single-trait and Multiple-trait modes; ignored when you use your own selection-index column."),
-        shiny::selectInput("check_basis", "Comparison basis", c("GEBV" = "gebv", "Phenotype" = "phenotype")),
-        shiny::checkboxInput("exclude_threshold_violators", "Exclude violating crosses from the plan", FALSE),
         shiny::checkboxInput("include_trait_gebv", "Include per-trait mid-parent GEBV in the Excel workbook", FALSE),
+        shiny::numericInput("check_progeny_size",
+          "Progeny per family you will raise", value = NA, min = 1, step = 10),
+        shiny::div(class = "help-hint",
+          "Used only for the ", shiny::tags$b("P(beat check)"), " column: the chance a cross ",
+          "throws at least one line past the check. There is no default - the number has to be ",
+          "yours, because raising 50 progeny and raising 500 give different answers."),
         shiny::uiOutput("trait_check_pickers"),
         bslib::accordion(open = FALSE,
           bslib::accordion_panel("Marker steering & lethal guarding",
@@ -1172,24 +1179,26 @@ workbench_server <- function(cfg) {
         shiny::checkboxGroupInput("traits_to_use", "Traits to use", choices = traits, selected = traits),
         shiny::div(class = "help-hint", "Leave all checked to use every trait. Uncheck only to run a subset."))
     })
-    # Per-trait check-line pickers (Trait checks tab): one row per active trait, letting the
-    # breeder pick a genotyped check line, reject direction, and comparison basis. Candidate ids
-    # come from the loaded genotype table (same id-column resolution as elsewhere in the app).
+    # Per-trait check-line pickers. Candidate ids come from the CHECK FILE, never the genotype
+    # table: a check is a benchmark, not a mating candidate, and offering parents here is what
+    # made the old veto require the check to be a parent.
     output$trait_check_pickers <- shiny::renderUI({
       traits <- full_trait_set()
-      shiny::validate(shiny::need(length(traits) > 0, "Load a phenotype/direction file to pick trait checks."))
-      g <- rv$data$genotype
-      shiny::validate(shiny::need(!is.null(g), "Load a genotype file to choose check lines."))
-      gid <- input$genotype_id_col %||% ngcd_guess_col(names(g), c("NAME","parent","id","line"))
-      if (is.null(gid) || !gid %in% names(g)) gid <- names(g)[1]
-      ids <- as.character(g[[gid]])
+      shiny::validate(shiny::need(length(traits) > 0,
+        "Load a phenotype/direction file to pick trait checks."))
+      g <- rv$data$check_geno
+      shiny::validate(shiny::need(!is.null(g),
+        "Load a check genotype file (Data > Check lines) to choose check lines."))
+      cid <- input$check_id_col %||% ngcd_guess_col(names(g), c("NAME", "id", "line", "check"))
+      if (is.null(cid) || !cid %in% names(g)) cid <- names(g)[1]
+      ids <- as.character(g[[cid]])
       shiny::tagList(lapply(traits, function(t) shiny::fluidRow(
-        shiny::column(4, shiny::selectInput(paste0("chk_", t), paste("Check for", t),
+        shiny::column(6, shiny::selectInput(paste0("chk_", t), paste("Check for", t),
                         choices = c("(none)" = "", stats::setNames(ids, ids)))),
-        shiny::column(4, shiny::selectInput(paste0("dir_", t), "Reject if",
-                        choices = c("auto (from breeding direction)" = "auto", "above check" = "above", "below check" = "below"))),
-        shiny::column(4, shiny::selectInput(paste0("basis_", t), "Basis",
-                        choices = c("(run default)" = "", "GEBV" = "gebv", "Phenotype" = "phenotype"))))))
+        shiny::column(6, shiny::selectInput(paste0("dir_", t), "Good side",
+                        choices = c("auto (from breeding direction)" = "auto",
+                                    "above the check" = "below",
+                                    "below the check" = "above"))))))
     })
     output$index_col_ui <- shiny::renderUI({
       c <- cols()
@@ -1231,6 +1240,15 @@ workbench_server <- function(cfg) {
       stats::setNames(as.list(suppressWarnings(as.numeric(vapply(p, `[`, "", 2)))), vapply(p, `[`, "", 1))
     }
     num_or_null <- function(x) if (is.null(x) || is.na(x)) NULL else as.numeric(x)
+    # A check line is optional, but once one is picked the progeny-per-family scalar
+    # feeding the "P(beat check)" column has no default - it has to block the run rather
+    # than silently compute against nothing. Shared by every run entry point (do_run,
+    # run_stage_manual, do_run_pipeline), any of which can be the first to reach a
+    # params set that carries trait_checks.
+    check_progeny_size_blocked <- function(params) {
+      if (is.null(params$trait_checks)) return(FALSE)
+      !(isTRUE(is.finite(input$check_progeny_size)) && input$check_progeny_size >= 1)
+    }
     csv_vec <- function(txt, numeric = FALSE) {
       v <- trimws(strsplit(txt %||% "", ",")[[1]]); v <- v[nzchar(v)]
       if (numeric) as.numeric(v) else v
@@ -1318,8 +1336,8 @@ workbench_server <- function(cfg) {
         progeny = input$progeny, recomb_model = input$recomb_model,
         grm_method = input$grm_method, parent_type = input$parent_type,
         min_effect_reliability = input$min_effect_reliability,
-        # Per-trait check-line veto (Trait checks tab); backend requires trait_by_trait mode
-        # (both "single" and "multi" objective_mode map to trait_by_trait, so both get the veto).
+        # Per-trait check-line reference (Trait checks tab); backend requires trait_by_trait mode
+        # (both "single" and "multi" objective_mode map to trait_by_trait, so both get it).
         trait_checks = local({
           if (!identical(obj$prediction_mode, "trait_by_trait")) return(NULL)
           traits <- full_trait_set()
@@ -1328,8 +1346,9 @@ workbench_server <- function(cfg) {
             checks = stats::setNames(lapply(traits, function(t) input[[paste0("chk_", t)]]), traits),
             directions = stats::setNames(lapply(traits, function(t) input[[paste0("dir_", t)]]), traits))
         }),
-        check_basis = input$check_basis %||% "gebv",
-        exclude_threshold_violators = isTRUE(input$exclude_threshold_violators),
+        # Progeny per family the breeder will actually raise; the backend's P(beat check)
+        # column has no default, so this is NULL (never evaluated) until they type one.
+        check_progeny_size = num_or_null(input$check_progeny_size),
         include_trait_gebv = isTRUE(input$include_trait_gebv),
         duplicate_action = input$duplicate_action, duplicate_threshold = input$duplicate_threshold,
         duplicate_maf_min = input$duplicate_maf_min, duplicate_max_missing_prop = input$duplicate_max_missing_prop,
@@ -1736,6 +1755,10 @@ workbench_server <- function(cfg) {
         # reconciled_run_data()).
         run_data <- reconciled_run_data(force_drop_het)
       }
+      if (check_progeny_size_blocked(params)) {
+        shiny::showNotification("Enter the progeny per family before running with check lines.",
+                                type = "error"); return()
+      }
 
       # protect: never let this one-shot run's disk-pruning evict an active
       # staged-pipeline run dir the user is mid-way through (rv$pipeline$run_dir
@@ -1884,9 +1907,13 @@ workbench_server <- function(cfg) {
       upstream <- switch(stage, predict = "qc", index = "predict", NULL)
       if (!is.null(upstream) && !identical(ngcd_stage_status(upstream), "done")) {
         shiny::showNotification(paste0("Run the ", upstream, " stage first."), type = "error"); return() }
+      params <- staged_params()
+      if (check_progeny_size_blocked(params)) {
+        shiny::showNotification("Enter the progeny per family before running with check lines.",
+                                type = "error"); return()
+      }
       if (is.null(rv$pipeline$run_dir)) rv$pipeline$run_dir <- ngcd_new_pipeline_dir(cfg)
       prog <- shiny::Progress$new(session); on.exit(prog$close())
-      params <- staged_params()
       data_arg <- if (identical(stage, "qc")) staged_run_data() else NULL
       out <- ngcd_run_stage(cfg, stage, rv$pipeline$run_dir, params, data = data_arg, progress = prog)
       record_stage_outcome(stage, out, params)
@@ -2088,9 +2115,13 @@ workbench_server <- function(cfg) {
         shiny::showNotification("QC blocked the run - resolve the flagged issues first.", type = "error", duration = NULL); return() }
       if (!length(ns$stages)) { bslib::nav_select("nav", "Results"); return() }  # already complete
 
+      params <- staged_params()
+      if (check_progeny_size_blocked(params)) {
+        shiny::showNotification("Enter the progeny per family before running with check lines.",
+                                type = "error"); return()
+      }
       prog <- shiny::Progress$new(session); on.exit(prog$close())
       prog$set(message = "Assembling configuration...", value = 0.1)
-      params <- staged_params()
       rv$run_dir <- rv$pipeline$run_dir
       final <- NULL
       stage_warns <- character(0)   # accumulate backend advisories across stages

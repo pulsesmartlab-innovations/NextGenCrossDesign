@@ -181,7 +181,6 @@ full_build_params <- function() {
     # index-stage keys
     trait_weights = c(yield = 1), threshold_penalty_autoscale = TRUE,
     trait_checks = data.frame(trait = "yield", check = "chk", stringsAsFactors = FALSE),
-    check_basis = "gebv", exclude_threshold_violators = FALSE,
     drop_lethal_carrier_crosses = FALSE, marker_target_spec = list(),
     lethal_spec = list(),
     # allocate-stage keys
@@ -212,7 +211,7 @@ full_build_params <- function() {
     pareto_explore = TRUE, pareto_lambdas = "0,0.5,1",
     multitrait_joint_prob = TRUE, multitrait_targets = "yield>=5",
     include_trait_gebv = FALSE, write_outputs = TRUE, write_figures = TRUE,
-    output_file = "crossing_plan.xlsx",
+    output_file = "crossing_plan.xlsx", check_progeny_size = 50,
     # execution-only / meta keys (see allow_list below)
     use_parallel = TRUE, n_threads = 2L))
 }
