@@ -1142,7 +1142,10 @@ now trips the clash refusal Task 4 added. Three further problems in the same tes
 
 - no `check_geno` — the backend hard-errors "trait_checks needs check_geno";
 - no `check_progeny_size` — likewise a hard error;
-- the version guard at line 14 still says `>= "0.14.0"`, the veto release. It must be `0.24.0`.
+- the version guard at line 14 still says `>= "0.14.0"`, the veto release. It must be `0.24.0`;
+- it still asserts on `res$trait_check_diagnostics`, the field name the backend replaced with
+  `res$trait_check_reference` (Task 6 migrated the diagnostics function; this test was left
+  behind because it does not run).
 
 Rewrite it to the reference-only model: a check line that is **not** in the parent file, supplied
 through `check_geno`, with an explicit `check_progeny_size`. Then assert what the redesign
