@@ -574,6 +574,32 @@ ngcd_build_trait_checks <- function(traits, checks, directions) {
   do.call(rbind, rows)
 }
 
+# A check line's genotype file is a separate, optional table, but nothing
+# stops a breeder from listing the SAME line in both the parent file and the
+# check file (a released variety like CONLON is plausibly a candidate parent
+# AND a benchmark check). The backend (R/39_cross_prediction_runner.R)
+# intersects rownames(check_geno) with rownames(geno) and hard-errors on any
+# overlap -- a line cannot be both an untouchable benchmark and a candidate
+# parent -- but that error names neither offending ID. This is the pure
+# comparison the frontend runs before the run ever starts, so the breeder gets
+# a message that actually names the clashing lines (see check_id_clash_message()
+# in app.R for the reactive wiring that calls this at every run entry point).
+# Returns NULL when the two ID sets are disjoint (the common case).
+ngcd_check_parent_clash <- function(check_ids, parent_ids, max_shown = 5L) {
+  check_ids  <- trimws(as.character(check_ids  %||% character(0)))
+  parent_ids <- trimws(as.character(parent_ids %||% character(0)))
+  clash <- unique(intersect(check_ids[nzchar(check_ids)], parent_ids[nzchar(parent_ids)]))
+  if (!length(clash)) return(NULL)
+  shown <- utils::head(clash, max_shown)
+  extra <- length(clash) - length(shown)
+  ids_txt <- paste(shown, collapse = ", ")
+  if (extra > 0L) ids_txt <- paste0(ids_txt, ", and ", extra, " more")
+  paste0("A check line must not also be a candidate parent, but ", ids_txt,
+         if (length(clash) == 1L) " is" else " are",
+         " listed in both the parent genotype file and the check genotype file. ",
+         "Decide which role that line plays and remove it from the other file before running.")
+}
+
 # Pure derivation from the breeder-facing 3-way "Selection objective" choice
 # (objective_mode: single/multi/index) to the backend's prediction_mode +
 # traits_to_use + whether the multi-trait combination method applies. Kept
@@ -666,7 +692,11 @@ ngcd_stage_key_patterns <- list(
     # the compute-once index stage (and everything downstream of it) so the
     # P(beat check) numbers actually recompute, rather than silently keeping a
     # stale k.
-    "trait_checks", "check_progeny_size",
+    # check_geno / check_pheno: the check-line reference data itself, consumed
+    # inside the same ng_cp__stage_index -- changing the check genotype (or
+    # phenotype, for a phenotype-mean-sourced trait) must invalidate index (and
+    # everything downstream), the same as trait_checks/check_progeny_size above.
+    "trait_checks", "check_progeny_size", "check_geno", "check_pheno",
     "marker_target_spec", "lambda_marker"),
   allocate = c(
     "n_crosses", "max_crosses_per_parent",

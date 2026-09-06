@@ -182,6 +182,8 @@ full_build_params <- function() {
     trait_weights = c(yield = 1), threshold_penalty_autoscale = TRUE,
     trait_checks = data.frame(trait = "yield", check = "chk", stringsAsFactors = FALSE),
     check_progeny_size = 50,
+    check_geno = data.frame(NAME = "chk", SNP = 0, stringsAsFactors = FALSE),
+    check_pheno = data.frame(NAME = "chk", yield = 5, stringsAsFactors = FALSE),
     drop_lethal_carrier_crosses = FALSE, marker_target_spec = list(),
     lethal_spec = list(),
     # allocate-stage keys

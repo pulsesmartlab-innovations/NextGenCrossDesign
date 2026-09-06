@@ -1249,6 +1249,20 @@ workbench_server <- function(cfg) {
       if (is.null(params$trait_checks)) return(FALSE)
       !(isTRUE(is.finite(input$check_progeny_size)) && input$check_progeny_size >= 1)
     }
+    # A check line must never also be a candidate parent (the backend intersects
+    # rownames(check_geno) with rownames(geno) and hard-errors on any overlap, but
+    # without naming the offending IDs). Shared by every run entry point (do_run,
+    # run_stage_manual, do_run_pipeline); returns NULL when there is no clash to
+    # report, or the breeder-facing message (naming the clashing IDs) otherwise.
+    # See ngcd_check_parent_clash() in helpers.R for the pure ID comparison.
+    check_id_clash_message <- function() {
+      g <- rv$data$genotype; ck <- rv$data$check_geno
+      if (!is.data.frame(g) || !nrow(g) || !is.data.frame(ck) || !nrow(ck)) return(NULL)
+      gid_col <- input$genotype_id_col %||% ngcd_guess_col(names(g), c("NAME","parent","id","line"))
+      cid_col <- input$check_id_col %||% ngcd_guess_col(names(ck), c("NAME","id","line","check"))
+      if (is.null(gid_col) || !gid_col %in% names(g) || is.null(cid_col) || !cid_col %in% names(ck)) return(NULL)
+      ngcd_check_parent_clash(ck[[cid_col]], g[[gid_col]])
+    }
     csv_vec <- function(txt, numeric = FALSE) {
       v <- trimws(strsplit(txt %||% "", ",")[[1]]); v <- v[nzchar(v)]
       if (numeric) as.numeric(v) else v
@@ -1349,6 +1363,12 @@ workbench_server <- function(cfg) {
         # Progeny per family the breeder will actually raise; the backend's P(beat check)
         # column has no default, so this is NULL (never evaluated) until they type one.
         check_progeny_size = num_or_null(input$check_progeny_size),
+        # Check-line reference data itself: required by the backend whenever trait_checks
+        # is non-NULL (check_pheno is optional there too - only consulted for traits whose
+        # mean source is phenotype). Sent as raw data.frames; the headless runner reshapes
+        # check_geno into the numeric matrix ng_run_cross_prediction() expects.
+        check_geno = rv$data$check_geno,
+        check_pheno = rv$data$check_pheno,
         include_trait_gebv = isTRUE(input$include_trait_gebv),
         duplicate_action = input$duplicate_action, duplicate_threshold = input$duplicate_threshold,
         duplicate_maf_min = input$duplicate_maf_min, duplicate_max_missing_prop = input$duplicate_max_missing_prop,
@@ -1759,6 +1779,10 @@ workbench_server <- function(cfg) {
         shiny::showNotification("Enter the progeny per family before running with check lines.",
                                 type = "error"); return()
       }
+      clash_msg <- check_id_clash_message()
+      if (!is.null(clash_msg)) {
+        shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
+      }
 
       # protect: never let this one-shot run's disk-pruning evict an active
       # staged-pipeline run dir the user is mid-way through (rv$pipeline$run_dir
@@ -1911,6 +1935,10 @@ workbench_server <- function(cfg) {
       if (check_progeny_size_blocked(params)) {
         shiny::showNotification("Enter the progeny per family before running with check lines.",
                                 type = "error"); return()
+      }
+      clash_msg <- check_id_clash_message()
+      if (!is.null(clash_msg)) {
+        shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
       }
       if (is.null(rv$pipeline$run_dir)) rv$pipeline$run_dir <- ngcd_new_pipeline_dir(cfg)
       prog <- shiny::Progress$new(session); on.exit(prog$close())
@@ -2119,6 +2147,10 @@ workbench_server <- function(cfg) {
       if (check_progeny_size_blocked(params)) {
         shiny::showNotification("Enter the progeny per family before running with check lines.",
                                 type = "error"); return()
+      }
+      clash_msg <- check_id_clash_message()
+      if (!is.null(clash_msg)) {
+        shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
       }
       prog <- shiny::Progress$new(session); on.exit(prog$close())
       prog$set(message = "Assembling configuration...", value = 0.1)

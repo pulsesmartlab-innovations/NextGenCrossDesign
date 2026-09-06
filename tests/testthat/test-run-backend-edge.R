@@ -71,3 +71,34 @@ test_that("run-backend reports a clean failure when Rscript is missing", {
   expect_false(res$ok)
   expect_match(res$log, "Rscript not found")
 })
+
+test_that("check args are forwarded and the removed parameters never are", {
+  ngcd_coerce_backend_args <- ngcd_runner_env()$ngcd_coerce_backend_args
+  args <- list(trait_checks = list(list(trait = "yield", check = "CHK_A")),
+               check_geno = list(list(id = "CHK_A", m1 = 0, m2 = 2)))
+  out <- ngcd_coerce_backend_args(args)
+  expect_s3_class(out$trait_checks, "data.frame")
+  expect_true(is.matrix(out$check_geno))
+  expect_equal(rownames(out$check_geno), "CHK_A")
+  expect_null(out$check_basis)
+  expect_null(out$exclude_threshold_violators)
+  # progeny size is passed straight through, never defaulted on the way
+  expect_equal(ngcd_coerce_backend_args(c(args, list(check_progeny_size = 250)))$check_progeny_size, 250)
+})
+
+test_that("check_pheno JSON rows reshape into a proper data.frame, not a mangled 1-row table", {
+  # Regression: as.data.frame() on a raw list of JSON row-lists silently produces
+  # a garbled 1-row data.frame with duplicated column names (one group per input
+  # row) rather than erroring - so this needs the same as_rows_df() reshaping
+  # check_geno gets, or the backend's ng_check_records_from_pheno() (which calls
+  # as.data.frame() on whatever check_pheno arrives as) reads nonsense silently.
+  coerce <- ngcd_runner_env()$ngcd_coerce_backend_args
+  args <- list(check_pheno = list(list(NAME = "CHK_A", yield = 5.2),
+                                  list(NAME = "CHK_B", yield = 6.1)))
+  out <- coerce(args)
+  expect_s3_class(out$check_pheno, "data.frame")
+  expect_equal(nrow(out$check_pheno), 2L)
+  expect_setequal(names(out$check_pheno), c("NAME", "yield"))
+  expect_equal(out$check_pheno$NAME, c("CHK_A", "CHK_B"))
+  expect_equal(out$check_pheno$yield, c(5.2, 6.1))
+})

@@ -547,8 +547,33 @@ ngcd_coerce_backend_args <- function(raw) {
       c("marker", "risk_allele"), list(risk_allele = "alt"))
   if (!is.null(args_in$trait_checks))
     args_in$trait_checks <- as_rows_df(args_in$trait_checks,
-      c("trait", "check", "direction", "basis"),
-      list(direction = NA, basis = "gebv"))
+      c("trait", "check", "direction"),
+      list(direction = NA))
+  # check_geno arrives as JSON rows (or already a data.frame from an in-process
+  # caller); the backend wants a numeric matrix keyed by check id. Unlike
+  # trait_checks/marker_target_spec/lethal_spec, its column set is not fixed
+  # (one column per marker), so the column names are taken from the first row
+  # rather than passed to as_rows_df() as a literal vector.
+  if (!is.null(args_in$check_geno)) {
+    cg <- args_in$check_geno
+    if (!is.data.frame(cg)) cg <- as_rows_df(cg, names(cg[[1L]]))
+    id_col <- names(cg)[[1L]]
+    ids <- as.character(cg[[id_col]])
+    m <- as.matrix(cg[, setdiff(names(cg), id_col), drop = FALSE])
+    storage.mode(m) <- "numeric"
+    rownames(m) <- ids
+    args_in$check_geno <- m
+  }
+  # check_pheno is a phenotype-shaped table (an id column + one column per trait,
+  # column set not fixed) consumed via as.data.frame(check_pheno, ...) deep inside
+  # the backend's ng_check_records_from_pheno(). as.data.frame() on a raw list of
+  # JSON row-lists does NOT reshape it correctly -- it silently produces a
+  # garbled 1-row data.frame with duplicated column names instead of erroring --
+  # so this needs the same row-list -> data.frame reshaping check_geno gets.
+  if (!is.null(args_in$check_pheno) && !is.data.frame(args_in$check_pheno))
+    args_in$check_pheno <- as_rows_df(args_in$check_pheno, names(args_in$check_pheno[[1L]]))
+  args_in$check_basis <- NULL
+  args_in$exclude_threshold_violators <- NULL
   if (!is.null(args_in$parent_group) && is.list(args_in$parent_group))
     args_in$parent_group <- stats::setNames(as.character(unlist(args_in$parent_group)),
                                             names(args_in$parent_group))
