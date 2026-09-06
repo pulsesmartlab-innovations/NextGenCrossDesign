@@ -410,9 +410,14 @@ ngcd_diag_trait_check <- function(res) {
     nw <- suppressWarnings(as.integer(d$n_wrong_side[[tr]] %||% 0L))
     if (!is.finite(nw) || nw <= 0L) next
     side <- if (identical(spec$reject_if[[k]], "below")) "below" else "above"
-    out <- c(out, list(ngcd_diag_item("trait_check", "note",
+    # n_candidates is always set by the backend, but a malformed result would render
+    # "5 of NA cross(es)"; drop the denominator rather than print NA at the breeder.
+    headline <- if (is.finite(n_tot))
       sprintf("%d of %d cross(es) fall %s the %s check for %s", nw, n_tot, side,
-              spec$check[[k]], tr),
+              spec$check[[k]], tr)
+    else
+      sprintf("%d cross(es) fall %s the %s check for %s", nw, side, spec$check[[k]], tr)
+    out <- c(out, list(ngcd_diag_item("trait_check", "note", headline,
       "Their mid-parent is on the worse side of your check line for this trait.",
       "Reference only - these crosses are still ranked and can still be selected. Check the P(beat check) column before discarding one.")))
   }
