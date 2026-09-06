@@ -1321,9 +1321,7 @@ workbench_server <- function(cfg) {
           if (!length(traits)) return(NULL)
           ngcd_build_trait_checks(traits,
             checks = stats::setNames(lapply(traits, function(t) input[[paste0("chk_", t)]]), traits),
-            directions = stats::setNames(lapply(traits, function(t) input[[paste0("dir_", t)]]), traits),
-            bases = stats::setNames(lapply(traits, function(t) {
-              b <- input[[paste0("basis_", t)]]; if (nzchar(b %||% "")) b else input$check_basis }), traits))
+            directions = stats::setNames(lapply(traits, function(t) input[[paste0("dir_", t)]]), traits))
         }),
         check_basis = input$check_basis %||% "gebv",
         exclude_threshold_violators = isTRUE(input$exclude_threshold_violators),
