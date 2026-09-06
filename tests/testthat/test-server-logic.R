@@ -165,8 +165,15 @@ test_that("non-inbred parents are detected", {
 })
 
 test_that("advanced mate-selection controls parse into backend shapes", {
+  # A budget only reaches the backend alongside a cost column (a finite budget with
+  # no cost_col is a hard backend error, refused at the run gate -- see
+  # test-run-gates.R), so this fixture supplies the cost table it always implied.
+  costf <- tempfile(fileext = ".csv")
+  utils::write.csv(data.frame(parent1 = "P01", parent2 = "P02", cost = 100, distance = 1),
+                   costf, row.names = FALSE)
   testServer(srv(), {
     do.call(session$setInputs, demo_inputs(
+      f_cost = list(datapath = costf, name = "cost.csv"), cost_col = "cost",
       mate_relatedness_weight = 0.05,   # replaces the removed lambda_progeny_inbreeding control
       min_crosses_per_parent = 2,
       committed_crosses = "P09,P10\nP01,P02",

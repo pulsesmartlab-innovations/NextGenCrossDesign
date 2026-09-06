@@ -34,7 +34,13 @@ test_that("advanced controls take effect through the backend", {
            group_quota = list("A||B" = 4)),
       list(marker_target_spec = list(list(marker = "SNP_001", direction = "increase",
                                           target_freq = 0.9, weight = 1)), lambda_marker = 1),
-      list(budget = 1e6, lambda_cost = 0.1, lambda_logistic = 0.1))) {
+      # A budget only means something against a per-cross cost: the backend refuses a
+      # finite budget with no cost_col, and the app now refuses that pairing at the
+      # run gate, so the supported shape (cost table + cost/logistic columns) is what
+      # gets exercised here.
+      list(cross_cost = nextgenCrossWorkbench:::ngcd_demo_cost_table(),
+           cost_col = "cost", logistic_col = "distance",
+           budget = 1e6, lambda_cost = 0.1, lambda_logistic = 0.1))) {
     rr <- runc(ov)
     expect_true(rr$ok, info = paste(names(ov), collapse = ",", ":", rr$message))
   }

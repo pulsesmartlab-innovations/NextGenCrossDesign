@@ -34,6 +34,35 @@
 * Fixed: when checks are configured but the run carries no per-trait mean column for any
   checked trait, the modelling-graphics panel now explains why no reference panel could be
   drawn instead of leaving an empty slot (and no longer errors while trying to say so).
+* Fixed: **the Mate-relatedness control now genuinely supersedes the raw `lambda_mating`.**
+  Choosing any per-cross relatedness behaviour while a non-zero `lambda_mating` sat in the
+  advanced OCS card sent both to the backend, which refuses them together ("Set per-cross
+  relatedness via EITHER mate_relatedness OR the raw lambda_mating ... not both") -- so the
+  unified control built to prevent exactly that stacking was leaking it. `lambda_mating` is now
+  omitted whenever a Mate-relatedness behaviour is selected, and the advanced card replaces the
+  raw input with a note saying so rather than showing a number that is not in effect.
+* Fixed: **"Economic weights" and "Desired gains" are no longer offered as multi-trait
+  methods.** Both were guaranteed hard errors: the backend needs per-trait economic weights or
+  desired changes *and* explicit phenotypic (P) and genetic (G) covariance matrices, and it
+  refuses to substitute candidate-score covariance for them -- while the app has no way to
+  collect P and G. The help hint claiming those values were read from your trait-direction file
+  was false and is gone. (A registry-declared "Threshold" method, which the backend rejects
+  outright, is dropped for the same reason.) Supplying real P and G is a separate feature; use
+  Automatic or Relative weights meanwhile.
+* Fixed: **a budget cap with no cost column is refused before the run, not after it.** Typing a
+  budget without uploading a per-cross cost table and picking its Cost column failed inside the
+  backend with "a finite budget requires cost_col". The run now stops at the gate with a message
+  naming your budget and telling you which two things to supply (or to clear the cap). The cost
+  and logistic emphasis sliders are unaffected -- they are simply ignored without a cost table.
+* **Polyploid dominance is now an explicit experimental opt-in.** Ticking "Model dominance
+  (heterosis)" used to fail every polyploid run outright, because the backend treats
+  additive+dominance fitting as research-only and refuses it unless told otherwise. The checkbox
+  stays; ticking it reveals an acknowledgement you must also tick, carrying the backend's reason
+  in plain terms -- the additive and dominance variance components currently share a single
+  ridge penalty, so how much of the genetic variance is called additive versus dominance is not
+  reliable. Suitable for exploring heterosis, not for selection decisions. Requesting dominance
+  without the acknowledgement refuses the run and says why; it is never silently downgraded to
+  additive-only scoring.
 
 # nextgenCrossWorkbench 0.26.0
 

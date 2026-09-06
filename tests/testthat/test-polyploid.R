@@ -19,7 +19,12 @@ test_that("polyploid design runner returns a plan, summary and QC", {
     genotype_file = pd$genotype, phenotype_file = pd$phenotype,
     genotype_id_col = "NAME", phenotype_id_col = "NAME", poly_trait_col = "yield",
     ploidy = 4, n_crosses = 8, max_crosses_per_parent = 4,
-    dominance = TRUE, gain = "usefulness", double_reduction = 0.08,
+    # Additive+dominance fitting is an explicit backend opt-in (one ridge penalty is
+    # shared by both variance components), and the app only sets this flag when the
+    # breeder ticks the experimental acknowledgement -- so a dominance config that
+    # means to run carries it. Without it ng_polyploid_fit_effects() hard-errors.
+    dominance = TRUE, allow_experimental_dominance = TRUE,
+    gain = "usefulness", double_reduction = 0.08,
     grm_method = "vanraden", selection_prop = 0.1, run_qc = TRUE,
     method = "greedy_local", strategy = "balanced", seed = 1)
   cfgp <- file.path(rd, "config.json"); resp <- file.path(rd, "result.json")

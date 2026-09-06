@@ -70,6 +70,18 @@ ngcd_run_combo <- function(cfg, overrides = list(), work_dir = tempdir()) {
        seconds = round(secs, 2), run_dir = run_dir)
 }
 
+# A per-pair cost table over the demo parents, in the shape the app builds from an
+# uploaded cost CSV (parent1, parent2, then value columns). Every candidate cross
+# must have a finite cost -- the backend refuses a cost_col with any NA -- so this
+# covers ALL unordered pairs. Shared by the combination sweep and
+# tests/testthat/test-advanced.R so the two cannot drift.
+ngcd_demo_cost_table <- function(parents = sprintf("P%02d", 1:10)) {
+  p <- utils::combn(as.character(parents), 2L)
+  list(parent1 = p[1, ], parent2 = p[2, ],
+       cost     = rep(c(100, 150, 200), length.out = ncol(p)),
+       distance = rep(c(1, 2, 3, 4),    length.out = ncol(p)))
+}
+
 # Build the combination list. `level` = "smoke" (one-at-a-time only) or
 # "full" (one-at-a-time + a factorial core).
 ngcd_combo_list <- function(level = c("full", "smoke")) {
@@ -80,7 +92,12 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
 
   metrics  <- c("mid_parent_mean", "family_variance", "reliable_family_variance", "usefulness", "parent_distance")
   optims   <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
-  methods  <- c("auto", "weighted", "economic_index", "desired_gain")
+  # economic_index / desired_gain are deliberately absent: they need explicit
+  # phenotypic (P) and genetic (G) covariance matrices that neither this sweep nor
+  # the app can supply, so the backend hard-errors on every such row. The UI does
+  # not offer them either (see multi_trait_method in app.R) -- this sweep exists to
+  # exercise combinations a breeder can actually build.
+  methods  <- c("auto", "weighted")
   ucsrc    <- c("reliable_family_variance", "family_variance", "parent_distance")
   divspecs <- list(c("strategy", "high_gain"), c("strategy", "balanced"), c("strategy", "diversity"),
                    c("emphasis", "15"), c("emphasis", "50"), c("emphasis", "85"), c("target", "0.05"))
@@ -123,8 +140,13 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
   add("advanced", "lethal_guarding",
       list(lethal_spec = list(list(marker = "SNP_002", risk_allele = "alt")),
            drop_lethal_carrier_crosses = TRUE))
+  # A finite budget with no cost_col is a hard backend error ("a finite budget
+  # requires cost_col"), which is exactly what the app now refuses at the run gate.
+  # The sweep therefore drives the SUPPORTED shape: a cost table plus the columns
+  # that budget / lambda_cost / lambda_logistic act on.
   add("advanced", "cost_budget_logistic",
-      list(budget = 1e6, lambda_cost = 0.1, lambda_logistic = 0.1))
+      list(cross_cost = ngcd_demo_cost_table(), cost_col = "cost", logistic_col = "distance",
+           budget = 1e6, lambda_cost = 0.1, lambda_logistic = 0.1))
 
   # ---- factorial core (full only) ----
   if (level == "full") {
@@ -159,7 +181,7 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
   set.seed(seed)
   metrics <- c("mid_parent_mean", "family_variance", "reliable_family_variance", "usefulness", "parent_distance")
   optims  <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
-  methods <- c("auto", "weighted", "economic_index", "desired_gain")
+  methods <- c("auto", "weighted")   # see ngcd_combo_list(): P/G-requiring methods are unreachable
   ucsrc   <- c("reliable_family_variance", "family_variance", "parent_distance")
   pick <- function(x) x[sample.int(length(x), 1L)]
   combos <- vector("list", n)

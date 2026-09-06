@@ -135,6 +135,12 @@ poly_design_args <- function(raw) {
     max_crosses_per_parent = as.integer(raw$max_crosses_per_parent %||% 4L),
     run_qc = isTRUE(as.logical(raw$run_qc %||% TRUE)), qc = qc,
     dominance = isTRUE(as.logical(raw$dominance %||% FALSE)),
+    # ng_polyploid_fit_effects() refuses additive+dominance unless this is TRUE:
+    # one ridge penalty is shared by both variance components, so the split is a
+    # research diagnostic. Defaults FALSE -- only the app's explicit experimental
+    # acknowledgement ever puts it in the config.
+    allow_experimental_dominance =
+      isTRUE(as.logical(raw$allow_experimental_dominance %||% FALSE)),
     gain = raw$gain %||% "mean",
     selection_prop = as.numeric(raw$selection_prop %||% 0.1),
     double_reduction = as.numeric(raw$double_reduction %||% 0),

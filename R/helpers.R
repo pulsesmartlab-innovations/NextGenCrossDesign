@@ -502,7 +502,18 @@ ngcd_diminishing_returns_plotly <- function(curve, recommended_k = NULL,
 # label), so new/renamed backend methods surface without a UI edit and no existing label
 # changes. Returns a shiny-style named vector (names = labels, values = values). If the
 # registry is unavailable, returns the fallback unchanged.
-ngcd_control_choices <- function(registry, id, fallback = NULL) {
+#
+# `drop` is the frontend's own retraction list: values the backend genuinely
+# supports but that THIS app cannot drive, because it has no way to collect the
+# extra inputs the backend then demands (see multi_trait_method in app.R). It is
+# applied to the registry choices AND the fallback, exactly like the registry's
+# own experimental/guarded status gate below, so a dropped value can never
+# reappear via the registry-merge. Offering a choice that is a guaranteed hard
+# error is worse than not offering it: use `drop` rather than deleting it from
+# the fallback only.
+ngcd_control_choices <- function(registry, id, fallback = NULL, drop = character()) {
+  drop <- as.character(drop)
+  if (length(drop)) fallback <- fallback[!(unname(fallback) %in% drop)]
   ctls <- registry$controls
   if (is.null(ctls) || !length(ctls)) return(fallback)
   hit <- Filter(function(c) identical(c$id, id), ctls)
@@ -513,9 +524,9 @@ ngcd_control_choices <- function(registry, id, fallback = NULL) {
   # must never surface in the UI (VALIDATED_STATE frontend-surfacing governance).
   # We drop it from the registry choices AND from the hardcoded fallback, so the
   # backend can retract a capability without a frontend edit.
-  blocked <- unique(vapply(
+  blocked <- unique(c(drop, vapply(
     Filter(function(x) (x$status %||% "") %in% c("experimental", "guarded"), ch),
-    function(x) x$value %||% "", ""))
+    function(x) x$value %||% "", "")))
   ch <- Filter(function(x) !((x$value %||% "") %in% blocked), ch)
   fallback <- fallback[!(unname(fallback) %in% blocked)]  # registry status overrides fallback
   if (!length(ch)) return(fallback)
@@ -598,6 +609,47 @@ ngcd_check_parent_clash <- function(check_ids, parent_ids, max_shown = 5L) {
          if (length(clash) == 1L) " is" else " are",
          " listed in both the parent genotype file and the check genotype file. ",
          "Decide which role that line plays and remove it from the other file before running.")
+}
+
+# A budget cap is meaningless without a per-cross cost: the backend
+# (ng_optimize_mating_plan) hard-errors with "a finite budget requires cost_col"
+# the moment a finite budget arrives with no cost column. The frontend already
+# omits `budget` from the config in that state (build_params()), but silently
+# dropping a number the breeder typed would hide their mistake, so this is the
+# message the run gate shows instead. Returns NULL when there is nothing to
+# report (no budget typed, or a cost column is chosen). lambda_cost /
+# lambda_logistic deliberately do NOT gate here: the backend treats them as
+# no-ops without a cost/logistic column rather than an error.
+ngcd_budget_cost_message <- function(budget, cost_col) {
+  b <- suppressWarnings(as.numeric(budget %||% NA_real_))
+  if (length(b) != 1L || is.na(b) || !is.finite(b)) return(NULL)
+  cc <- trimws(as.character(cost_col %||% "")[1])
+  if (!is.na(cc) && nzchar(cc)) return(NULL)
+  paste0("You set a budget cap (", format(b, scientific = FALSE),
+         ") but no cost column, so there is no per-cross cost for it to spend against. ",
+         "Upload a cost table under Configure > Mate allocation > Plan size & constraints ",
+         "(Cost & logistics) and pick its Cost column, ",
+         "or clear the budget cap, then run again.")
+}
+
+# Polyploid additive+dominance fitting is an explicitly experimental backend
+# mode: ng_polyploid_fit_effects() refuses it unless
+# allow_experimental_dominance = TRUE, because a single ridge penalty is shared
+# by both variance components, so the additive/dominance split is not
+# trustworthy. R/helpers.R's surfacing rule says an experimental capability must
+# not surface as an ordinary control -- so the dominance checkbox is kept, but
+# the run is refused until the breeder ticks the explicit acknowledgement
+# (poly_allow_experimental_dominance), which is what forwards the backend flag.
+# Refusing beats silently disabling dominance: the breeder asked for a
+# genotypic-value model and must know they did not get one.
+ngcd_experimental_dominance_message <- function(dominance, acknowledged) {
+  if (!isTRUE(dominance) || isTRUE(acknowledged)) return(NULL)
+  paste0("Dominance (heterosis) modelling is experimental and is switched off until you ",
+         "confirm it. The additive and dominance variance components currently share a single ",
+         "ridge penalty, so how much of the genetic variance is called additive versus dominance ",
+         "is not reliable -- use it for research diagnostics, not for selection decisions. ",
+         "Tick \"I understand ...\" under Model dominance on the Data screen to run it anyway, ",
+         "or untick Model dominance to score on additive effects only.")
 }
 
 # Pure derivation from the breeder-facing 3-way "Selection objective" choice

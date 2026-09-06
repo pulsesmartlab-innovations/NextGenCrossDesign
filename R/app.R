@@ -155,6 +155,23 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               bslib::layout_columns(col_widths = c(6, 6),
                 shiny::checkboxInput("poly_dominance", "Model dominance (heterosis)", FALSE),
                 shiny::selectInput("poly_gain", "Cross value", c("mean", "usefulness"), selected = "mean")),
+              # Explicit experimental opt-in. The backend
+              # (ng_polyploid_fit_effects) refuses additive+dominance fitting unless
+              # allow_experimental_dominance = TRUE, because one ridge penalty is
+              # shared by both variance components. Blind-forwarding that flag would
+              # opt every breeder into a research-only mode without telling them, and
+              # hiding the checkbox would remove a real capability -- so the control
+              # stays and this acknowledgement, in the backend's own words, is what
+              # forwards the flag. See ngcd_experimental_dominance_message().
+              shiny::conditionalPanel("input.poly_dominance == true",
+                shiny::checkboxInput("poly_allow_experimental_dominance",
+                  "I understand dominance fitting is experimental (research diagnostics only)", FALSE),
+                shiny::div(class = "help-hint",
+                  "The additive and dominance variance components currently share a single ridge ",
+                  "penalty, so how much of the genetic variance is called additive versus dominance ",
+                  "is not reliable. Use it to explore heterosis, not to make selection decisions. ",
+                  "Without this box ticked the run is refused rather than silently scored on ",
+                  "additive effects only.")),
               bslib::layout_columns(col_widths = c(6, 6),
                 shiny::selectInput("poly_grm_method", "GRM method", c("vanraden", "yang"), selected = "vanraden"),
                 shiny::numericInput("poly_double_reduction", "Double reduction (0..1/6)", 0, min = 0, max = 0.2, step = 0.01)),
@@ -294,15 +311,26 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::selectInput("index_direction", "Index direction", c("increase","decrease")))),
           bslib::card(bslib::card_header("Multi-trait method"),
             shiny::conditionalPanel("input.objective_mode == 'multi'",
+              # economic_index / desired_gain / threshold are backend capabilities that
+              # this app cannot drive, so they are dropped rather than offered:
+              #   - economic_index and desired_gain need per-trait economic_weight /
+              #     desired_change AND explicit phenotypic (P) and genetic (G)
+              #     covariance matrices. ng_multitrait_index_covariance() refuses to
+              #     substitute candidate-score covariance for them, and nothing in this
+              #     app collects P and G, so every run with either method was a
+              #     guaranteed hard error. Restoring them is a feature (a P/G upload),
+              #     not a dropdown entry.
+              #   - threshold is declared by the backend capability registry (so the
+              #     registry merge used to append it) but ng_breeder_selection_objective()
+              #     rejects it outright: "method must be one of: auto, weighted,
+              #     economic_index, desired_gain".
               shiny::selectInput("multi_trait_method", "Method",
                 ngcd_control_choices(cfg$backend_registry, "multi_trait_method",
-                  c("Automatic" = "auto", "Relative weights" = "weighted",
-                    "Economic weights" = "economic_index", "Desired gains" = "desired_gain")), selected = "auto"),
+                  c("Automatic" = "auto", "Relative weights" = "weighted"),
+                  drop = c("economic_index", "desired_gain", "threshold")), selected = "auto"),
               shiny::conditionalPanel("input.multi_trait_method == 'weighted'",
                 shiny::textAreaInput("trait_weights", "Trait weights ('trait: value' per line)",
                                      placeholder = "yield: 0.5\ndisease: 0.5", height = "90px"))),
-            shiny::tags$p(class = "help-hint",
-              "Economic weights and desired-gain VALUES are read from your trait-direction file, not entered here."),
             shiny::tags$b("Threshold handling"),
             shiny::selectInput("threshold_policy", "Threshold policy", ngcd_control_choices(cfg$backend_registry, "threshold_policy", c("soft","strict"))),
             shiny::numericInput("threshold_penalty_weight", "Threshold penalty weight", 1, min = 0, step = 0.1),
@@ -551,12 +579,26 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             bslib::card(bslib::card_header("OCS penalties & optimizer internals (advanced)"),
               shiny::div(class = "help-hint",
                 "Raw escape hatch for power users. lambda_group is plan-wide diversity (axis A); ",
-                "lambda_mating is per-cross relatedness (axis B) and BYPASSES the Mate-relatedness ",
-                "guardrail — setting lambda_mating together with an inbreeding penalty is a hard error. ",
-                "Prefer the Diversity dial and the Mate-relatedness control above."),
+                "lambda_mating is per-cross relatedness (axis B) — the SAME axis as the ",
+                "Mate-relatedness control above, so only one of the two can be in effect. ",
+                "Choosing any Mate-relatedness behaviour takes over that axis and lambda_mating ",
+                "is not sent. Prefer the Diversity dial and the Mate-relatedness control above."),
               bslib::layout_columns(col_widths = c(3,3,3,3),
                 shiny::numericInput("lambda_group", "lambda_group", 0.05, step = 0.01),
-                shiny::numericInput("lambda_mating", "lambda_mating", 0, step = 0.01),
+                # lambda_mating and mate_relatedness are two knobs on one axis and the
+                # backend hard-errors when both arrive ("Set per-cross relatedness via
+                # EITHER mate_relatedness OR the raw lambda_mating ... not both").
+                # build_params() omits lambda_mating whenever mate_relatedness != "off";
+                # showing a live slider for a value that is not in effect would be a lie,
+                # so the input is swapped for the reason it is inactive.
+                shiny::div(
+                  shiny::conditionalPanel("input.mate_relatedness == 'off' || input.mate_relatedness == null",
+                    shiny::numericInput("lambda_mating", "lambda_mating", 0, step = 0.01)),
+                  shiny::conditionalPanel("input.mate_relatedness != 'off' && input.mate_relatedness != null",
+                    shiny::div(class = "help-hint",
+                      shiny::tags$b("lambda_mating"), " is superseded by the Mate-relatedness ",
+                      "control above and is not sent with this run. Set Mate relatedness back to ",
+                      "Off to drive per-cross relatedness with the raw lambda instead."))),
                 shiny::numericInput("lambda_parent_use", "lambda_parent_use", 0, step = 0.01),
                 shiny::selectInput("lambda_parent_use_mode", "parent-use mode", ngcd_control_choices(cfg$backend_registry, "lambda_parent_use_mode", c("absolute","adaptive")))),
               bslib::layout_columns(col_widths = c(6,6),
@@ -1237,6 +1279,14 @@ workbench_server <- function(cfg) {
         shiny::selectInput("cost_col", "Cost column", c("(none)" = "", value_cols)),
         shiny::selectInput("logistic_col", "Logistic column", c("(none)" = "", value_cols)))
     })
+    # The cost column actually in force: "" unless a cost table is loaded AND a column
+    # is picked from it. Mirrors exactly the condition under which build_params() sends
+    # `cost_col`, so the budget guard and the config can never disagree.
+    cost_col_selected <- shiny::reactive({
+      if (is.null(cost_data())) return("")
+      cc <- trimws(as.character(input$cost_col %||% "")[1])
+      if (length(cc) != 1L || is.na(cc)) "" else cc
+    })
 
     output$sb_data <- shiny::renderText(if (data_ready()) if (isTRUE(rv$edited)) "ready (edited)" else "ready" else "incomplete")
     output$sb_backend <- shiny::renderText({ b <- rv$backend; if (!is.null(b) && isTRUE(b$backend_installed)) "connected" else "not ready" })
@@ -1262,6 +1312,27 @@ workbench_server <- function(cfg) {
     check_progeny_size_blocked <- function(params) {
       if (is.null(params$trait_checks)) return(FALSE)
       !(isTRUE(is.finite(input$check_progeny_size)) && input$check_progeny_size >= 1)
+    }
+    # Two settings the backend refuses outright, caught before the run rather than
+    # after a failed subprocess: a finite budget with no cost column, and polyploid
+    # dominance without its experimental acknowledgement. Both read the INPUTS, not
+    # the assembled params, because build_params()/build_poly_params() already omit
+    # the offending key -- the point of this gate is to say why, instead of letting a
+    # typed budget or a ticked dominance box vanish without a word. Returns NULL when
+    # there is nothing to report; shared by every run entry point (do_run,
+    # run_stage_manual, do_run_pipeline). See the pure helpers in helpers.R.
+    # Each is scoped to the workflow that actually sends it: only the standard
+    # diploid config carries budget/cost_col, only the polyploid config carries
+    # dominance, so a stale value on the other side of the workflow switch (both
+    # inputs live in always-registered conditionalPanels) must never block a run.
+    check_unsupported_combo_message <- function() {
+      wf <- input$workflow %||% "standard"
+      budget_msg <- if (identical(wf, "standard"))
+        ngcd_budget_cost_message(input$budget, cost_col_selected())
+      dom_msg <- if (is_poly())
+        ngcd_experimental_dominance_message(input$poly_dominance,
+                                            input$poly_allow_experimental_dominance)
+      budget_msg %||% dom_msg
     }
     # Hard version gate, scoped to check-configured runs only. Below backend
     # 0.24.0 the <trait>_p_beat_check column still exists and still returns a
@@ -1428,14 +1499,32 @@ workbench_server <- function(cfg) {
         max_crosses_per_parent = input$max_crosses_per_parent,
         min_unique_parents = num_or_null(input$min_unique_parents), max_pair_kinship = num_or_null(input$max_pair_kinship),
         optimizer = input$optimizer, allocation_method = input$allocation_method, use_ocs = input$use_ocs,
-        lambda_group = input$lambda_group, lambda_mating = input$lambda_mating,
+        lambda_group = input$lambda_group,
+        # The unified Mate-relatedness control and the raw lambda_mating are the same
+        # axis (parent-pair relatedness) and the backend refuses both at once: "Set
+        # per-cross relatedness via EITHER mate_relatedness OR the raw lambda_mating /
+        # lambda_progeny_inbreeding, not both." mate_relatedness exists precisely to
+        # keep breeders off that rock, so it wins: any behaviour but Off suppresses
+        # lambda_mating entirely (NULL is dropped from the config by ngcd_write_config).
+        # The UI says so in the same breath (the raw input is replaced by that note
+        # while a behaviour is selected), so nothing here is silently discarded.
+        lambda_mating = if (identical(input$mate_relatedness %||% "off", "off"))
+          input$lambda_mating else NULL,
         lambda_parent_use = input$lambda_parent_use, lambda_parent_use_mode = input$lambda_parent_use_mode,
         local_iter = input$local_iter, ocs_iter = input$ocs_iter,
         mate_relatedness = input$mate_relatedness %||% "off",
         mate_relatedness_weight = num_or_null(input$mate_relatedness_weight) %||% 0,
         min_crosses_per_parent = input$min_crosses_per_parent,
         lambda_marker = input$lambda_marker, drop_lethal_carrier_crosses = input$drop_lethal_carrier_crosses,
-        budget = num_or_null(input$budget), lambda_cost = input$lambda_cost, lambda_logistic = input$lambda_logistic,
+        # A finite budget with no cost column is a hard backend error ("a finite budget
+        # requires cost_col"), so it never leaves the app. The breeder is not left
+        # guessing: the run gate refuses first with ngcd_budget_cost_message(), and this
+        # is the belt-and-braces so no other entry point (a replayed settings profile,
+        # say) can smuggle the pair through. lambda_cost / lambda_logistic are safe to
+        # send unconditionally -- without a cost/logistic column the backend simply
+        # ignores them.
+        budget = if (nzchar(cost_col_selected())) num_or_null(input$budget) else NULL,
+        lambda_cost = input$lambda_cost, lambda_logistic = input$lambda_logistic,
         run_posterior_prediction = input$run_posterior_prediction, posterior_method = input$posterior_method,
         n_iter = input$n_iter, burn_in = input$burn_in, use_parallel = input$use_parallel,
         n_threads = if (isTRUE(input$use_parallel)) num_or_null(input$n_threads) else NULL,
@@ -1716,6 +1805,12 @@ workbench_server <- function(cfg) {
           as.integer(input$cross_sweep_k_max %||% 30) else input$n_crosses,
         max_crosses_per_parent = input$max_crosses_per_parent,
         dominance = isTRUE(input$poly_dominance),
+        # Forwarded ONLY on the explicit acknowledgement, never blind: the backend
+        # calls additive+dominance fitting research-only (one shared ridge penalty for
+        # both variance components) and refuses it without this flag. A dominance run
+        # with the box unticked is refused at the run gate
+        # (ngcd_experimental_dominance_message()), not quietly demoted to additive.
+        allow_experimental_dominance = isTRUE(input$poly_allow_experimental_dominance),
         gain = input$poly_gain %||% "mean",
         double_reduction = num_or_null(input$poly_double_reduction) %||% 0,
         grm_method = input$poly_grm_method %||% "vanraden",
@@ -1834,6 +1929,10 @@ workbench_server <- function(cfg) {
       clash_msg <- check_id_clash_message()
       if (!is.null(clash_msg)) {
         shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
+      }
+      combo_msg <- check_unsupported_combo_message()
+      if (!is.null(combo_msg)) {
+        shiny::showNotification(combo_msg, type = "error", duration = NULL); return()
       }
 
       # protect: never let this one-shot run's disk-pruning evict an active
@@ -1995,6 +2094,10 @@ workbench_server <- function(cfg) {
       clash_msg <- check_id_clash_message()
       if (!is.null(clash_msg)) {
         shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
+      }
+      combo_msg <- check_unsupported_combo_message()
+      if (!is.null(combo_msg)) {
+        shiny::showNotification(combo_msg, type = "error", duration = NULL); return()
       }
       if (is.null(rv$pipeline$run_dir)) rv$pipeline$run_dir <- ngcd_new_pipeline_dir(cfg)
       prog <- shiny::Progress$new(session); on.exit(prog$close())
@@ -2221,6 +2324,10 @@ workbench_server <- function(cfg) {
       clash_msg <- check_id_clash_message()
       if (!is.null(clash_msg)) {
         shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
+      }
+      combo_msg <- check_unsupported_combo_message()
+      if (!is.null(combo_msg)) {
+        shiny::showNotification(combo_msg, type = "error", duration = NULL); return()
       }
       prog <- shiny::Progress$new(session); on.exit(prog$close())
       prog$set(message = "Assembling configuration...", value = 0.1)
