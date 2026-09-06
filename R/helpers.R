@@ -556,17 +556,17 @@ ngcd_subgenome_demo_files <- function(cfg) {
        map = file.path(d, "marker_map.csv"), direction = NULL)
 }
 
-# Assemble the trait_checks spec data.frame from per-trait UI picks. Drops traits with no check
-# chosen; "auto" direction -> unset (NA), letting the backend default from the breeding direction
-# (see nextgenCrossDesign::ng_trait_check_spec, R/44_trait_checks.R).
-ngcd_build_trait_checks <- function(traits, checks, directions, bases) {
+# Assemble the backend's trait_checks data.frame from the per-trait pickers. There is no basis
+# column: the backend puts the check on the run's own mean_source, which is what keeps the
+# reference line on the same scale as the cross means it is drawn against.
+ngcd_build_trait_checks <- function(traits, checks, directions) {
   rows <- lapply(traits, function(t) {
     ck <- as.character(checks[[t]] %||% "")
     if (!nzchar(ck)) return(NULL)
     dir <- as.character(directions[[t]] %||% "auto")
     data.frame(trait = t, check = ck,
                direction = if (identical(dir, "auto")) NA_character_ else dir,
-               basis = as.character(bases[[t]] %||% "gebv"), stringsAsFactors = FALSE)
+               stringsAsFactors = FALSE)
   })
   rows <- Filter(Negate(is.null), rows)
   if (!length(rows)) return(NULL)
