@@ -149,3 +149,72 @@ test_that("mg css is a style tag", {
   expect_s3_class(ngcd_mg_css(), "shiny.tag")
   expect_true(grepl("ngcd-mg-dot", as.character(ngcd_mg_css())))
 })
+
+# --- Task 7: check reference line + P(beat check) opacity ------------------
+test_that("check line resolves for single trait and declines for a rank index", {
+  res <- list(trait_check_reference = list(
+    active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
+                        stringsAsFactors = FALSE),
+    values = list(yield = c(CHK_A = 6))))
+  expect_equal(ngcd_check_line(res, trait = "yield"), 6)
+
+  res_rank <- res
+  res_rank$trait_check_reference$active <- data.frame(
+    trait = c("yield", "protein"), check = "CHK_A", reject_if = "below",
+    stringsAsFactors = FALSE)
+  res_rank$trait_check_reference$values <- list(yield = c(CHK_A = 6), protein = c(CHK_A = 10))
+  res_rank$multi_trait <- list(method = "rank_threshold")
+  expect_true(is.na(ngcd_check_line(res_rank)))
+})
+
+test_that("the scatter carries a reference shape when a check line is given", {
+  df <- data.frame(pair_kinship = c(0.1, 0.2), multi_trait_score = c(9, 4),
+                   p_beat_check = c(0.98, 0.71), stringsAsFactors = FALSE)
+  # mean on y -> HORIZONTAL line spanning x
+  p <- ngcd_chart_mean_vs_diversity(df, check_line = 6, check_label = "CHK_A", mean_axis = "y")
+  expect_s3_class(p, "plotly")
+  sh <- p$x$layout$shapes
+  expect_true(length(sh) >= 1L)
+  expect_equal(sh[[1]]$y0, 6); expect_equal(sh[[1]]$y1, 6)
+  expect_equal(sh[[1]]$xref, "paper")
+
+  # mean on x (diversity-vs-mean scatter) -> VERTICAL line spanning y
+  pv <- ngcd_chart_mean_vs_diversity(df, check_line = 6, check_label = "CHK_A", mean_axis = "x")
+  shv <- pv$x$layout$shapes
+  expect_equal(shv[[1]]$x0, 6); expect_equal(shv[[1]]$x1, 6)
+  expect_equal(shv[[1]]$yref, "paper")
+
+  # no mean-bearing axis -> NO line at all
+  pn <- ngcd_chart_mean_vs_diversity(df, check_line = 6, check_label = "CHK_A", mean_axis = NULL)
+  expect_true(is.null(pn$x$layout$shapes) || length(pn$x$layout$shapes) == 0L)
+})
+
+test_that("marker opacity actually varies with p_beat_check (not a scalar)", {
+  df <- data.frame(pair_kinship = c(0.1, 0.2, 0.3), multi_trait_score = c(9, 4, 7),
+                   p_beat_check = c(0.98, 0.30, 0.65), stringsAsFactors = FALSE)
+  p <- ngcd_chart_mean_vs_diversity(df, mean_axis = NULL)
+  op <- p$x$attrs[[length(p$x$attrs)]]$marker$opacity
+  expect_length(op, 3L)
+  expect_true(length(unique(op)) > 1L)
+})
+
+test_that("mean_vs_diversity is empty-safe with no check configured", {
+  df <- data.frame(pair_kinship = c(0.1, 0.2), multi_trait_score = c(9, 4),
+                   stringsAsFactors = FALSE)
+  p <- ngcd_chart_mean_vs_diversity(df)
+  expect_s3_class(p, "plotly")
+  expect_true(is.null(p$x$layout$shapes) || length(p$x$layout$shapes) == 0L)
+})
+
+test_that("per-trait check panels draw one subplot per checked trait", {
+  df <- data.frame(pair_kinship = c(0.1, 0.2),
+                   yield_mean = c(9, 4), yield_check_value = 6,
+                   yield_check_ok = c(TRUE, FALSE),
+                   protein_mean = c(11, 13), protein_check_value = 10,
+                   protein_check_ok = c(TRUE, TRUE), stringsAsFactors = FALSE)
+  ref <- list(active = data.frame(trait = c("yield", "protein"), check = "CHK_A",
+                                  reject_if = "below", stringsAsFactors = FALSE))
+  p <- ngcd_chart_check_panels(df, ref)
+  expect_s3_class(p, "plotly")
+  expect_null(ngcd_chart_check_panels(df, NULL))      # no checks -> nothing to draw
+})

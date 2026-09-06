@@ -2389,7 +2389,32 @@ workbench_server <- function(cfg) {
     output$mg_conf  <- plotly::renderPlotly({ r <- res(); shiny::req(r)
       ngcd_chart_cross_confidence(r$selected_crosses) })
     output$mg_div   <- plotly::renderPlotly({ r <- res(); shiny::req(r)
+      # THE UNITS RULE (Task 7): multi_trait_score is an aggregate across traits -- never a
+      # per-trait mean -- so this chart never draws a check reference line on it. No mean_axis
+      # is ever passed into this call; per-trait lines live in mg_div_extra below instead.
       ngcd_chart_cross_diversity(r$candidate_crosses, r$selected_crosses) })
+    # Per-trait check reference panels (Task 7): a single index axis cannot honestly carry
+    # several check lines on different scales, so each checked trait gets its own facet, drawn
+    # below the main scatter. A run with no checks configured renders nothing here.
+    output$mg_div_extra <- shiny::renderUI({
+      r <- res(); shiny::req(r)
+      ref <- r$trait_check_reference
+      if (is.null(ref)) return(NULL)
+      panel <- ngcd_chart_check_panels(r$candidate_crosses, ref)
+      note <- if (is.null(panel) && is.na(ngcd_check_line(r)))
+        ngcd_callout(kind = "note",
+          "No single reference line applies to a rank-based index - see the per-trait panel below.")
+      else NULL
+      if (is.null(panel) && is.null(note)) return(NULL)
+      shiny::tagList(note,
+        if (!is.null(panel)) plotly::plotlyOutput("mg_div_panels", height = "320px"))
+    })
+    output$mg_div_panels <- plotly::renderPlotly({
+      r <- res(); shiny::req(r)
+      p <- ngcd_chart_check_panels(r$candidate_crosses, r$trait_check_reference)
+      shiny::req(p)
+      p
+    })
     output$mg_reliab <- plotly::renderPlotly({ r <- res(); shiny::req(r)
       ngcd_chart_trait_reliability(r$effect_summary) })
     # Results > Explore: four figures sharing one selection (see ui_explore.R).

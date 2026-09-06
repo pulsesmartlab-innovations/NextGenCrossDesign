@@ -356,10 +356,169 @@ ngcd_mg_guided_panel <- function(step = 1L) {
     shiny::span(class = "ngcd-mg-count", sprintf("Figure %d of %d", step, n)),
     shiny::div(class = "ngcd-mg-dots", dots), nav)
   extra <- if (identical(d$id, "dist")) shiny::uiOutput("mg_trait_ui") else NULL
+  after <- if (identical(d$id, "div")) shiny::uiOutput("mg_div_extra") else NULL
   bslib::card(
     bslib::card_header(d$title),
     header,
     shiny::p(class = "ngcd-mg-desc", d$desc),
     extra,
-    plotly::plotlyOutput(d$outputId, height = d$height))
+    plotly::plotlyOutput(d$outputId, height = d$height),
+    after)
+}
+
+# ===========================================================================
+# Task 7: check reference line + P(beat check) opacity.
+#
+# A check is a benchmark genotype (a released variety) that is never crossed
+# and contributes exactly one scalar reference value per trait, in that
+# trait's own units. THE UNITS RULE: a check's value may only be drawn on an
+# axis that carries THAT SAME TRAIT'S MEAN. `multi_trait_score` (the axis on
+# the main candidate-diversity scatter, ngcd_chart_cross_diversity()) is an
+# aggregate across traits -- never a per-trait mean, and under a usefulness
+# metric it is not a mean at all -- so no check line is ever drawn there;
+# callers pass mean_axis = NULL for that chart. A per-trait panel (y = a
+# single <trait>_mean) passes mean_axis = "y" and gets a horizontal line; a
+# view with the mean on x instead passes mean_axis = "x" and gets a vertical
+# one. mean_axis has no guessing default -- NULL means "draw nothing", not
+# "pick an axis for me".
+# ===========================================================================
+
+# The y (or x) value for the check reference line, or NA when no honest line
+# exists. A single checked trait resolves to that trait's own check value. A
+# linear multi-trait index (weighted / economic / desired-gain) is a fixed
+# combination of trait values, so summing the per-trait check values under
+# the same weights gives an approximate index-scale reference; a rank-based
+# index has no such closed form -- a check has no rank among candidates it
+# was never scored against -- so there is no line and the caller says so.
+# NOTE: this is a lightweight frontend approximation, not a reimplementation
+# of nextgenCrossDesign::ng_check_line_value() (which additionally gates on
+# trait_value_metric and reconciles a z-scored value/rank axis via
+# multi_trait_meta$value_centers/scales/signs -- inputs this app's `res` does
+# not currently carry). That is safe here because no chart in this file ever
+# draws a line on the aggregate multi_trait_score axis regardless of what
+# this function returns (mean_axis is hardcoded to NULL at that call site) --
+# this value's only live effect is whether to show the "no single reference
+# line" note for a rank-based index.
+ngcd_check_line <- function(res, trait = NULL) {
+  ref <- res$trait_check_reference
+  if (is.null(ref)) return(NA_real_)
+  spec <- as.data.frame(ref$active, stringsAsFactors = FALSE)
+  if (!nrow(spec)) return(NA_real_)
+  val <- function(tr) {
+    ck <- spec$check[[match(tr, spec$trait)]]
+    suppressWarnings(as.numeric(ref$values[[tr]][[ck]]))
+  }
+  if (!is.null(trait) || nrow(spec) == 1L) {
+    tr <- trait %||% spec$trait[[1L]]
+    if (!(tr %in% spec$trait)) return(NA_real_)
+    v <- val(tr)
+    return(if (length(v) && is.finite(v)) v else NA_real_)
+  }
+  meta <- res$multi_trait
+  if (!(as.character(meta$method %||% "") %in%
+        c("weighted", "economic_index", "desired_gain"))) return(NA_real_)
+  w <- meta$weights
+  tr <- intersect(spec$trait, names(w %||% character(0)))
+  if (!length(tr)) return(NA_real_)
+  v <- vapply(tr, val, numeric(1))
+  if (any(!is.finite(v))) return(NA_real_)
+  sum(v * as.numeric(w[tr]))
+}
+
+# Mean-by-diversity scatter with an optional check reference line. The check
+# has no diversity coordinate, so it is a line spanning the full length of
+# the OTHER axis, never a marker. Marker opacity carries P(beat check) when
+# present: without it every point below the line looks equally dead, when in
+# fact a high-variance cross below the check can still throw a superior
+# progeny. `mean_axis` has no guessing default (see THE UNITS RULE above):
+# only pass "y" or "x" when `y_col`/`x_col` genuinely carries that trait's
+# mean; NULL (the default) draws no line at all.
+ngcd_chart_mean_vs_diversity <- function(df, check_line = NULL, check_label = NULL,
+                                         mean_axis = NULL, x_col = "pair_kinship",
+                                         y_col = "multi_trait_score") {
+  if (!ngcd_has_cols(df, c(x_col, y_col))) return(ngcd_chart_empty())
+  pal <- ngcd_chart_palette()
+  op <- if ("p_beat_check" %in% names(df)) {
+    o <- suppressWarnings(as.numeric(df$p_beat_check))
+    ifelse(is.finite(o), pmax(0.25, pmin(1, o)), 0.6)
+  } else rep(0.8, nrow(df))
+  p <- plotly::plot_ly(x = df[[x_col]], y = df[[y_col]], type = "scatter", mode = "markers",
+                       marker = list(size = 9, opacity = op, color = pal[[1L]]),
+                       hoverinfo = "text",
+                       text = sprintf("%s: %.4g<br>%s: %.4g%s", x_col, df[[x_col]],
+                                      y_col, df[[y_col]],
+                                      if ("p_beat_check" %in% names(df))
+                                        sprintf("<br>P(beat check): %.2f", df$p_beat_check) else ""))
+  # The check has a value on the MEAN axis and none on the other, so the line is perpendicular
+  # to whichever axis carries the mean. A plot with no mean-bearing axis passes mean_axis = NULL
+  # and gets no line -- a reference on a rank-vs-rank or kinship-vs-kinship plot is meaningless.
+  if (!is.null(check_line) && is.finite(check_line) && !is.null(mean_axis)) {
+    mean_axis <- match.arg(mean_axis, c("y", "x"))
+    lab <- check_label %||% "reference"
+    stroke <- list(color = "#B00020", width = 2, dash = "dash")
+    shp <- if (identical(mean_axis, "y")) {
+      list(type = "line", xref = "paper", x0 = 0, x1 = 1,
+           y0 = check_line, y1 = check_line, line = stroke)
+    } else {
+      list(type = "line", yref = "paper", y0 = 0, y1 = 1,
+           x0 = check_line, x1 = check_line, line = stroke)
+    }
+    ann <- if (identical(mean_axis, "y")) {
+      list(xref = "paper", x = 1, y = check_line, xanchor = "right", yanchor = "bottom",
+           text = sprintf("check: %s", lab), showarrow = FALSE,
+           font = list(color = "#B00020", size = 11))
+    } else {
+      list(yref = "paper", y = 1, x = check_line, xanchor = "left", yanchor = "top",
+           text = sprintf("check: %s", lab), showarrow = FALSE,
+           font = list(color = "#B00020", size = 11))
+    }
+    p <- plotly::layout(p, shapes = list(shp), annotations = list(ann))
+  }
+  p <- plotly::layout(p, xaxis = list(title = "Diversity (pair kinship)", gridcolor = pal$grid),
+                      yaxis = list(title = "Predicted mean", gridcolor = pal$grid))
+  # plotly stores shapes/annotations lazily in layoutAttrs until the widget is built; force the
+  # build now so p$x$layout$shapes is populated for callers/tests that inspect it directly.
+  plotly::plotly_build(p)
+}
+
+# One facet per checked trait: y = that trait's mid-parent mean, x = diversity, each with its
+# own check line on its own scale, coloured grey when the cross fails the check and shaded by
+# P(beat check) opacity. This is where multi-trait checks live -- a single index axis cannot
+# carry several check lines honestly (see THE UNITS RULE). Reads <trait>_mean, <trait>_check_value,
+# <trait>_check_ok and <trait>_p_beat_check -- exactly the columns
+# nextgenCrossDesign::ng_attach_check_reference() attaches, verified against the installed
+# backend's own base-R equivalent, ng_plot_check_panels(). `column_key` on `active`, when
+# present, is the column-name stem (falls back to `trait`), matching the backend's own lookup --
+# `<trait>_mean`, never `<trait>_value` (a different, usefulness-scaled quantity).
+ngcd_chart_check_panels <- function(df, trait_check_reference, x_col = "pair_kinship") {
+  if (is.null(trait_check_reference)) return(NULL)
+  spec <- as.data.frame(trait_check_reference$active, stringsAsFactors = FALSE)
+  if (!nrow(spec) || !ngcd_has_cols(df, x_col)) return(NULL)
+  key <- if ("column_key" %in% names(spec)) as.character(spec$column_key) else as.character(spec$trait)
+  keep <- paste0(key, "_mean") %in% names(df)
+  traits <- spec$trait[keep]; key <- key[keep]
+  if (!length(traits)) return(NULL)
+  pal <- ngcd_chart_palette()
+  panels <- lapply(seq_along(traits), function(i) {
+    tr <- traits[[i]]; kk <- key[[i]]
+    ok_col <- paste0(kk, "_check_ok")
+    ok <- if (ok_col %in% names(df)) df[[ok_col]] else rep(TRUE, nrow(df))
+    p_col <- paste0(kk, "_p_beat_check")
+    op <- if (p_col %in% names(df)) {
+      o <- suppressWarnings(as.numeric(df[[p_col]]))
+      ifelse(is.finite(o), pmax(0.25, pmin(1, o)), 1)
+    } else rep(1, nrow(df))
+    p <- plotly::plot_ly(x = df[[x_col]], y = df[[paste0(kk, "_mean")]],
+                         type = "scatter", mode = "markers", name = tr,
+                         marker = list(size = 8, opacity = op,
+                                       color = ifelse(ok %in% FALSE, "#BBBBBB", pal[[1L]])))
+    tau <- suppressWarnings(as.numeric(df[[paste0(kk, "_check_value")]][[1L]]))
+    if (length(tau) && is.finite(tau)) {
+      p <- plotly::layout(p, shapes = list(list(
+        type = "line", xref = "paper", x0 = 0, x1 = 1, y0 = tau, y1 = tau,
+        line = list(color = "#B00020", width = 2, dash = "dash"))))
+    }
+    plotly::layout(p, yaxis = list(title = tr))
+  })
+  plotly::subplot(panels, nrows = 1L, titleY = TRUE, margin = 0.05)
 }
