@@ -19,7 +19,14 @@ line and encode `p_beat_check` as marker opacity.
 ## Global Constraints
 
 - Package: `nextgenCrossWorkbench`, version `0.26.0` → **`0.27.0`**.
-- **Backend floor: `nextgenCrossDesign >= 0.23.0`.** This plan cannot be tested end-to-end
+- **Backend floor: `nextgenCrossDesign >= 0.24.0` — a HARD gate, not bookkeeping.** Below
+  0.24.0 the column `<trait>_p_beat_check` exists but *means something different*: the
+  probability was computed by raising a shared posterior effect uncertainty to the k-th power,
+  which reported 0.9997 where the correct value is 0.678. A workbench that accepted an older
+  backend would present two incompatible quantities under one label. `check_pheno` and
+  `priority_check_weight` also do not exist below 0.24.0. Refuse to run, with a clear message
+  naming the installed version — do not degrade silently.
+  This plan cannot be tested end-to-end
   until the backend plan is merged; do the backend first.
 - **No `Co-Authored-By: Claude` trailer on any commit in this project.**
 - **Input-ID conservation guard.** The static input-ID set is baselined in
@@ -41,6 +48,36 @@ line and encode `p_beat_check` as marker opacity.
   directly — a default would report a probability computed from a number nobody chose. The UI
   must therefore collect it (Task 3) and block the run with a clear message rather than
   substituting a value.
+- **Render check outputs only when checks are configured.** The backend adds the check columns,
+  the `Checks` sheet and the panels only on a check run, so the workbench must not show an empty
+  panel, an empty sheet tab, or blank columns when no check is picked. Absence of the columns is
+  the signal — do not render a placeholder.
+- **Both run modes must behave identically.** The Run tab offers a gated, stage-by-stage flow
+  (`ng_run_stage()` over `qc -> predict -> index -> allocate -> rank`, one call per stage,
+  inspect between) and a single-click run. Same files, same parameters, same results — the only
+  difference is that the gated flow stops between stages. The backend guarantees byte-identity
+  (both drive the same `ng_cp_pipeline`), and `tests/staged_pipeline.R` now verifies it **with
+  checks configured**, so the frontend must not introduce a difference of its own: build ONE
+  config and hand it to whichever path the user chose.
+- **STAGE INVALIDATION — the gated flow is compute-once, so this is a correctness requirement,
+  not polish.** If a breeder completes all stages and then edits a check, the affected stages
+  must recompute. A stale check result looks entirely plausible, which puts it in the same
+  family as every silent-wrong-number defect this feature was built to prevent. Register:
+
+  | input | invalidates from |
+  |---|---|
+  | `f_check`, `f_check_pheno`, `check_id_col` | `index` |
+  | every `chk_<trait>` and `dir_<trait>` | `index` |
+  | `check_progeny_size` | `index` |
+  | `priority_check_weight` | `rank` |
+
+  `tests/testthat/test-pipeline-state.R:262` already reports any config key that invalidates no
+  stage as orphaned — make sure each key above is registered, and that the test sees them.
+- **Signal the joint probability's cost.** `p_beat_all_checks` runs a 150-draw Monte Carlo per
+  cross and only when more than one trait has a check — roughly 110 s per 10,000 candidate
+  crosses. In the gated flow that lands entirely inside the `index` stage card. Show progress or
+  a "this step is slower with multiple checks" note; an unexplained two-minute pause reads as a
+  hang.
 - Run one test file with
   `Rscript -e 'devtools::load_all("."); testthat::test_file("tests/testthat/test-<name>.R")'`.
 
@@ -756,14 +793,14 @@ In `R/report.R`, in the frontier/scatter section, add after the existing `plot()
 - [ ] **Step 2: Bump the version and the backend floor**
 
 `DESCRIPTION`: `Version: 0.27.0`, and raise the `nextgenCrossDesign` requirement to
-`(>= 0.23.0)`.
+`(>= 0.24.0)`.
 
 - [ ] **Step 3: Write the NEWS entry**
 
 ```markdown
 # nextgenCrossWorkbench 0.27.0
 
-* **Check lines are references, not filters.** Requires backend 0.23.0. Check genotypes are
+* **Check lines are references, not filters.** Requires backend 0.24.0. Check genotypes are
   uploaded in their own file (Data > Check lines) and are never crossed. Each trait's check
   appears as a reference line on the results scatter and as reference columns in the workbook.
 * The exclude-violators toggle and the check basis control are gone: nothing is dropped, and
@@ -832,7 +869,7 @@ pattern:
 ```r
 test_that("check reference surfaces end to end", {
   skip_if_not_installed("nextgenCrossDesign")
-  skip_if_not(utils::packageVersion("nextgenCrossDesign") >= "0.23.0")
+  skip_if_not(utils::packageVersion("nextgenCrossDesign") >= "0.24.0")
   res <- ngcd_e2e_fixture_run(with_checks = TRUE)
   expect_false(is.null(res$trait_check_reference))
   ct <- res$candidate_crosses
@@ -873,7 +910,7 @@ get exactly what they got before.
 Rscript -e 'devtools::load_all("."); testthat::test_file("tests/testthat/test-e2e-surfacing.R")'
 ```
 
-Expected: PASS (or a clean skip if backend 0.23.0 is not installed yet).
+Expected: PASS (or a clean skip if backend 0.24.0 is not installed yet).
 
 - [ ] **Step 3: Commit**
 
