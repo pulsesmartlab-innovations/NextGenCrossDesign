@@ -487,6 +487,10 @@ ngcd_coerce_backend_args <- function(raw) {
                  "family_size_total_progeny", "family_size_min", "family_size_max",
                  "multitrait_joint_prob", "multitrait_targets",
                  "pareto_explore", "pareto_lambdas",
+                 # check_id_col: which column of check_geno holds the check ID. Not a
+                 # backend formal (the backend takes an already-keyed matrix), but it is
+                 # consumed below to build that matrix -- see the check_geno block.
+                 "check_id_col",
                  "workflow", "run_dir", "stage")
   supplied  <- setdiff(names(raw), meta_keys)
   unknown   <- setdiff(supplied, formals_list)
@@ -554,10 +558,22 @@ ngcd_coerce_backend_args <- function(raw) {
   # trait_checks/marker_target_spec/lethal_spec, its column set is not fixed
   # (one column per marker), so the column names are taken from the first row
   # rather than passed to as_rows_df() as a literal vector.
+  #
+  # The ID column is `check_id_col` -- the user's own pick in the Data > Check lines
+  # importer, which the UI, the check picker and the check/parent clash guard all
+  # already honour. It is a META key (not an ng_run_cross_prediction() formal), so it
+  # lives on `raw` and never in `args_in`; read it from `raw`. Hardcoding column 1 here
+  # keyed the matrix by the wrong column whenever the breeder picked any other one, and
+  # the backend then failed with "trait_checks names check line(s) absent from
+  # check_geno" -- an error pointing nowhere near the cause. Column 1 stays the
+  # fallback for a config that carries no check_id_col (older config, in-process caller)
+  # or names a column the table does not have.
   if (!is.null(args_in$check_geno)) {
     cg <- args_in$check_geno
     if (!is.data.frame(cg)) cg <- as_rows_df(cg, names(cg[[1L]]))
-    id_col <- names(cg)[[1L]]
+    id_col <- raw$check_id_col
+    id_col <- if (is.character(id_col) && length(id_col) == 1L && id_col %in% names(cg))
+      id_col else names(cg)[[1L]]
     ids <- as.character(cg[[id_col]])
     m <- as.matrix(cg[, setdiff(names(cg), id_col), drop = FALSE])
     storage.mode(m) <- "numeric"

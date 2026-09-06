@@ -102,3 +102,35 @@ test_that("check_pheno JSON rows reshape into a proper data.frame, not a mangled
   expect_equal(out$check_pheno$NAME, c("CHK_A", "CHK_B"))
   expect_equal(out$check_pheno$yield, c(5.2, 6.1))
 })
+
+test_that("check_geno is keyed by the breeder's chosen check_id_col, not blindly by column 1", {
+  # Regression: the runner hardcoded id_col <- names(cg)[[1L]] while the UI, the
+  # per-trait check picker and the check/parent clash guard all honoured
+  # input$check_id_col. A breeder picking any column but the first got a matrix keyed
+  # by the wrong column, and the backend then failed with "trait_checks names check
+  # line(s) absent from check_geno" -- an error pointing nowhere near the cause.
+  coerce <- ngcd_runner_env()$ngcd_coerce_backend_args
+
+  # ID column SECOND (a marker column leads the file): the user's pick must win.
+  rows <- list(list(SNP_000 = 1, NAME = "CHK_A", SNP_001 = 0, SNP_002 = 2),
+               list(SNP_000 = 0, NAME = "CHK_B", SNP_001 = 2, SNP_002 = 1))
+  out <- coerce(list(check_geno = rows, check_id_col = "NAME"))
+  expect_true(is.matrix(out$check_geno))
+  expect_equal(rownames(out$check_geno), c("CHK_A", "CHK_B"))
+  expect_setequal(colnames(out$check_geno), c("SNP_000", "SNP_001", "SNP_002"))
+  expect_equal(unname(out$check_geno["CHK_B", "SNP_001"]), 2)
+  expect_null(out$check_id_col)   # meta key: consumed here, never sent to the backend
+  # ...and it is a recognised meta key, so it must not trip the "unrecognised
+  # config keys" warning either.
+  expect_silent(coerce(list(check_geno = rows, check_id_col = "NAME")))
+
+  # ID column FIRST: unchanged behaviour with no check_id_col (older config /
+  # in-process caller), and a check_id_col naming a column the table does not have
+  # falls back to column 1 rather than erroring.
+  rows1 <- list(list(NAME = "CHK_A", SNP_001 = 0, SNP_002 = 2),
+                list(NAME = "CHK_B", SNP_001 = 2, SNP_002 = 1))
+  expect_equal(rownames(coerce(list(check_geno = rows1))$check_geno), c("CHK_A", "CHK_B"))
+  expect_equal(rownames(coerce(list(check_geno = rows1,
+                                    check_id_col = "not_a_column"))$check_geno),
+               c("CHK_A", "CHK_B"))
+})

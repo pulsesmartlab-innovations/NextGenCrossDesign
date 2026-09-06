@@ -247,3 +247,47 @@ test_that("no trait_check reports never imply a cross can be excluded", {
   expect_true(grepl("still ranked", txt, fixed = TRUE) || grepl("still selectable", txt, fixed = TRUE)
               || grepl("reference only", txt, fixed = TRUE))
 })
+
+# The Task-9 crash fix: a REAL backend run returns n_not_evaluable and
+# n_pev_unavailable as per-trait NAMED LISTS (one entry per active trait -- see
+# ng_attach_check_reference() in the backend's R/51_check_reference.R), not the scalars
+# the hand-built fixtures above use. Passing a list where the old code expected a scalar
+# is exactly what crashed ngcd_diag_trait_check() on every 2+-trait check run; the list
+# branch of ng_diag_sum() is the fix and needs its own coverage. The scalar fixtures are
+# kept deliberately so the else branch stays covered too.
+test_that("per-trait list counts (the real backend shape) are summed across active traits", {
+  res <- list(trait_check_reference = list(
+    active = data.frame(trait = c("yield", "disease"), check = c("CHK_A", "CHK_B"),
+                        reject_if = c("below", "above"), stringsAsFactors = FALSE),
+    diagnostics = list(n_wrong_side = list(yield = 0L, disease = 0L),
+                       n_not_evaluable = list(yield = 1L, disease = 2L),
+                       n_pev_unavailable = list(yield = 3L, disease = 4L),
+                       n_candidates = 20L)))
+  items <- ngcd_diag_trait_check(res)
+
+  ne <- Filter(function(x) grepl("not evaluable", x$title), items)
+  expect_length(ne, 1L)
+  expect_match(ne[[1]]$title, "3 check comparison(s) were not evaluable", fixed = TRUE)  # 1 + 2
+
+  pev <- Filter(function(x) grepl("marker-effect uncertainty", x$title), items)
+  expect_length(pev, 1L)
+  expect_match(pev[[1]]$title, "7 cross(es)", fixed = TRUE)                              # 3 + 4
+  expect_equal(pev[[1]]$severity, "warn")
+})
+
+test_that("summing per-trait counts covers only the ACTIVE traits, and tolerates gaps", {
+  res <- list(trait_check_reference = list(
+    active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
+                        stringsAsFactors = FALSE),
+    # `protein` has a count but no active check: it must not be counted. `yield` is
+    # missing from n_pev_unavailable entirely: that must read as 0, not NA.
+    diagnostics = list(n_wrong_side = list(yield = 0L),
+                       n_not_evaluable = list(yield = 5L, protein = 11L),
+                       n_pev_unavailable = list(protein = 9L),
+                       n_candidates = 20L)))
+  items <- ngcd_diag_trait_check(res)
+  ne <- Filter(function(x) grepl("not evaluable", x$title), items)
+  expect_length(ne, 1L)
+  expect_match(ne[[1]]$title, "5 check comparison(s)", fixed = TRUE)
+  expect_length(Filter(function(x) grepl("marker-effect uncertainty", x$title), items), 0L)
+})

@@ -151,35 +151,6 @@ test_that("mg css is a style tag", {
 })
 
 # --- Task 7: check reference line + P(beat check) opacity ------------------
-test_that("check line resolves for single trait and declines for every multi-trait method", {
-  res <- list(trait_check_reference = list(
-    active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
-                        stringsAsFactors = FALSE),
-    values = list(yield = c(CHK_A = 6))))
-  expect_equal(ngcd_check_line(res, trait = "yield"), 6)
-
-  res_multi <- res
-  res_multi$trait_check_reference$active <- data.frame(
-    trait = c("yield", "protein"), check = "CHK_A", reject_if = "below",
-    stringsAsFactors = FALSE)
-  res_multi$trait_check_reference$values <- list(yield = c(CHK_A = 6), protein = c(CHK_A = 10))
-  # Real result-object shape, verified against the backend's assemble_result() output: there is
-  # no res$multi_trait field, only res$objective$method and res$settings$multi_trait_method (a
-  # plain string). A rank-based method has no closed-form check value; a linear method
-  # (weighted) is tempting to sum under its weights, but THE UNITS RULE forbids drawing any
-  # check line on the aggregate axis regardless of method -- both must return NA_real_.
-  res_rank <- res_multi
-  res_rank$objective <- list(method = "rank_threshold")
-  res_rank$settings <- list(multi_trait_method = "rank_threshold")
-  expect_true(is.na(ngcd_check_line(res_rank)))
-
-  res_weighted <- res_multi
-  res_weighted$objective <- list(method = "weighted")
-  res_weighted$settings <- list(multi_trait_method = "weighted",
-                                trait_weights = c(yield = 0.6, protein = 0.4))
-  expect_true(is.na(ngcd_check_line(res_weighted)))
-})
-
 test_that("the scatter carries a reference shape when a check line is given", {
   df <- data.frame(pair_kinship = c(0.1, 0.2), multi_trait_score = c(9, 4),
                    p_beat_check = c(0.98, 0.71), stringsAsFactors = FALSE)
@@ -230,4 +201,61 @@ test_that("per-trait check panels draw one subplot per checked trait", {
   p <- ngcd_chart_check_panels(df, ref)
   expect_s3_class(p, "plotly")
   expect_null(ngcd_chart_check_panels(df, NULL))      # no checks -> nothing to draw
+})
+
+# --- the mg_div_extra note: checks configured but no panel drawable ---------
+# ngcd_chart_check_panels() returns NULL only when no checked trait has a
+# "<key>_mean" column in candidate_crosses. That is degenerate, not impossible,
+# and a breeder who configured checks and sees an empty slot is owed a reason.
+# (Its earlier guard also called ngcd_check_line(), which errored on the real
+# JSON-boundary shape of trait_check_reference$values -- that helper is gone;
+# the condition is is.null(panel) alone.)
+local({
+  srv_cfg <- function() nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+  srv <- function() nextgenCrossWorkbench:::workbench_server(srv_cfg())
+
+  test_that("a check with no per-trait mean column renders the explanatory note", {
+    shiny::testServer(srv(), {
+      rv$result <- list(
+        candidate_crosses = data.frame(parent1 = "P01", parent2 = "P02",
+                                       pair_kinship = 0.1, multi_trait_score = 5,
+                                       stringsAsFactors = FALSE),
+        trait_check_reference = list(
+          active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
+                              stringsAsFactors = FALSE),
+          # unnamed, exactly as jsonlite delivers it across the bridge
+          values = list(yield = 60),
+          diagnostics = list(n_candidates = 1L)))
+      html <- as.character(output$mg_div_extra$html %||% output$mg_div_extra)
+      expect_true(nzchar(html))
+      expect_match(html, "no per-trait reference panel could be drawn")
+      expect_false(grepl("mg_div_panels", html, fixed = TRUE))  # no empty plot slot
+    })
+  })
+
+  test_that("a drawable check panel shows the plot and NO note", {
+    shiny::testServer(srv(), {
+      rv$result <- list(
+        candidate_crosses = data.frame(parent1 = "P01", parent2 = "P02",
+                                       pair_kinship = c(0.1, 0.2), yield_mean = c(9, 4),
+                                       yield_check_value = 6, yield_check_ok = c(TRUE, FALSE),
+                                       stringsAsFactors = FALSE),
+        trait_check_reference = list(
+          active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
+                              stringsAsFactors = FALSE),
+          values = list(yield = 6), diagnostics = list(n_candidates = 2L)))
+      html <- as.character(output$mg_div_extra$html %||% output$mg_div_extra)
+      expect_true(grepl("mg_div_panels", html, fixed = TRUE))
+      expect_false(grepl("no per-trait reference panel", html, fixed = TRUE))
+    })
+  })
+
+  test_that("no check configured renders nothing at all (checks stay optional)", {
+    shiny::testServer(srv(), {
+      rv$result <- list(candidate_crosses = data.frame(
+        parent1 = "P01", parent2 = "P02", pair_kinship = 0.1, multi_trait_score = 5,
+        stringsAsFactors = FALSE))
+      expect_null(output$mg_div_extra$html %||% output$mg_div_extra)
+    })
+  })
 })

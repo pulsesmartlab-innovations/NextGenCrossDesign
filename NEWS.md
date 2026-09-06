@@ -26,6 +26,14 @@
   Only the horizontal case (mean on y) has a consuming view today -- every check line a breeder
   sees is horizontal, on these per-trait panels. The vertical orientation is implemented and
   tested but unused; it is not part of this release's user-facing surface.
+* Fixed: the "Which column is the check ID?" picker in Data > Check lines is now honoured by
+  the run itself. Picking any column other than the first left the check genotypes keyed by
+  the wrong column and the run then failed with the backend's "trait_checks names check
+  line(s) absent from check_geno" -- an error pointing nowhere near the cause. Picking the
+  first column, or leaving the guess alone, behaved correctly and is unchanged.
+* Fixed: when checks are configured but the run carries no per-trait mean column for any
+  checked trait, the modelling-graphics panel now explains why no reference panel could be
+  drawn instead of leaving an empty slot (and no longer errors while trying to say so).
 
 # nextgenCrossWorkbench 0.26.0
 

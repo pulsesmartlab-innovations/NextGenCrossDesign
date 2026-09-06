@@ -1405,6 +1405,13 @@ workbench_server <- function(cfg) {
         # check_geno into the numeric matrix ng_run_cross_prediction() expects.
         check_geno = rv$data$check_geno,
         check_pheno = rv$data$check_pheno,
+        # ...keyed by THIS column. The check-ID picker (imp_id_sel("check_id_col")), the
+        # per-trait check picker and the check/parent clash guard all honour the breeder's
+        # pick, so the runner must too -- without it the runner fell back to column 1 and
+        # any other choice produced "trait_checks names check line(s) absent from
+        # check_geno" from the backend. A meta key, not a backend formal: the runner
+        # consumes it to build the matrix and drops it before calling the backend.
+        check_id_col = input$check_id_col,
         # The one influence a check is MEANT to have on the plan: at 0 (the
         # default) it is reporting only; raising it lets ng_rank_cross_priority()
         # (via its check_weight arg) drop a failing cross a priority tier
@@ -2401,11 +2408,22 @@ workbench_server <- function(cfg) {
       ref <- r$trait_check_reference
       if (is.null(ref)) return(NULL)
       panel <- ngcd_chart_check_panels(r$candidate_crosses, ref)
-      note <- if (is.null(panel) && is.na(ngcd_check_line(r)))
-        ngcd_callout(kind = "note",
-          "No single reference line applies to a multi-trait run - see the per-trait panel below when available.")
+      # A breeder who configured checks and gets no panel is owed a reason rather than
+      # silence. ngcd_chart_check_panels() returns NULL only when no checked trait has a
+      # "<key>_mean" column in candidate_crosses -- so say exactly that. The note is NOT
+      # about multi-trait runs: a multi-trait run with per-trait means gets one facet per
+      # checked trait (the check line never goes on the aggregate axis -- THE UNITS RULE,
+      # see R/ui_charts.R), so it draws a panel and no note.
+      # kind = "info": ngcd_callout() only accepts info/warn/error. The dead version of
+      # this branch passed kind = "note", which would have match.arg()-errored the whole
+      # mg_div_extra output the moment it ever ran -- a second latent crash hidden behind
+      # the same unreachable guard.
+      note <- if (is.null(panel))
+        ngcd_callout(kind = "info",
+          paste("Checks are configured, but no per-trait reference panel could be drawn:",
+                "this run carries no per-trait mean column for any checked trait.",
+                "The check comparison columns in the results table are unaffected."))
       else NULL
-      if (is.null(panel) && is.null(note)) return(NULL)
       shiny::tagList(note,
         if (!is.null(panel)) plotly::plotlyOutput("mg_div_panels", height = "320px"))
     })

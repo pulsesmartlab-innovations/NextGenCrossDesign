@@ -135,7 +135,12 @@ ngcd_res_with_check <- function() {
   res$trait_check_reference <- list(
     active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
                         stringsAsFactors = FALSE),
-    values = list(yield = c(CHK_A = 60)),
+    # `values` as it really arrives: the result crosses a JSON boundary, and jsonlite
+    # drops the names off atomic vectors, so this is an UNNAMED numeric per trait -- never
+    # c(CHK_A = 60). Nothing in the report reads it (the drawn value is the
+    # yield_check_value COLUMN above); it is kept here only so the fixture matches the
+    # real shape and cannot tempt a values[[check]] lookup back into existence.
+    values = list(yield = 60),
     diagnostics = list(n_candidates = nrow(res$candidate_crosses)))
   res
 }

@@ -381,43 +381,22 @@ ngcd_mg_guided_panel <- function(step = 1L) {
 # view with the mean on x instead passes mean_axis = "x" and gets a vertical
 # one. mean_axis has no guessing default -- NULL means "draw nothing", not
 # "pick an axis for me".
+#
+# There is deliberately NO helper that resolves "the" single check value out of
+# a result object. An earlier ngcd_check_line() did, reading
+# res$trait_check_reference$values[[trait]][[check]] -- but that shape only
+# exists in-process. The backend runs as a separate process and its result
+# crosses a JSON boundary, where jsonlite drops the names off atomic vectors,
+# so `values$yield` arrives unnamed (e.g. [55, null]) and [[check]] raised
+# "subscript out of bounds" on every real check run. It was also unreachable.
+# The per-trait value a panel actually draws is the `<key>_check_value` COLUMN
+# on candidate_crosses (see ngcd_chart_check_panels() below and
+# ngcd_fig_check_panels() in R/report.R) -- positional, name-free, JSON-safe.
+# Do not reintroduce a values[[check]] lookup. For a multi-trait run there is
+# no aggregate line to resolve anyway: a weighted sum of per-trait check values
+# is a mixed-unit quantity with no legitimate axis to sit on (THE UNITS RULE),
+# whatever the multi-trait method.
 # ===========================================================================
-
-# The y (or x) value for the check reference line, or NA when no honest line
-# exists. A single checked trait resolves to that trait's own check value.
-# A multi-trait run (more than one checked trait, no specific `trait` asked
-# for) always returns NA_real_, regardless of the multi-trait method
-# (weighted / economic_index / desired_gain / rank_threshold / ...): summing
-# per-trait check values under a linear index's weights would look tempting
-# for the linear methods, but THE UNITS RULE (see above) already forbids
-# drawing any check line on the aggregate axis, so that sum has nowhere
-# honest to be drawn and is not worth computing. There is deliberately no
-# branch here that inspects the multi-trait method at all -- an earlier
-# version tried to special-case the linear methods via `res$multi_trait`,
-# but that field does not exist on the result object (the real fields are
-# `res$objective$method` and `res$settings$multi_trait_method`), so the
-# branch silently never ran. Rather than wire it to the real fields, it is
-# removed: a weighted sum of per-trait check values is a mixed-unit
-# quantity and there is no legitimate axis to put it on. This value's only
-# live effect is whether to show the "no single reference line" note for a
-# multi-trait run (see the mg_div_extra note in app.R).
-ngcd_check_line <- function(res, trait = NULL) {
-  ref <- res$trait_check_reference
-  if (is.null(ref)) return(NA_real_)
-  spec <- as.data.frame(ref$active, stringsAsFactors = FALSE)
-  if (!nrow(spec)) return(NA_real_)
-  val <- function(tr) {
-    ck <- spec$check[[match(tr, spec$trait)]]
-    suppressWarnings(as.numeric(ref$values[[tr]][[ck]]))
-  }
-  if (!is.null(trait) || nrow(spec) == 1L) {
-    tr <- trait %||% spec$trait[[1L]]
-    if (!(tr %in% spec$trait)) return(NA_real_)
-    v <- val(tr)
-    return(if (length(v) && is.finite(v)) v else NA_real_)
-  }
-  NA_real_
-}
 
 # Mean-by-diversity scatter with an optional check reference line. The check
 # has no diversity coordinate, so it is a line spanning the full length of

@@ -696,7 +696,10 @@ ngcd_stage_key_patterns <- list(
     # inside the same ng_cp__stage_index -- changing the check genotype (or
     # phenotype, for a phenotype-mean-sourced trait) must invalidate index (and
     # everything downstream), the same as trait_checks/check_progeny_size above.
-    "trait_checks", "check_progeny_size", "check_geno", "check_pheno",
+    # check_id_col: which check_geno column keys the matrix the runner builds. Changing
+    # it re-keys the check lines, so it invalidates index for exactly the same reason
+    # check_geno itself does.
+    "trait_checks", "check_progeny_size", "check_geno", "check_pheno", "check_id_col",
     "marker_target_spec", "lambda_marker"),
   allocate = c(
     "n_crosses", "max_crosses_per_parent",

@@ -273,7 +273,8 @@ ngcd_fig_scatter <- function(res) {
 # its own scale. Never drawn on ngcd_fig_scatter's multi_trait_score axis --
 # that is an aggregate across traits (and, for non-linear multi-trait methods,
 # not even in the same units as any one trait's mean), and THE UNITS RULE
-# (see R/ui_charts.R, ngcd_check_line()) forbids a check line there regardless
+# (see the header comment above ngcd_chart_check_panels() in R/ui_charts.R)
+# forbids a check line there regardless
 # of how many traits are checked. A cross on the worse side of the line is
 # drawn grey, never omitted -- a check is a reference, not a filter, and this
 # figure must not look like one. Mirrors the interactive
