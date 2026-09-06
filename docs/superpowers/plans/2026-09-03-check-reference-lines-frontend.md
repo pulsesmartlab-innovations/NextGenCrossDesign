@@ -1097,6 +1097,33 @@ git commit -m "release: nextgenCrossWorkbench 0.27.0 — check reference lines"
 ### Task 9: End-to-end verification against the real backend
 
 **Files:**
+
+**Before anything else: `tests/testthat/test-e2e-surfacing.R` encodes the OLD model and must be
+rewritten, not merely repaired.** It is skipped unless `NGCD_RUN_COMBINATIONS=1`, so it has gone
+stale invisibly. Line 35 currently reads:
+
+```r
+trait_checks = list(list(trait = "yield", check = "P01", direction = NULL))
+```
+
+`P01` is a **parent**. That single line is the veto-era design in miniature — back when a check was
+just another parent you compared against. Under the redesign a check is never a parent, so this
+now trips the clash refusal Task 4 added. Three further problems in the same test:
+
+- no `check_geno` — the backend hard-errors "trait_checks needs check_geno";
+- no `check_progeny_size` — likewise a hard error;
+- the version guard at line 14 still says `>= "0.14.0"`, the veto release. It must be `0.24.0`.
+
+Rewrite it to the reference-only model: a check line that is **not** in the parent file, supplied
+through `check_geno`, with an explicit `check_progeny_size`. Then assert what the redesign
+actually produces — the per-trait reference value, `vs_check` with its direction-aware sign, and
+`<trait>_p_beat_check` within [0, 1].
+
+**This test now runs rather than skips**: backend 0.24.1 is installed locally, so
+`backend_available()` is TRUE and the version guard passes. Run it with
+`NGCD_RUN_COMBINATIONS=1` and report real output — a skipped e2e test verifies nothing, and this
+one skipped its way through an entire model change.
+
 - Test: `tests/testthat/test-e2e-surfacing.R`
 
 - [ ] **Step 1: Extend the e2e test**
