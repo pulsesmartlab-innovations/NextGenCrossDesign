@@ -774,9 +774,39 @@ ngcd_diag_trait_check <- function(res) {
       "The check line had no value on the source this run used for that trait.",
       "Give the check a record on that source, or pick a check line that is measured.")))
   }
+  npev <- suppressWarnings(as.integer(d$n_pev_unavailable %||% 0L))
+  if (is.finite(npev) && npev > 0L) {
+    out <- c(out, list(ngcd_diag_item("trait_check", "warn",
+      sprintf("%d cross(es) had no marker-effect uncertainty available", npev),
+      paste("For these, P(beat check) used within-family variance only, with no posterior",
+            "uncertainty in the marker effects. That makes the probability too confident --",
+            "it reads closer to 0 or 1 than the evidence supports."),
+      "Treat those probabilities as an upper bound on certainty; prefer crosses whose estimate carries full uncertainty.")))
+  }
+  note <- ref$p_beat_all_checks_note
+  if (!is.null(note) && nzchar(as.character(note)[[1L]])) {
+    out <- c(out, list(ngcd_diag_item("trait_check", "note",
+      "P(beat all checks) is a Monte Carlo approximation",
+      as.character(note)[[1L]],
+      "Use it to compare crosses, not as an exact probability. The per-trait P(beat check) columns are closed-form and exact.")))
+  }
   out
 }
 ```
+
+**Two of these fields were found by reading the backend, not by reading this plan** — surface them
+even though the test above does not exercise them, and add assertions for both:
+
+- `d$n_pev_unavailable` — when marker-effect uncertainty is missing for some crosses, P(beat check)
+  falls back to within-family variance alone. That is the *same* failure mode as the pre-0.24.0
+  bug this whole feature exists to fix (a probability too close to 1 because shared uncertainty was
+  not propagated), just confined to those crosses. A breeder must be told. This is the one item
+  here that is a `warn`, not a `note`.
+- `ref$p_beat_all_checks_note` — the joint probability's caveat (Monte Carlo draw count and error,
+  the diagonal-PEV approximation, clipping to the marginal minimum). The backend deliberately
+  promoted this out of an attribute that, in its own words, "nothing downstream ever read". If the
+  frontend does not surface it, it goes back to being read by nothing. It is `NULL` on a
+  single-check run, where `p_beat_all_checks` does not exist — handle that.
 
 - [ ] **Step 4: Run test to verify it passes**
 
