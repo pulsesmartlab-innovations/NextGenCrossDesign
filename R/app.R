@@ -2403,7 +2403,7 @@ workbench_server <- function(cfg) {
       panel <- ngcd_chart_check_panels(r$candidate_crosses, ref)
       note <- if (is.null(panel) && is.na(ngcd_check_line(r)))
         ngcd_callout(kind = "note",
-          "No single reference line applies to a rank-based index - see the per-trait panel below.")
+          "No single reference line applies to a multi-trait run - see the per-trait panel below when available.")
       else NULL
       if (is.null(panel) && is.null(note)) return(NULL)
       shiny::tagList(note,

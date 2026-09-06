@@ -384,21 +384,23 @@ ngcd_mg_guided_panel <- function(step = 1L) {
 # ===========================================================================
 
 # The y (or x) value for the check reference line, or NA when no honest line
-# exists. A single checked trait resolves to that trait's own check value. A
-# linear multi-trait index (weighted / economic / desired-gain) is a fixed
-# combination of trait values, so summing the per-trait check values under
-# the same weights gives an approximate index-scale reference; a rank-based
-# index has no such closed form -- a check has no rank among candidates it
-# was never scored against -- so there is no line and the caller says so.
-# NOTE: this is a lightweight frontend approximation, not a reimplementation
-# of nextgenCrossDesign::ng_check_line_value() (which additionally gates on
-# trait_value_metric and reconciles a z-scored value/rank axis via
-# multi_trait_meta$value_centers/scales/signs -- inputs this app's `res` does
-# not currently carry). That is safe here because no chart in this file ever
-# draws a line on the aggregate multi_trait_score axis regardless of what
-# this function returns (mean_axis is hardcoded to NULL at that call site) --
-# this value's only live effect is whether to show the "no single reference
-# line" note for a rank-based index.
+# exists. A single checked trait resolves to that trait's own check value.
+# A multi-trait run (more than one checked trait, no specific `trait` asked
+# for) always returns NA_real_, regardless of the multi-trait method
+# (weighted / economic_index / desired_gain / rank_threshold / ...): summing
+# per-trait check values under a linear index's weights would look tempting
+# for the linear methods, but THE UNITS RULE (see above) already forbids
+# drawing any check line on the aggregate axis, so that sum has nowhere
+# honest to be drawn and is not worth computing. There is deliberately no
+# branch here that inspects the multi-trait method at all -- an earlier
+# version tried to special-case the linear methods via `res$multi_trait`,
+# but that field does not exist on the result object (the real fields are
+# `res$objective$method` and `res$settings$multi_trait_method`), so the
+# branch silently never ran. Rather than wire it to the real fields, it is
+# removed: a weighted sum of per-trait check values is a mixed-unit
+# quantity and there is no legitimate axis to put it on. This value's only
+# live effect is whether to show the "no single reference line" note for a
+# multi-trait run (see the mg_div_extra note in app.R).
 ngcd_check_line <- function(res, trait = NULL) {
   ref <- res$trait_check_reference
   if (is.null(ref)) return(NA_real_)
@@ -414,15 +416,7 @@ ngcd_check_line <- function(res, trait = NULL) {
     v <- val(tr)
     return(if (length(v) && is.finite(v)) v else NA_real_)
   }
-  meta <- res$multi_trait
-  if (!(as.character(meta$method %||% "") %in%
-        c("weighted", "economic_index", "desired_gain"))) return(NA_real_)
-  w <- meta$weights
-  tr <- intersect(spec$trait, names(w %||% character(0)))
-  if (!length(tr)) return(NA_real_)
-  v <- vapply(tr, val, numeric(1))
-  if (any(!is.finite(v))) return(NA_real_)
-  sum(v * as.numeric(w[tr]))
+  NA_real_
 }
 
 # Mean-by-diversity scatter with an optional check reference line. The check
@@ -433,6 +427,17 @@ ngcd_check_line <- function(res, trait = NULL) {
 # progeny. `mean_axis` has no guessing default (see THE UNITS RULE above):
 # only pass "y" or "x" when `y_col`/`x_col` genuinely carries that trait's
 # mean; NULL (the default) draws no line at all.
+#
+# This is the tested implementation of the orientation rule above
+# (mean_axis = "y" -> horizontal line, "x" -> vertical), kept for a future
+# view with diversity on y and the mean on x, which does not exist yet. It
+# is deliberately NOT wired into the main candidate scatter (mg_div, built
+# by ngcd_chart_cross_diversity() below): that scatter also overlays the
+# selected crosses as a second trace via ngcd_chart_cross_diversity(cc, sc),
+# a parameter this function has no equivalent for, and its y-axis
+# (multi_trait_score) is an aggregate across traits that may never carry a
+# check line anyway (THE UNITS RULE). Swapping it in would silently drop
+# the "Selected" overlay.
 ngcd_chart_mean_vs_diversity <- function(df, check_line = NULL, check_label = NULL,
                                          mean_axis = NULL, x_col = "pair_kinship",
                                          y_col = "multi_trait_score") {

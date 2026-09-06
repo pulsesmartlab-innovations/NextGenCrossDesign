@@ -151,20 +151,33 @@ test_that("mg css is a style tag", {
 })
 
 # --- Task 7: check reference line + P(beat check) opacity ------------------
-test_that("check line resolves for single trait and declines for a rank index", {
+test_that("check line resolves for single trait and declines for every multi-trait method", {
   res <- list(trait_check_reference = list(
     active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
                         stringsAsFactors = FALSE),
     values = list(yield = c(CHK_A = 6))))
   expect_equal(ngcd_check_line(res, trait = "yield"), 6)
 
-  res_rank <- res
-  res_rank$trait_check_reference$active <- data.frame(
+  res_multi <- res
+  res_multi$trait_check_reference$active <- data.frame(
     trait = c("yield", "protein"), check = "CHK_A", reject_if = "below",
     stringsAsFactors = FALSE)
-  res_rank$trait_check_reference$values <- list(yield = c(CHK_A = 6), protein = c(CHK_A = 10))
-  res_rank$multi_trait <- list(method = "rank_threshold")
+  res_multi$trait_check_reference$values <- list(yield = c(CHK_A = 6), protein = c(CHK_A = 10))
+  # Real result-object shape, verified against the backend's assemble_result() output: there is
+  # no res$multi_trait field, only res$objective$method and res$settings$multi_trait_method (a
+  # plain string). A rank-based method has no closed-form check value; a linear method
+  # (weighted) is tempting to sum under its weights, but THE UNITS RULE forbids drawing any
+  # check line on the aggregate axis regardless of method -- both must return NA_real_.
+  res_rank <- res_multi
+  res_rank$objective <- list(method = "rank_threshold")
+  res_rank$settings <- list(multi_trait_method = "rank_threshold")
   expect_true(is.na(ngcd_check_line(res_rank)))
+
+  res_weighted <- res_multi
+  res_weighted$objective <- list(method = "weighted")
+  res_weighted$settings <- list(multi_trait_method = "weighted",
+                                trait_weights = c(yield = 0.6, protein = 0.4))
+  expect_true(is.na(ngcd_check_line(res_weighted)))
 })
 
 test_that("the scatter carries a reference shape when a check line is given", {
