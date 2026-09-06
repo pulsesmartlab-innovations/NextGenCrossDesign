@@ -81,6 +81,21 @@ line and encode `p_beat_check` as marker opacity.
 - Run one test file with
   `Rscript -e 'devtools::load_all("."); testthat::test_file("tests/testthat/test-<name>.R")'`.
 
+**Every task runs the WHOLE suite before committing, not just its own test file.**
+
+```
+NOT_CRAN=true Rscript -e 'suppressMessages(pkgload::load_all(".", quiet=TRUE)); testthat::test_dir("tests/testthat", reporter="summary")'
+```
+
+`NOT_CRAN=true` is required or the `skip_on_cran()` tests silently do not run. Record the
+pass/fail counts before and after your change and account for any difference. This constraint
+exists because Task 1 passed its own test file while leaving 19 tests erroring elsewhere: it
+removed a function's argument, and the plan had deferred that function's only caller to Task 3.
+
+**A signature change and its call sites land in ONE task.** If your task changes a function's
+formals, it also updates every caller, in the same commit — even when a later task is scheduled
+to rewrite that call site anyway. Never leave the branch red for a later task to clean up.
+
 ---
 
 ### Task 1: `ngcd_build_trait_checks()` drops `bases`
