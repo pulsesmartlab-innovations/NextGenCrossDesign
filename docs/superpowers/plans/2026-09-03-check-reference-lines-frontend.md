@@ -96,6 +96,27 @@ removed a function's argument, and the plan had deferred that function's only ca
 formals, it also updates every caller, in the same commit — even when a later task is scheduled
 to rewrite that call site anyway. Never leave the branch red for a later task to clean up.
 
+**Backend contract, read off installed nextgenCrossDesign 0.24.1 (`R/39_cross_prediction_runner.R`,
+`R/36_cross_priority.R`) — these are the real names and rules, not guesses:**
+
+| config key | rule |
+|---|---|
+| `check_geno` | **required whenever `trait_checks` is non-NULL.** The runner hard-errors: "trait_checks needs check_geno". |
+| `check_pheno` | optional; only consulted for traits whose mean source is phenotype. A GEBV-sourced trait never reads it. |
+| `trait_checks` | a **data.frame** with `trait` + `check` columns (optional `direction`). Not a list of lists. |
+| `check_progeny_size` | **required whenever `trait_checks` is non-NULL** — the runner hard-errors otherwise. It is the k in P(beat check), the number of progeny the breeder would grow. Never hard-code it; the user supplies it. |
+| `check_records` | optional explicit per-trait values; wins over `check_pheno` where both are given. |
+| `priority_check_weight` | numeric, default **0**, must be `>= 0`. The runner forwards it as `check_weight` to `ng_rank_cross_priority()`. At 0 the check is reporting-only: the priority component is gated on `check_weight > 0`, not on column presence. |
+
+Two hard preconditions the frontend must respect:
+
+1. **`prediction_mode` must be `trait_by_trait`** — checks are keyed by trait. Both `single` and
+   `multi` objective modes map to `trait_by_trait`, so both qualify; an index run does not.
+2. **A check ID must not also be a parent ID.** The runner intersects `rownames(check_geno)` with
+   `rownames(geno)` and errors on any clash. A breeder who leaves a released variety in both the
+   parent file and the check file hits this — catch it in the frontend with a message naming the
+   clashing IDs, rather than surfacing a raw backend error.
+
 ---
 
 ### Task 1: `ngcd_build_trait_checks()` drops `bases`
