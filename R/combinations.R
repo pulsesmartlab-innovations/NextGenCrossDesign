@@ -98,7 +98,12 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
   # not offer them either (see multi_trait_method in app.R) -- this sweep exists to
   # exercise combinations a breeder can actually build.
   methods  <- c("auto", "weighted")
-  ucsrc    <- c("reliable_family_variance", "family_variance", "parent_distance")
+  # parent_distance is deliberately absent: it is a legitimate trait_value_metric (and is
+  # swept as one, above) but NOT a usefulness variance source -- genomic distance is not a
+  # trait variance, and the backend hard-errors on it. The UI does not offer it as a
+  # uc_variance_source either (see R/app.R and the backend capability registry, which both
+  # list only family_variance / reliable_family_variance).
+  ucsrc    <- c("reliable_family_variance", "family_variance")
   divspecs <- list(c("strategy", "high_gain"), c("strategy", "balanced"), c("strategy", "diversity"),
                    c("emphasis", "15"), c("emphasis", "50"), c("emphasis", "85"), c("target", "0.05"))
 
@@ -182,7 +187,7 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
   metrics <- c("mid_parent_mean", "family_variance", "reliable_family_variance", "usefulness", "parent_distance")
   optims  <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
   methods <- c("auto", "weighted")   # see ngcd_combo_list(): P/G-requiring methods are unreachable
-  ucsrc   <- c("reliable_family_variance", "family_variance", "parent_distance")
+  ucsrc   <- c("reliable_family_variance", "family_variance")  # see ngcd_combo_list(): parent_distance is not a variance
   pick <- function(x) x[sample.int(length(x), 1L)]
   combos <- vector("list", n)
   for (i in seq_len(n)) {
@@ -191,6 +196,15 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
     # In index_as_trait mode the index IS the objective; a multi-trait method
     # does not apply, so keep it at the default.
     if (pmode == "index_as_trait") method <- "auto"
+    # lambda_mating and lambda_progeny_inbreeding are two knobs on ONE axis: both
+    # penalize parent-pair relatedness (immediate progeny inbreeding) and their effects
+    # ADD, so the backend hard-errors when both are set. Draw the axis value once and
+    # assign it to exactly one of the two, so each is explored independently -- which is
+    # also all the app can produce (build_params() sends neither key alongside the other).
+    # Note the sweep never sets mate_relatedness, so it also cannot produce the sibling
+    # invalid pairing (mate_relatedness != "off" together with a raw lambda_mating).
+    rel_lambda <- round(stats::runif(1, 0, 0.1), 3)
+    rel_knob   <- pick(c("lambda_mating", "lambda_progeny_inbreeding"))
     ov <- list(
       prediction_mode = pmode,
       trait_value_metric = pick(metrics),
@@ -208,9 +222,9 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
       n_crosses = sample(3:30, 1L),
       max_crosses_per_parent = sample(1:8, 1L),
       lambda_group = round(stats::runif(1, 0, 0.2), 3),
-      lambda_mating = round(stats::runif(1, 0, 0.1), 3),
+      lambda_mating = if (identical(rel_knob, "lambda_mating")) rel_lambda else NULL,
       lambda_parent_use = round(stats::runif(1, 0, 0.1), 3),
-      lambda_progeny_inbreeding = round(stats::runif(1, 0, 0.1), 3),
+      lambda_progeny_inbreeding = if (identical(rel_knob, "lambda_progeny_inbreeding")) rel_lambda else NULL,
       ld_pruning = stats::runif(1) < 0.2,
       grm = NULL)
     if (method == "weighted") {

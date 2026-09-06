@@ -34,7 +34,7 @@ test_that("polyploid design runner returns a plan, summary and QC", {
   system2("Rscript", c(runner, cfgp, resp), stdout = FALSE, stderr = FALSE)
 
   res <- jsonlite::fromJSON(resp, simplifyVector = TRUE)
-  expect_true(isTRUE(res$ok))
+  expect_true(isTRUE(res$ok), info = res$error_message)
   expect_true(isTRUE(res$poly_design))
   expect_equal(as.integer(res$ploidy), 4L)
   expect_equal(nrow(res$selected_crosses), 8L)

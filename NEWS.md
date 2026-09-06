@@ -63,6 +63,13 @@
   reliable. Suitable for exploring heterosis, not for selection decisions. Requesting dominance
   without the acknowledgement refuses the run and says why; it is never silently downgraded to
   additive-only scoring.
+* `run_combination_tests()`'s sweep no longer generates two configurations the backend
+  refuses and the app cannot build: `uc_variance_source = "parent_distance"` (genomic
+  distance is not a trait variance -- `parent_distance` remains a valid *cross-scoring
+  metric*, and is still swept as one) and `lambda_mating` set together with
+  `lambda_progeny_inbreeding` (two knobs on one axis, whose effects add). Each relatedness
+  lambda is now explored on its own. Sweep results are otherwise unchanged in kind, though
+  the random draw composition shifts.
 
 # nextgenCrossWorkbench 0.26.0
 

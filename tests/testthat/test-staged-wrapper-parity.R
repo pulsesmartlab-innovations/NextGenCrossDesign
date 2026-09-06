@@ -45,7 +45,7 @@ test_that("workflow=stage staged run matches a full run for the same config", {
   system2("Rscript", c(runner, cfgA, resA), stdout = FALSE, stderr = FALSE)
   expect_true(file.exists(resA))
   resultA <- jsonlite::fromJSON(resA, simplifyVector = TRUE)
-  expect_true(isTRUE(resultA$ok))
+  expect_true(isTRUE(resultA$ok), info = resultA$error_message)
 
   # ---- staged run: qc -> predict -> index -> allocate -> rank over one run_dir ----
   run_dir <- file.path(rd, "stage_run"); dir.create(run_dir, recursive = TRUE)
@@ -62,7 +62,7 @@ test_that("workflow=stage staged run matches a full run for the same config", {
   }
   expect_true(file.exists(resB))
   resultB <- jsonlite::fromJSON(resB, simplifyVector = TRUE)
-  expect_true(isTRUE(resultB$ok))
+  expect_true(isTRUE(resultB$ok), info = resultB$error_message)
 
   # Strip fields that legitimately differ run-to-run (timestamps) before comparing.
   stab <- function(x) {

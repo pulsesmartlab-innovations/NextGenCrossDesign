@@ -90,7 +90,7 @@ test_that("single-trait run with NO checks surfaces risk/portfolio end to end (c
   ngcd_e2e_skip_guards()
 
   res <- ngcd_e2e_run(ngcd_e2e_cfg(with_checks = FALSE))
-  expect_true(isTRUE(res$ok))
+  expect_true(isTRUE(res$ok), info = res$error_message)
 
   # a check is optional: with none supplied, the reference block is simply absent, and no
   # per-cross check column leaks in.
@@ -124,8 +124,8 @@ test_that("check reference surfaces end to end as a reference, not a filter, dir
 
   res0 <- ngcd_e2e_run(ngcd_e2e_cfg(with_checks = FALSE))
   res  <- ngcd_e2e_run(ngcd_e2e_cfg(with_checks = TRUE))
-  expect_true(isTRUE(res0$ok))
-  expect_true(isTRUE(res$ok))
+  expect_true(isTRUE(res0$ok), info = res0$error_message)
+  expect_true(isTRUE(res$ok), info = res$error_message)
 
   ct0 <- res0$candidate_crosses
   ct  <- res$candidate_crosses

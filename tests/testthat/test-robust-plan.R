@@ -22,13 +22,29 @@ test_that("robust allocation returns a robust plan alongside the standard plan",
     phenotype_id_col = "NAME", genotype_id_col = "NAME", direction_trait_col = "Trait",
     direction_column_col = "Trait", direction_direction_col = "Selection_direction",
     map_marker_col = "SNP_code", map_chr_col = "Chromosome",
-    map_pos_bp_col = "Position_BP", map_position_unit = "bp",
+    # bp positions are physical, not genetic: the backend refuses to treat them as
+    # centimorgans without an explicit bp:cM ratio. 1e6 (1 Mb per cM) is the app's own
+    # default (NGCD_BP_PER_CM_DEFAULT) and what R/combinations.R uses for this same demo
+    # map, so every demo-data fixture stays on one genetic scale (the demo's four
+    # chromosomes span ~30-42 Mb, i.e. ~30-42 cM at this ratio).
+    map_pos_bp_col = "Position_BP", map_position_unit = "bp", bp_per_cm = 1e6,
     prediction_mode = "trait_by_trait", multi_trait_method = "auto",
     trait_value_metric = "pmv", progeny = "DH", parent_type = "inbred",
     duplicate_action = "none",
     run_posterior_prediction = TRUE, posterior_method = "closed_form", n_iter = 12, burn_in = 4,
     n_crosses = 7, max_crosses_per_parent = 4, optimizer = "greedy_local",
     allocation_method = "ocs", use_ocs = TRUE, seed = 1,
+    # NOTE (unresolved, reported not papered over): 0.25 is the app's OWN default and the
+    # midpoint of its 0.05-0.50 slider, but ng_optimize_robust_mating_plan() can only serve
+    # a quantile that is an EXACT cached posterior tail -- (1 - ci_level)/2 = 0.025 or
+    # 0.975 at ng_posterior_cross_predict()'s ci_level = 0.95, which
+    # ng_run_cross_prediction() does not expose. Anything else needs
+    # allow_normal_approximation = TRUE, which the frontend never sends. So no value this
+    # slider can produce yields a robust plan today, and the assertions below fail on
+    # rp$error. The backend guard is correct (it refuses to fabricate a quantile the draws
+    # do not support); the frontend is what needs a product decision. Left as a live,
+    # loudly-reported failure on purpose -- do NOT "fix" it by writing 0.025 here, which
+    # would green the test on a config the UI cannot build.
     robust_allocation = TRUE, robustness_quantile = 0.25,
     robust_objective = "posterior_quantile")
 
@@ -39,12 +55,17 @@ test_that("robust allocation returns a robust plan alongside the standard plan",
   system2("Rscript", c(runner, cfgp, resp), stdout = FALSE, stderr = FALSE)
 
   res <- jsonlite::fromJSON(resp, simplifyVector = TRUE)
-  expect_true(isTRUE(res$ok))
+  expect_true(isTRUE(res$ok), info = res$error_message)
   rp <- res$robust_plan
-  expect_false(is.null(rp))
-  expect_null(rp$error)
-  expect_equal(nrow(rp$crosses), 7L)
-  expect_true(all(c("parent1", "parent2") %in% names(rp$crosses)))
-  expect_true(!is.null(rp$summary$robust_objective))
-  expect_equal(rp$n_shared_with_standard + rp$n_changed, 7L)
+  expect_false(is.null(rp), info = "runner returned no robust_plan block at all")
+  # The runner degrades a refused robust re-optimization to robust_plan$error rather than
+  # failing the run, so EVERY assertion below must carry that message -- otherwise the
+  # whole block fails mutely (which is exactly how the bp_per_cm defect hid for two
+  # releases). See the note above robustness_quantile in the config.
+  why <- rp$error %||% ""
+  expect_null(rp$error, info = why)
+  expect_equal(nrow(rp$crosses), 7L, info = why)
+  expect_true(all(c("parent1", "parent2") %in% names(rp$crosses)), info = why)
+  expect_true(!is.null(rp$summary$robust_objective), info = why)
+  expect_equal(rp$n_shared_with_standard + rp$n_changed, 7L, info = why)
 })

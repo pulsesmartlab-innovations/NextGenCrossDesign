@@ -71,7 +71,7 @@ test_that("staged disomic-subgenome run matches a one-shot run for the same conf
   m1 <- runit(c(list(workflow = "subgenome_design"), data_cols), resA)
   expect_true(file.exists(resA), info = paste(m1$msg, collapse = "\n"))
   resultA <- jsonlite::fromJSON(resA, simplifyVector = TRUE)
-  expect_true(isTRUE(resultA$ok))
+  expect_true(isTRUE(resultA$ok), info = resultA$error_message)
 
   # ---- staged: qc -> predict -> index -> allocate -> rank over one run_dir ---
   run_dir <- file.path(rd, "stage_run"); dir.create(run_dir, recursive = TRUE)
@@ -84,7 +84,7 @@ test_that("staged disomic-subgenome run matches a one-shot run for the same conf
                 info = paste0("stage '", s, "':\n", paste(m$msg, collapse = "\n")))
   }
   resultB <- jsonlite::fromJSON(resB, simplifyVector = TRUE)
-  expect_true(isTRUE(resultB$ok))
+  expect_true(isTRUE(resultB$ok), info = resultB$error_message)
 
   # Strip run-to-run fields (timestamps/version), then compare the whole envelope.
   stab <- function(x) { x$generated_at <- NULL; x$package_version <- NULL; x }
