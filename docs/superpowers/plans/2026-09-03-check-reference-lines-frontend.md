@@ -507,6 +507,26 @@ In `R/app.R`, add `check_geno = rv$data$check_geno`, `check_pheno = rv$data$chec
 `check_progeny_size = input$check_progeny_size` to the backend args next to `trait_checks`,
 and delete the `check_basis` / `exclude_threshold_violators` entries.
 
+- [ ] **Step 4b: Register the keys you just created**
+
+Until this task, `check_geno` and `check_pheno` lived only in `rv$data` and were **not**
+`build_params()` keys — Task 3 correctly left them out of the stage registry for that reason.
+**Your task turns them into config keys**, so registering them is now yours: a config key that
+invalidates no stage is exactly the stale-render bug the registry prevents, and
+`tests/testthat/test-pipeline-state.R:262` reports it.
+
+Add `check_geno` and `check_pheno` to `ngcd_stage_key_patterns$index` in `R/helpers.R`. `index` is
+correct because the backend consumes both inside `ng_cp__stage_index` — that is where the check
+reference value and every P(beat check) column are computed.
+
+Task 3 already registered `trait_checks` and `check_progeny_size` under `index`. Do not duplicate
+them; confirm they are there.
+
+Then run the whole suite and confirm the orphan test still passes.
+
+Test: changing the check genotype file after a completed run marks `index` (and downstream)
+stale, not `rank` alone.
+
 - [ ] **Step 4a: Refuse a check ID that is also a parent ID, before the backend sees it**
 
 The backend intersects `rownames(check_geno)` with `rownames(geno)` and hard-errors on any
@@ -610,11 +630,15 @@ registry by Task 3, in the same commit that deletes their UI inputs and their en
 `test-pipeline-state.R` params fixture — those three must move together or the orphan test fails.
 If you find them still present, Task 3 is incomplete: say so rather than deleting them here.
 
-**Register what is genuinely new**, mapped to `index`: the check genotype file, the check
-phenotype file, the check ID column, the per-trait check selections, and `check_progeny_size`.
-Note these are **config keys**, which are not always the same string as the Shiny input id —
-find how the check inputs are collected into `params` and register the key names that actually
-appear there.
+**Most of this is already done — your job is to verify the set is complete, not to redo it.**
+Task 3 registered `trait_checks` and `check_progeny_size` under `index`; Task 4 registered
+`check_geno` and `check_pheno` under `index`. Confirm all four are present and under `index`.
+
+Then close the gap: enumerate every remaining check-related **config key** that reaches
+`build_params()` and register any that invalidates no stage. Note that config keys are not always
+the same string as the Shiny input id — `chk_<trait>` and `dir_<trait>` are inputs that feed the
+`trait_checks` data.frame rather than keys in their own right, so check what actually appears in
+`params` before registering anything. Register nothing that does not appear there.
 
 `tests/testthat/test-pipeline-state.R:262` reports any config key that invalidates no stage.
 Confirm it sees each new key and still passes.
