@@ -274,7 +274,7 @@ git commit -m "feat(import): check-line genotype file as its own guided import c
 ### Task 3: Repoint the pickers at the check file; delete the basis control
 
 **Files:**
-- Modify: `R/app.R:1109` (`trait_check_pickers`), `R/app.R:1258` (the `ngcd_build_trait_checks` call), `R/app.R:366-372` (the panel copy)
+- Modify: `R/app.R:1109` (`trait_check_pickers`), `R/app.R:1258` (the `ngcd_build_trait_checks` call), `R/app.R:366-372` (the panel copy), `R/app.R:381` + `R/app.R:1265` (the exclude toggle), `R/helpers.R:659` (registry)
 - Test: `tests/testthat/test-trait-checks.R`
 
 **Interfaces:**
@@ -354,8 +354,27 @@ and the helpText below the panel header:
         shiny::helpText("Reference only — checks are never crossed and never change the plan."),
 ```
 
-Delete the `exclude_threshold_violators` checkbox, the `check_basis` select, and every
-`basis_<trait>` input.
+Delete the `exclude_threshold_violators` checkbox (`R/app.R:381`), the `check_basis` select,
+and every `basis_<trait>` input, plus the `exclude_threshold_violators` forwarding at
+`R/app.R:1265`.
+
+**A deleted config key must be deleted in three places at once, or the branch goes red.**
+`tests/testthat/test-pipeline-state.R:262` asserts that every key in the params fixture
+invalidates at least one stage. So `check_basis` and `exclude_threshold_violators` must lose,
+in this same commit:
+
+1. their UI inputs and forwarding in `R/app.R` (above);
+2. their entries in `ngcd_stage_key_patterns$index` — `R/helpers.R:659` currently reads
+   `"trait_checks", "check_basis", "exclude_threshold_violators",` and must keep only
+   `"trait_checks",`;
+3. their entries in the params fixture at `tests/testthat/test-pipeline-state.R:184`, which
+   currently reads `check_basis = "gebv", exclude_threshold_violators = FALSE,`.
+
+Drop any one of the three and the orphan test fails: a fixture key with no owning stage, or a
+registry pattern for a key nobody sets.
+
+Also update `tests/testthat/test-e2e-surfacing.R:35`, which builds a `trait_checks` entry with a
+`basis = "gebv"` field that no longer exists.
 
 Add the progeny-size input immediately above the pickers — it has no default value, so the
 breeder must type their own number:
@@ -532,10 +551,10 @@ about to hit the same hazard, twice:
 - `rank` already has the glob `priority_*_weight`, which **already matches
   `priority_check_weight`**. Confirm this by running the orphan test; do not add a redundant entry.
 
-**One entry must be DELETED:** `index` lists `"check_basis"`. The basis concept was removed from
-the backend in 0.23.0 and from `ngcd_build_trait_checks()` in Task 1. Remove `"check_basis"` from
-the `index` vector. (Leave `exclude_threshold_violators` alone — that belongs to the
-threshold-probability feature, not to checks.)
+**Deletions are NOT yours.** `check_basis` and `exclude_threshold_violators` are removed from the
+registry by Task 3, in the same commit that deletes their UI inputs and their entries in the
+`test-pipeline-state.R` params fixture — those three must move together or the orphan test fails.
+If you find them still present, Task 3 is incomplete: say so rather than deleting them here.
 
 **Register what is genuinely new**, mapped to `index`: the check genotype file, the check
 phenotype file, the check ID column, the per-trait check selections, and `check_progeny_size`.
