@@ -507,25 +507,47 @@ tier without ever excluding it. Forward it in the backend args next to `trait_ch
 
 Test: the arg is forwarded; absent or 0, the tiers are unchanged.
 
-- [ ] **Step 3: Register stage invalidation for every check input**
+- [ ] **Step 3: Register stage invalidation for the check config keys**
 
 The Run tab is compute-once: a breeder can complete all five stages, then edit a check. If the
 affected stages do not recompute, they are shown a stale check result — which looks entirely
-correct. Register:
+correct.
 
-| input | invalidates from |
-|---|---|
-| `f_check`, `f_check_pheno`, `check_id_col` | `index` |
-| every `chk_<trait>`, `dir_<trait>` | `index` |
-| `check_progeny_size` | `index` |
-| `priority_check_weight` | `rank` |
+The registry is `ngcd_stage_key_patterns` in **`R/helpers.R:628`** (not `R/config.R`). It maps a
+stage to glob patterns; `*` is a glob anchored against the whole key, anything else is exact.
 
-`tests/testthat/test-pipeline-state.R:262` already reports any config key invalidating no stage as
-orphaned. Read how existing keys are registered and follow that mechanism exactly — do not invent
-a parallel one. Confirm the orphaned-key test sees each new key.
+**Read `R/helpers.R:615-627` before you touch it.** The comment there records that entries were
+deliberately made *more specific than a prefix* so a key never lands in more than the one stage it
+belongs to — `lambda_marker` and `min_effect_reliability` are the two worked examples. You are
+about to hit the same hazard, twice:
 
-Test: editing a check input after a completed run marks `index` (and downstream) stale; editing
-`priority_check_weight` marks only `rank` stale.
+1. **Do NOT add `"dir_*"` to `index`.** `qc` already owns `direction_file`, `direction_trait_col`,
+   `direction_column_col`, `direction_direction_col` — every one of which `dir_*` matches. A
+   direction key would then invalidate both `qc` and `index`. Enumerate the per-trait direction
+   keys explicitly, or give them a prefix that cannot collide.
+2. Check `chk_*` against every existing key before adding it.
+
+**Two entries are already handled — verify rather than duplicate:**
+- `index` already lists `trait_checks`. Nothing to add for it.
+- `rank` already has the glob `priority_*_weight`, which **already matches
+  `priority_check_weight`**. Confirm this by running the orphan test; do not add a redundant entry.
+
+**One entry must be DELETED:** `index` lists `"check_basis"`. The basis concept was removed from
+the backend in 0.23.0 and from `ngcd_build_trait_checks()` in Task 1. Remove `"check_basis"` from
+the `index` vector. (Leave `exclude_threshold_violators` alone — that belongs to the
+threshold-probability feature, not to checks.)
+
+**Register what is genuinely new**, mapped to `index`: the check genotype file, the check
+phenotype file, the check ID column, the per-trait check selections, and `check_progeny_size`.
+Note these are **config keys**, which are not always the same string as the Shiny input id —
+find how the check inputs are collected into `params` and register the key names that actually
+appear there.
+
+`tests/testthat/test-pipeline-state.R:262` reports any config key that invalidates no stage.
+Confirm it sees each new key and still passes.
+
+Test: editing a check config key after a completed run marks `index` (and downstream) stale;
+editing `priority_check_weight` marks only `rank` stale; no check key invalidates two stages.
 
 - [ ] **Step 4: Signal the joint probability's cost**
 
