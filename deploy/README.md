@@ -37,7 +37,7 @@ A pre-built, **multi-arch** image (`linux/amd64` + `linux/arm64`) is published t
 GitHub Container Registry:
 
 ```
-ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.24.0   # (also :latest)
+ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.32.0   # (also :latest)
 ```
 
 `application.yml` already points at this path, so on most hosts you do **not**
@@ -74,13 +74,13 @@ tarballs** copied into the build context (no GitHub token ends up in the image).
 R CMD build /path/to/nextgenCrossDesignR
 
 # 2. Build the front-end tarball (from a checkout of THIS repo)
-#    -> produces nextgenCrossWorkbench_0.24.0.tar.gz
+#    -> produces nextgenCrossWorkbench_0.32.0.tar.gz
 R CMD build .
 
 # 3. Put both tarballs at the repo root (the build context) and build the image
-docker build -t ngcd-workbench:0.24.0 \
+docker build -t ngcd-workbench:0.32.0 \
   --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.18.0.tar.gz \
-  --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.24.0.tar.gz \
+  --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.32.0.tar.gz \
   -f deploy/Dockerfile .
 ```
 
@@ -104,11 +104,11 @@ docker buildx create --name ngcd-builder --driver docker-container --use
 echo <PAT-with-write:packages> | docker login ghcr.io -u <user> --password-stdin
 docker buildx build --builder ngcd-builder \
   --platform linux/amd64,linux/arm64 \
-  -t ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.24.0 \
+  -t ghcr.io/pulsesmartlab-innovations/ngcd-workbench:0.32.0 \
   -t ghcr.io/pulsesmartlab-innovations/ngcd-workbench:latest \
   --push \
   --build-arg BACKEND_TARBALL=nextgenCrossDesign_0.18.0.tar.gz \
-  --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.24.0.tar.gz \
+  --build-arg FRONTEND_TARBALL=nextgenCrossWorkbench_0.32.0.tar.gz \
   -f deploy/Dockerfile .
 ```
 
