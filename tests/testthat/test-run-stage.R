@@ -64,7 +64,7 @@ test_that("qc -> predict -> index -> allocate -> rank over one pipeline dir accu
 
   # rank carries the full ng_run_result.v1 payload, not a per-stage figure JSON
   expect_false(is.null(results$rank$result))
-  expect_true(isTRUE(results$rank$result$ok))
+  expect_true(isTRUE(results$rank$result$ok), info = results$rank$result$error_message)
   expect_true(is.data.frame(results$rank$result$selected_crosses))
   expect_true(nrow(results$rank$result$selected_crosses) > 0)
 

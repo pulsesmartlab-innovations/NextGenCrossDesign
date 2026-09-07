@@ -155,6 +155,23 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               bslib::layout_columns(col_widths = c(6, 6),
                 shiny::checkboxInput("poly_dominance", "Model dominance (heterosis)", FALSE),
                 shiny::selectInput("poly_gain", "Cross value", c("mean", "usefulness"), selected = "mean")),
+              # Explicit experimental opt-in. The backend
+              # (ng_polyploid_fit_effects) refuses additive+dominance fitting unless
+              # allow_experimental_dominance = TRUE, because one ridge penalty is
+              # shared by both variance components. Blind-forwarding that flag would
+              # opt every breeder into a research-only mode without telling them, and
+              # hiding the checkbox would remove a real capability -- so the control
+              # stays and this acknowledgement, in the backend's own words, is what
+              # forwards the flag. See ngcd_experimental_dominance_message().
+              shiny::conditionalPanel("input.poly_dominance == true",
+                shiny::checkboxInput("poly_allow_experimental_dominance",
+                  "I understand dominance fitting is experimental (research diagnostics only)", FALSE),
+                shiny::div(class = "help-hint",
+                  "The additive and dominance variance components currently share a single ridge ",
+                  "penalty, so how much of the genetic variance is called additive versus dominance ",
+                  "is not reliable. Use it to explore heterosis, not to make selection decisions. ",
+                  "Without this box ticked the run is refused rather than silently scored on ",
+                  "additive effects only.")),
               bslib::layout_columns(col_widths = c(6, 6),
                 shiny::selectInput("poly_grm_method", "GRM method", c("vanraden", "yang"), selected = "vanraden"),
                 shiny::numericInput("poly_double_reduction", "Double reduction (0..1/6)", 0, min = 0, max = 0.2, step = 0.01)),
@@ -199,6 +216,26 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                   bslib::card(bslib::card_header("4 · Trait direction (optional)"),
                     shiny::fileInput("f_dir", "Trait direction CSV", accept = c(".csv", ".txt", ".tsv")),
                     shiny::uiOutput("dir_step")))),
+              shiny::conditionalPanel("input.workflow == 'standard'",
+                shiny::tags$div(id = "imp-check",
+                  bslib::card(bslib::card_header("5 · Check lines (optional)"),
+                    shiny::fileInput("f_check", "Check genotype CSV",
+                                     accept = c(".csv", ".txt", ".tsv")),
+                    shiny::fileInput("f_check_pheno", "Check phenotype CSV",
+                                     accept = c(".csv", ".txt", ".tsv")),
+                    shiny::div(class = "help-hint",
+                      "Standard varieties you benchmark against. They are ",
+                      shiny::tags$b("never crossed"),
+                      " - they appear as a reference line on the results charts and as ",
+                      "reference columns in the workbook. The genotype file needs the same ",
+                      "markers and coding as your parents; the phenotype file needs the same ",
+                      "trait columns as your phenotype file. ",
+                      shiny::tags$b("Supply both if you have them"),
+                      " - the run decides which it needs, so the check is always measured the ",
+                      "same way as the parents it is compared against. Without the phenotype ",
+                      "file, a run that scores on phenotypes has no value for the check and ",
+                      "reports it as not evaluable."),
+                    shiny::uiOutput("check_step")))),
               shiny::div(class = "help-hint", style = "margin-top:8px",
                 "Alignment options (drop rows/markers that don't line up across files):"),
               shiny::checkboxInput("restrict_shared_markers",
@@ -206,7 +243,31 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::checkboxInput("restrict_shared_ids",
                 "Use only parents present in BOTH genotype and phenotype", FALSE),
               shiny::checkboxInput("drop_noninbred_parents",
-                "Exclude non-inbred parents (>2% heterozygous markers) for the DH/RIL model", FALSE)))),
+                "Exclude non-inbred parents (>2% heterozygous markers) for the DH/RIL model", FALSE)),
+              # Deliberately OUTSIDE the `data_source == 'upload'` panel above: P and G
+              # are never one of the demo tables and never can be (they are a property
+              # of the breeding programme's own trial history, not of a marker or
+              # phenotype file), so a breeder trying the formal indices on the demo data
+              # must still be able to bring their own.
+              shiny::conditionalPanel("input.workflow == 'standard'",
+                shiny::tags$div(id = "imp-cov",
+                  bslib::card(bslib::card_header("6 \u00b7 Trait covariance matrices (optional)"),
+                    shiny::fileInput("f_pcov", "Phenotypic covariance (P) CSV",
+                                     accept = c(".csv", ".txt", ".tsv")),
+                    shiny::fileInput("f_gcov", "Genetic covariance (G) CSV",
+                                     accept = c(".csv", ".txt", ".tsv")),
+                    shiny::div(class = "help-hint",
+                      "Needed only for the two ", shiny::tags$b("formal selection indices"),
+                      " on the Selection objective screen: ",
+                      shiny::tags$b("Economic index (Smith-Hazel)"), " needs both P and G; ",
+                      shiny::tags$b("Desired gains (Pesek-Baker)"), " needs G alone. Leave both ",
+                      "empty for Automatic or Relative weights - those never use them. ",
+                      "Each file is a ", shiny::tags$b("square traits x traits table"),
+                      ": the trait names in the first column AND as the column headers, ",
+                      "variances on the diagonal, covariances off it, in your traits' own ",
+                      "units. The order does not matter - the labels are what count, and ",
+                      "they travel with every value all the way to the engine."),
+                    shiny::uiOutput("cov_step")))))),
         bslib::card(bslib::card_header("Input data (editable)"),
           bslib::navset_tab(
             bslib::nav_panel("Genotype", DT::DTOutput("edit_geno")),
@@ -256,7 +317,25 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                             shiny::tags$b("Multiple traits"), " (usual choice for more than one trait): the app scores each trait and combines them into a computed selection index. ",
                             shiny::tags$b("Use my selection-index column"), ": use only if your phenotype file already has one pre-built, trusted selection-index column - not the same as the index this app computes for you."),
             shiny::tags$li("For multiple traits, tick the traits to include (leave all ticked to use every trait)."),
-            shiny::tags$li(shiny::tags$b("Multi-trait method"), ": start with ", shiny::tags$code("Automatic"), ". Use ", shiny::tags$code("Relative weights"), " if you have relative trait weights; ", shiny::tags$code("Economic weights"), " / ", shiny::tags$code("Desired gains"), " if your direction file carries economic weights.")),
+            shiny::tags$li(shiny::tags$b("Multi-trait method"), ": start with ", shiny::tags$code("Automatic"),
+                            " - it ranks each trait and combines the ranks with equal weight. Use ",
+                            shiny::tags$code("Relative weights"),
+                            " if some traits should count for more, and type the weights in the box. ",
+                            "Both of those are rank sums: they respect your ordering of the traits, but they ",
+                            "know nothing about the traits' variances, heritabilities or genetic correlations."),
+            shiny::tags$li(shiny::tags$b("Economic index (Smith-Hazel)"), " and ",
+                            shiny::tags$b("Desired gains (Pesek-Baker)"),
+                            " are true selection indices and DO use that information. They need two things: ",
+                            "a column in your trait-direction file (",
+                            shiny::tags$code("economic_weight"), " for the economic index, ",
+                            shiny::tags$code("desired_change"), " for desired gains), and the covariance ",
+                            "matrices you upload on the Data screen - the economic index needs both the ",
+                            "phenotypic (P) and genetic (G) matrices, desired gains needs G alone. ",
+                            "With ", shiny::tags$code("Automatic"), " selected, either column switches the ",
+                            "run to the matching index on its own."),
+            shiny::tags$li("Whichever you pick, the note under the Method dropdown says exactly what is ",
+                            "still missing, and a run is never started against a matrix that cannot ",
+                            "produce a valid index.")),
           shiny::tags$p(class = "help-hint", "Direction is set in your trait-direction file - e.g. yield increases, disease decreases.")),
           next_hint = "Prediction & scoring - how each cross is valued."),
         bslib::layout_columns(col_widths = c(6, 6),
@@ -274,15 +353,31 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::selectInput("index_direction", "Index direction", c("increase","decrease")))),
           bslib::card(bslib::card_header("Multi-trait method"),
             shiny::conditionalPanel("input.objective_mode == 'multi'",
+              # economic_index (Smith-Hazel, b = P^-1 G a) and desired_gain
+              # (Pesek-Baker, b = G^-1 d) are the only two REAL selection indices here:
+              # "weighted" is a rank sum, scale-invariant but magnitude-blind, with no
+              # P, no G, no heritabilities and no genetic correlations. Both were
+              # dropped from this list while the app had no way to collect P and G, so
+              # every run with either was a guaranteed hard error. The Data screen now
+              # collects them (card 6), so both are offered again -- and stay offered
+              # whatever is loaded: the note underneath says which matrix is missing
+              # rather than hiding a method the breeder asked for. The run gate refuses
+              # with the same sentence (ngcd_index_method_message()).
+              #
+              # threshold stays dropped: the backend capability registry declares it
+              # (so the registry merge would append it) but
+              # ng_breeder_selection_objective() rejects it outright -- "method must be
+              # one of: auto, weighted, economic_index, desired_gain".
               shiny::selectInput("multi_trait_method", "Method",
                 ngcd_control_choices(cfg$backend_registry, "multi_trait_method",
                   c("Automatic" = "auto", "Relative weights" = "weighted",
-                    "Economic weights" = "economic_index", "Desired gains" = "desired_gain")), selected = "auto"),
+                    "Economic index (Smith-Hazel)" = "economic_index",
+                    "Desired gains (Pesek-Baker)" = "desired_gain"),
+                  drop = c("threshold")), selected = "auto"),
               shiny::conditionalPanel("input.multi_trait_method == 'weighted'",
                 shiny::textAreaInput("trait_weights", "Trait weights ('trait: value' per line)",
-                                     placeholder = "yield: 0.5\ndisease: 0.5", height = "90px"))),
-            shiny::tags$p(class = "help-hint",
-              "Economic weights and desired-gain VALUES are read from your trait-direction file, not entered here."),
+                                     placeholder = "yield: 0.5\ndisease: 0.5", height = "90px")),
+              shiny::uiOutput("multitrait_index_note")),
             shiny::tags$b("Threshold handling"),
             shiny::selectInput("threshold_policy", "Threshold policy", ngcd_control_choices(cfg$backend_registry, "threshold_policy", c("soft","strict"))),
             shiny::numericInput("threshold_penalty_weight", "Threshold penalty weight", 1, min = 0, step = 0.1),
@@ -369,18 +464,30 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
         ngcd_guide("Configure", "Cross filters & genetic constraints", shiny::tagList(
           shiny::tags$p("Screen candidate crosses before allocation - flag or drop weak ones, steer toward useful alleles, and guard against lethal combinations."),
           shiny::tags$ul(
-            shiny::tags$li(shiny::tags$b("Trait-check veto"), ": flags (or excludes) crosses whose mid-parent value for a trait falls on the worse side of your check line, on either GEBV or phenotype basis. Active for Single-trait and Multiple-trait modes only."),
+            shiny::tags$li(shiny::tags$b("Check lines"),
+              ": shows, per trait, whether the mid-parent of each cross lands on the good side ",
+              "of a standard variety you benchmark against - as a reference line on the charts ",
+              "and as columns in the workbook. It never removes or reorders a cross."),
             shiny::tags$li(shiny::tags$b("Marker steering"), ": nudge the plan toward or away from target allele frequencies at named markers."),
             shiny::tags$li(shiny::tags$b("Lethal-allele guard"), ": excludes carrier x carrier matings for named recessive-lethal markers.")),
           shiny::tags$p(class = "help-hint", "Leave everything off/default if you don't have check lines or marker targets to apply.")),
           next_hint = "Mate allocation - turn scores into a mating plan."),
-        shiny::helpText("Flag/exclude crosses whose mid-parent for a trait is on the worse side of a check line."),
+        shiny::helpText("Reference only - checks are never crossed and never change the plan."),
         shiny::helpText(class = "help-hint",
           "Active for Single-trait and Multiple-trait modes; ignored when you use your own selection-index column."),
-        shiny::selectInput("check_basis", "Comparison basis", c("GEBV" = "gebv", "Phenotype" = "phenotype")),
-        shiny::checkboxInput("exclude_threshold_violators", "Exclude violating crosses from the plan", FALSE),
         shiny::checkboxInput("include_trait_gebv", "Include per-trait mid-parent GEBV in the Excel workbook", FALSE),
+        shiny::numericInput("check_progeny_size",
+          "Progeny per family you will raise", value = NA, min = 1, step = 10),
+        shiny::div(class = "help-hint",
+          "Used only for the ", shiny::tags$b("P(beat check)"), " column: the chance a cross ",
+          "throws at least one line past the check. There is no default - the number has to be ",
+          "yours, because raising 50 progeny and raising 500 give different answers."),
         shiny::uiOutput("trait_check_pickers"),
+        shiny::numericInput("priority_check_weight",
+          "Priority weight for check failures", value = 0, min = 0, step = 0.05),
+        shiny::div(class = "help-hint",
+          "At 0 (the default) a check is reporting only. Raise it to let a cross that fails ",
+          "its check(s) drop a priority tier - it is never excluded outright."),
         bslib::accordion(open = FALSE,
           bslib::accordion_panel("Marker steering & lethal guarding",
             shiny::textAreaInput("marker_target_spec", "Marker targets ('marker,direction,target_freq,weight')", "", height = "70px"),
@@ -519,12 +626,26 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
             bslib::card(bslib::card_header("OCS penalties & optimizer internals (advanced)"),
               shiny::div(class = "help-hint",
                 "Raw escape hatch for power users. lambda_group is plan-wide diversity (axis A); ",
-                "lambda_mating is per-cross relatedness (axis B) and BYPASSES the Mate-relatedness ",
-                "guardrail — setting lambda_mating together with an inbreeding penalty is a hard error. ",
-                "Prefer the Diversity dial and the Mate-relatedness control above."),
+                "lambda_mating is per-cross relatedness (axis B) — the SAME axis as the ",
+                "Mate-relatedness control above, so only one of the two can be in effect. ",
+                "Choosing any Mate-relatedness behaviour takes over that axis and lambda_mating ",
+                "is not sent. Prefer the Diversity dial and the Mate-relatedness control above."),
               bslib::layout_columns(col_widths = c(3,3,3,3),
                 shiny::numericInput("lambda_group", "lambda_group", 0.05, step = 0.01),
-                shiny::numericInput("lambda_mating", "lambda_mating", 0, step = 0.01),
+                # lambda_mating and mate_relatedness are two knobs on one axis and the
+                # backend hard-errors when both arrive ("Set per-cross relatedness via
+                # EITHER mate_relatedness OR the raw lambda_mating ... not both").
+                # build_params() omits lambda_mating whenever mate_relatedness != "off";
+                # showing a live slider for a value that is not in effect would be a lie,
+                # so the input is swapped for the reason it is inactive.
+                shiny::div(
+                  shiny::conditionalPanel("input.mate_relatedness == 'off' || input.mate_relatedness == null",
+                    shiny::numericInput("lambda_mating", "lambda_mating", 0, step = 0.01)),
+                  shiny::conditionalPanel("input.mate_relatedness != 'off' && input.mate_relatedness != null",
+                    shiny::div(class = "help-hint",
+                      shiny::tags$b("lambda_mating"), " is superseded by the Mate-relatedness ",
+                      "control above and is not sent with this run. Set Mate relatedness back to ",
+                      "Off to drive per-cross relatedness with the raw lambda instead."))),
                 shiny::numericInput("lambda_parent_use", "lambda_parent_use", 0, step = 0.01),
                 shiny::selectInput("lambda_parent_use_mode", "parent-use mode", ngcd_control_choices(cfg$backend_registry, "lambda_parent_use_mode", c("absolute","adaptive")))),
               bslib::layout_columns(col_widths = c(6,6),
@@ -655,7 +776,9 @@ workbench_server <- function(cfg) {
   function(input, output, session) {
     rv <- shiny::reactiveValues(backend = NULL, result = NULL, last = NULL,
                                 run_dir = NULL, runlog = NULL, error = NULL, warnings = NULL,
-                                data = list(genotype = NULL, phenotype = NULL, map = NULL, direction = NULL),
+                                data = list(genotype = NULL, phenotype = NULL, map = NULL, direction = NULL,
+                                            check_geno = NULL, check_pheno = NULL,
+                                            pheno_cov = NULL, gen_cov = NULL),
                                 edited = FALSE,
                                 # Staged pipeline (Phase 2): compute-once state + staleness. data_version
                                 # is bumped every time the input tables mutate (load/reset/cell-edit) so
@@ -754,22 +877,42 @@ workbench_server <- function(cfg) {
     # ---- load data into editable store ----
     is_poly <- shiny::reactive(identical(input$workflow, "polyploid"))
     is_subgenome <- shiny::reactive(identical(input$workflow, "subgenome"))
+    # The two covariance matrices are NOT one of the demo tables and never can be
+    # (they are a property of the breeding programme's own trial history, not of
+    # a marker/phenotype file), so they are attached the same way in BOTH data
+    # sources rather than living inside the upload branch: a breeder trying the
+    # formal indices on the demo data must be able to bring their own P and G.
+    cov_src_files <- shiny::reactive(list(
+      pheno_cov = if (!is_poly() && !is.null(input$f_pcov)) input$f_pcov$datapath else NULL,
+      gen_cov   = if (!is_poly() && !is.null(input$f_gcov)) input$f_gcov$datapath else NULL))
+
     src_files <- shiny::reactive({
-      if (identical(input$data_source, "demo"))
+      base <- if (identical(input$data_source, "demo"))
         (if (is_subgenome()) ngcd_subgenome_demo_files(cfg)
          else if (is_poly()) ngcd_poly_demo_files(cfg) else ngcd_demo_files(cfg))
       else list(
         genotype  = if (!is.null(input$f_geno))  input$f_geno$datapath  else NULL,
         phenotype = if (!is.null(input$f_pheno)) input$f_pheno$datapath else NULL,
         map       = if (!is_poly() && !is.null(input$f_map)) input$f_map$datapath else NULL,
-        direction = if (!is_poly() && !is.null(input$f_dir)) input$f_dir$datapath else NULL)
+        direction = if (!is_poly() && !is.null(input$f_dir)) input$f_dir$datapath else NULL,
+        # Checks are standard-workflow-only (same gate as the trait-direction
+        # file) and never feed the candidate-parent pool - they get their own
+        # rv$data keys so they can never be mistaken for a parent.
+        check_geno  = if (!is_poly() && !is.null(input$f_check))       input$f_check$datapath       else NULL,
+        check_pheno = if (!is_poly() && !is.null(input$f_check_pheno)) input$f_check_pheno$datapath else NULL)
+      # Trait covariance matrices (P and G) for the two formal selection indices:
+      # both optional, and they are not candidate/marker data at all, so they get
+      # their own rv$data keys and are never mistaken for an input table.
+      c(base, cov_src_files())
     })
 
     load_data <- function() {
       f <- src_files()
       rd <- function(p) if (!is.null(p) && file.exists(p)) ngcd_read_full(p) else NULL
       rv$data <- list(genotype = rd(f$genotype), phenotype = rd(f$phenotype),
-                      map = rd(f$map), direction = rd(f$direction))
+                      map = rd(f$map), direction = rd(f$direction),
+                      check_geno = rd(f$check_geno), check_pheno = rd(f$check_pheno),
+                      pheno_cov = rd(f$pheno_cov), gen_cov = rd(f$gen_cov))
       rv$edited <- FALSE
       rv$data_version <- rv$data_version + 1L   # input tables mutated -> qc..rank invalidate
     }
@@ -797,7 +940,8 @@ workbench_server <- function(cfg) {
     ngcd_data_specific <- c(
       "genotype_id_col","phenotype_id_col","map_marker_col","map_chr_col",
       "map_pos_bp_col","map_pos_cm_col","direction_trait_col","direction_column_col",
-      "direction_direction_col","index_col","cost_col","logistic_col","poly_trait_col")
+      "direction_direction_col","index_col","cost_col","logistic_col","poly_trait_col",
+      "check_id_col")
     shiny::observeEvent(input$reset_all, {
       if (!is.null(rv$defaults)) {
         keep <- c("data_source", "workflow", "traits_to_use", ngcd_data_specific)
@@ -816,10 +960,14 @@ workbench_server <- function(cfg) {
     output$load_status <- shiny::renderUI({
       if (!identical(input$data_source, "upload")) return(NULL)
       items <- list(
-        list(nm = "Genotype",        up = input$f_geno,  df = rv$data$genotype),
-        list(nm = "Phenotype",       up = input$f_pheno, df = rv$data$phenotype),
-        list(nm = "Marker map",      up = input$f_map,   df = rv$data$map),
-        list(nm = "Trait direction", up = input$f_dir,   df = rv$data$direction))
+        list(nm = "Genotype",        up = input$f_geno,        df = rv$data$genotype),
+        list(nm = "Phenotype",       up = input$f_pheno,       df = rv$data$phenotype),
+        list(nm = "Marker map",      up = input$f_map,         df = rv$data$map),
+        list(nm = "Trait direction", up = input$f_dir,         df = rv$data$direction),
+        list(nm = "Check genotype",  up = input$f_check,       df = rv$data$check_geno),
+        list(nm = "Check phenotype", up = input$f_check_pheno, df = rv$data$check_pheno),
+        list(nm = "Phenotypic covariance (P)", up = input$f_pcov, df = rv$data$pheno_cov),
+        list(nm = "Genetic covariance (G)",    up = input$f_gcov, df = rv$data$gen_cov))
       rows <- lapply(items, function(it) {
         if (is.null(it$up)) return(NULL)  # not uploaded yet
         fname <- it$up$name %||% ""
@@ -849,7 +997,12 @@ workbench_server <- function(cfg) {
       # Disomic-subgenome needs genotype + phenotype + a marker map (with the
       # subgenome column); it does NOT use a trait-direction file (single trait).
       else if (is_subgenome()) ok1(rv$data$genotype) && ok1(rv$data$phenotype) && ok1(rv$data$map)
-      else all(vapply(rv$data, ok1, logical(1)))
+      # Standard workflow needs exactly these four required tables. Check-line
+      # data (rv$data$check_geno / check_pheno) is always optional and must
+      # NOT gate readiness - spell the required set out explicitly rather than
+      # folding over rv$data, so a future optional field can't silently become
+      # mandatory again.
+      else ok1(rv$data$genotype) && ok1(rv$data$phenotype) && ok1(rv$data$map) && ok1(rv$data$direction)
     })
     # phenotype trait-column picker for polyploid mode (single trait)
     output$poly_trait_ui <- shiny::renderUI({
@@ -997,6 +1150,10 @@ workbench_server <- function(cfg) {
         list(n = "3 Map",       a = "imp-map",   up = input$f_map,   df = rv$data$map,
              show = (input$workflow %||% "standard") %in% c("standard", "subgenome")),
         list(n = "4 Direction", a = "imp-dir",   up = input$f_dir,   df = rv$data$direction,
+             show = identical(input$workflow %||% "standard", "standard")),
+        list(n = "5 Check",     a = "imp-check", up = input$f_check, df = rv$data$check_geno,
+             show = identical(input$workflow %||% "standard", "standard")),
+        list(n = "6 Covariance", a = "imp-cov",  up = input$f_gcov,  df = rv$data$gen_cov,
              show = identical(input$workflow %||% "standard", "standard")))
       # each chip is a link that jumps to its file's card (revisitable)
       chips <- lapply(Filter(function(x) isTRUE(x$show), items), function(x) {
@@ -1079,6 +1236,38 @@ workbench_server <- function(cfg) {
           imp_sel("direction_column_col", "Phenotype column", names(d), c("Trait","column","trait")),
           imp_sel("direction_direction_col", "Direction", names(d), c("Selection_direction","direction"))))
     })
+
+    # Check lines (optional, standard workflow only): a benchmark genotype is
+    # NEVER crossed, so it lives in its own rv$data keys (check_geno/check_pheno)
+    # rather than riding along with the candidate-parent pool. The genotype file
+    # drives this card's readiness state; the phenotype file is a fully optional
+    # annex (a run that scores on GEBV never needs it - see the card's help text).
+    output$check_step <- shiny::renderUI({
+      g <- rv$data$check_geno; st <- ngcd_import_state(input$f_check, g)
+      geno_ui <- if (identical(st$state, "ok")) {
+        pg <- rv$data$genotype
+        shared_note <- if (is.data.frame(pg) && ncol(pg)) {
+          shared <- length(intersect(names(g), names(pg)))
+          ngcd_callout(kind = if (shared > 1L) "info" else "warn",
+            sprintf("%d column(s) shared with the parent genotype file.%s", shared,
+                    if (shared > 1L) "" else
+                      " The check file must carry the same markers as the genotype file."))
+        } else NULL
+        shiny::tagList(imp_chip(st), imp_preview(g),
+          imp_id_sel("check_id_col", "Which column is the check ID?", g, c("NAME","id","line","check")),
+          shared_note)
+      } else imp_note(st,
+        "Optional: drop a check genotype CSV to add reference lines you benchmark crosses against.")
+
+      gph <- rv$data$check_pheno; pst <- ngcd_import_state(input$f_check_pheno, gph)
+      pheno_ui <- if (identical(pst$state, "ok"))
+        shiny::tagList(imp_chip(pst), imp_preview(gph))
+      else imp_note(pst, paste0("No check phenotype file loaded - a run that scores on ",
+                                "phenotypes will report the check as not evaluable."))
+
+      shiny::tagList(geno_ui, pheno_ui)
+    })
+
     # Trait choices come from the DIRECTION file (the backend filters
     # Traits come from the uploaded PHENOTYPE file's own columns (what the user
     # sees and selects). The trait-direction file, if supplied, only annotates
@@ -1088,6 +1277,119 @@ workbench_server <- function(cfg) {
         input$phenotype_id_col %||% ngcd_guess_col(names(rv$data$phenotype),
                                                    c("NAME", "parent", "id", "line")))
     })
+    # ---- user-supplied P and G covariance matrices ------------------------
+    # The trait set the backend will actually index over, derived the way
+    # ng_run_cp_trait_spec() derives it: the TRAIT-DIRECTION file's rows,
+    # filtered by traits_to_use. Deliberately NOT full_trait_set() (the
+    # phenotype file's columns): a direction file that lists fewer traits than
+    # the phenotype file is legal, and subsetting P/G to the phenotype's
+    # columns would then hand the backend labels it does not expect -- which,
+    # from 0.27.0, is a hard error naming them.
+    index_traits <- shiny::reactive({
+      sel <- if (identical(input$objective_mode %||% "single", "multi")) {
+        s <- input$traits_to_use; all_t <- full_trait_set()
+        if (is.null(s) || !length(s) || setequal(s, all_t)) NULL else s
+      } else NULL
+      ngcd_index_trait_set(rv$data$direction, input$direction_trait_col,
+                           input$direction_column_col, sel)
+    })
+    # The method that will actually solve the index: the explicit pick, or -- on
+    # Automatic -- whatever the direction file's desired_change / economic_weight
+    # column promotes it to inside the backend.
+    effective_index_method <- shiny::reactive(
+      ngcd_effective_index_method(rv$data$direction, input$objective_mode,
+                                  input$multi_trait_method))
+    # Read + validate each uploaded matrix ONCE, here, and hand out both the
+    # breeder-facing verdict (for the import card and the run gate) and the
+    # labelled payload build_params() serialises. One source of truth, so the
+    # card, the gate and the config can never disagree about what is usable.
+    cov_state <- shiny::reactive({
+      traits <- index_traits()
+      meth <- effective_index_method()
+      one <- function(df, name, invert) {
+        empty <- list(loaded = FALSE, matrix = NULL, payload = NULL,
+                      message = NULL, notes = character(0))
+        if (is.null(df) || !is.data.frame(df)) return(empty)
+        rd <- ngcd_cov_from_table(df, name)
+        if (!isTRUE(rd$ok))
+          return(list(loaded = TRUE, matrix = NULL, payload = NULL,
+                      message = rd$message, notes = character(0)))
+        # No direction file yet: the file itself is structurally fine, but there
+        # is no trait set to check its labels against. Say so instead of
+        # reporting a failure the breeder cannot act on.
+        if (!length(traits))
+          return(list(loaded = TRUE, matrix = NULL, payload = NULL, message = NULL,
+                      notes = paste0("Read as a ", nrow(rd$matrix), " x ", ncol(rd$matrix),
+                                     " matrix over: ", paste(rownames(rd$matrix), collapse = ", "),
+                                     ". Load a trait-direction file to check these labels ",
+                                     "against the traits this run will index.")))
+        v <- ngcd_validate_cov(rd$matrix, traits, name, require_invertible = invert)
+        if (!isTRUE(v$ok))
+          return(list(loaded = TRUE, matrix = NULL, payload = NULL,
+                      message = v$message, notes = character(0)))
+        list(loaded = TRUE, matrix = v$matrix,
+             payload = ngcd_cov_payload(v$matrix, name),
+             message = NULL, notes = v$notes)
+      }
+      # Which matrix has to be INVERTED depends on the index: Smith-Hazel solves
+      # b = P^-1 G a, Pesek-Baker solves b = G^-1 d. The backend ridges and
+      # pseudo-inverts rather than erroring, so a near-singular matrix there
+      # produces plausible-looking coefficients made of rounding error - the
+      # condition-number check has to happen on this side.
+      list(traits = traits, method = meth,
+           P = one(rv$data$pheno_cov, "Phenotypic covariance (P)",
+                   identical(meth, "economic_index")),
+           G = one(rv$data$gen_cov, "Genetic covariance (G)",
+                   identical(meth, "desired_gain")))
+    })
+
+    output$cov_step <- shiny::renderUI({
+      st <- cov_state()
+      block <- function(up, df, one, title, empty_msg) {
+        state <- ngcd_import_state(up, df)
+        if (!identical(state$state, "ok"))
+          return(shiny::tagList(shiny::tags$b(title), imp_note(state, empty_msg)))
+        shiny::tagList(shiny::tags$b(title), imp_chip(state), imp_preview(df),
+          if (!is.null(one$message)) ngcd_callout(kind = "error", one$message)
+          else ngcd_callout(kind = "info",
+            paste(c("Valid covariance matrix.", one$notes), collapse = " ")))
+      }
+      shiny::tagList(
+        block(input$f_pcov, rv$data$pheno_cov, st$P, "Phenotypic covariance (P)",
+              paste0("Optional: needed only by Economic index (Smith-Hazel), which solves ",
+                     "b = P^-1 G a. Desired gains does not use P for its coefficients.")),
+        block(input$f_gcov, rv$data$gen_cov, st$G, "Genetic covariance (G)",
+              paste0("Optional: needed by BOTH formal indices - Economic index (Smith-Hazel) ",
+                     "and Desired gains (Pesek-Baker, b = G^-1 d).")))
+    })
+
+    # Availability + validity of the two formal indices, shown right under the
+    # Multi-trait method dropdown. Both methods stay in the dropdown whatever is
+    # loaded: hiding one would answer a question the breeder did not ask. What
+    # changes is that this says which matrix is missing.
+    output$multitrait_index_note <- shiny::renderUI({
+      st <- cov_state()
+      bad <- Filter(Negate(is.null), list(st$P$message, st$G$message))
+      req <- ngcd_index_method_message(st$method, rv$data$direction,
+                                       has_phenotypic = !is.null(st$P$matrix),
+                                       has_genetic = !is.null(st$G$matrix))
+      ready <- is.null(req) && st$method %in% c("economic_index", "desired_gain")
+      shiny::tagList(
+        if (length(bad)) ngcd_callout(kind = "error",
+          lapply(bad, function(m) shiny::tags$p(m))),
+        if (!is.null(req)) ngcd_callout(kind = "warn", req),
+        if (ready && identical(st$method, "desired_gain") && is.null(st$P$matrix))
+          ngcd_callout(kind = "info",
+            "Desired gains is ready on G alone. The coefficients b = G^-1 d and the cross ",
+            "ranking will be complete; only the reported predicted response and index ",
+            "standard deviation will be blank, because those need P for the scale ",
+            "sqrt(b' P b). Upload P as well if you want them."),
+        if (ready && !(identical(st$method, "desired_gain") && is.null(st$P$matrix)))
+          ngcd_callout(kind = "info",
+            sprintf("Ready: the index will be solved over %s.",
+                    paste(st$traits, collapse = ", "))))
+    })
+
     # Single-trait picker (Selection objective: "single" mode) - choices track
     # full_trait_set() the same way traits_to_use_ui does; keep the current
     # selection if it is still valid, otherwise fall back to the first trait.
@@ -1103,24 +1405,35 @@ workbench_server <- function(cfg) {
         shiny::checkboxGroupInput("traits_to_use", "Traits to use", choices = traits, selected = traits),
         shiny::div(class = "help-hint", "Leave all checked to use every trait. Uncheck only to run a subset."))
     })
-    # Per-trait check-line pickers (Trait checks tab): one row per active trait, letting the
-    # breeder pick a genotyped check line, reject direction, and comparison basis. Candidate ids
-    # come from the loaded genotype table (same id-column resolution as elsewhere in the app).
+    # Per-trait check-line pickers. Candidate ids come from the CHECK FILE, never the genotype
+    # table: a check is a benchmark, not a mating candidate, and offering parents here is what
+    # made the old veto require the check to be a parent.
     output$trait_check_pickers <- shiny::renderUI({
       traits <- full_trait_set()
-      shiny::validate(shiny::need(length(traits) > 0, "Load a phenotype/direction file to pick trait checks."))
-      g <- rv$data$genotype
-      shiny::validate(shiny::need(!is.null(g), "Load a genotype file to choose check lines."))
-      gid <- input$genotype_id_col %||% ngcd_guess_col(names(g), c("NAME","parent","id","line"))
-      if (is.null(gid) || !gid %in% names(g)) gid <- names(g)[1]
-      ids <- as.character(g[[gid]])
+      shiny::validate(shiny::need(length(traits) > 0,
+        "Load a phenotype/direction file to pick trait checks."))
+      g <- rv$data$check_geno
+      shiny::validate(shiny::need(!is.null(g),
+        "Load a check genotype file (Data > Check lines) to choose check lines."))
+      cid <- input$check_id_col %||% ngcd_guess_col(names(g), c("NAME", "id", "line", "check"))
+      if (is.null(cid) || !cid %in% names(g)) cid <- names(g)[1]
+      ids <- as.character(g[[cid]])
       shiny::tagList(lapply(traits, function(t) shiny::fluidRow(
-        shiny::column(4, shiny::selectInput(paste0("chk_", t), paste("Check for", t),
+        shiny::column(6, shiny::selectInput(paste0("chk_", t), paste("Check for", t),
                         choices = c("(none)" = "", stats::setNames(ids, ids)))),
-        shiny::column(4, shiny::selectInput(paste0("dir_", t), "Reject if",
-                        choices = c("auto (from breeding direction)" = "auto", "above check" = "above", "below check" = "below"))),
-        shiny::column(4, shiny::selectInput(paste0("basis_", t), "Basis",
-                        choices = c("(run default)" = "", "GEBV" = "gebv", "Phenotype" = "phenotype"))))))
+        shiny::column(6, shiny::selectInput(paste0("dir_", t), "Good side",
+                        choices = c("auto (from breeding direction)" = "auto",
+                                    "above the check" = "below",
+                                    "below the check" = "above"))))))
+    })
+    # Count of traits with a check actually picked (a non-empty chk_<trait>).
+    # >1 is what triggers the backend's joint p_beat_all_checks Monte Carlo
+    # (150 draws/cross) inside the index stage - see the cost note on the
+    # "Build selection index" card (run_index_ui) below.
+    configured_check_count <- shiny::reactive({
+      traits <- full_trait_set()
+      if (!length(traits)) return(0L)
+      sum(vapply(traits, function(t) nzchar(as.character(input[[paste0("chk_", t)]] %||% "")), logical(1)))
     })
     output$index_col_ui <- shiny::renderUI({
       c <- cols()
@@ -1145,6 +1458,14 @@ workbench_server <- function(cfg) {
         shiny::selectInput("cost_col", "Cost column", c("(none)" = "", value_cols)),
         shiny::selectInput("logistic_col", "Logistic column", c("(none)" = "", value_cols)))
     })
+    # The cost column actually in force: "" unless a cost table is loaded AND a column
+    # is picked from it. Mirrors exactly the condition under which build_params() sends
+    # `cost_col`, so the budget guard and the config can never disagree.
+    cost_col_selected <- shiny::reactive({
+      if (is.null(cost_data())) return("")
+      cc <- trimws(as.character(input$cost_col %||% "")[1])
+      if (length(cc) != 1L || is.na(cc)) "" else cc
+    })
 
     output$sb_data <- shiny::renderText(if (data_ready()) if (isTRUE(rv$edited)) "ready (edited)" else "ready" else "incomplete")
     output$sb_backend <- shiny::renderText({ b <- rv$backend; if (!is.null(b) && isTRUE(b$backend_installed)) "connected" else "not ready" })
@@ -1162,6 +1483,105 @@ workbench_server <- function(cfg) {
       stats::setNames(as.list(suppressWarnings(as.numeric(vapply(p, `[`, "", 2)))), vapply(p, `[`, "", 1))
     }
     num_or_null <- function(x) if (is.null(x) || is.na(x)) NULL else as.numeric(x)
+    # A check line is optional, but once one is picked the progeny-per-family scalar
+    # feeding the "P(beat check)" column has no default - it has to block the run rather
+    # than silently compute against nothing. Shared by every run entry point (do_run,
+    # run_stage_manual, do_run_pipeline), any of which can be the first to reach a
+    # params set that carries trait_checks.
+    check_progeny_size_blocked <- function(params) {
+      if (is.null(params$trait_checks)) return(FALSE)
+      !(isTRUE(is.finite(input$check_progeny_size)) && input$check_progeny_size >= 1)
+    }
+    # Two settings the backend refuses outright, caught before the run rather than
+    # after a failed subprocess: a finite budget with no cost column, and polyploid
+    # dominance without its experimental acknowledgement. Both read the INPUTS, not
+    # the assembled params, because build_params()/build_poly_params() already omit
+    # the offending key -- the point of this gate is to say why, instead of letting a
+    # typed budget or a ticked dominance box vanish without a word. Returns NULL when
+    # there is nothing to report; shared by every run entry point (do_run,
+    # run_stage_manual, do_run_pipeline). See the pure helpers in helpers.R.
+    # Each is scoped to the workflow that actually sends it: only the standard
+    # diploid config carries budget/cost_col, only the polyploid config carries
+    # dominance, so a stale value on the other side of the workflow switch (both
+    # inputs live in always-registered conditionalPanels) must never block a run.
+    check_unsupported_combo_message <- function() {
+      wf <- input$workflow %||% "standard"
+      budget_msg <- if (identical(wf, "standard"))
+        ngcd_budget_cost_message(input$budget, cost_col_selected())
+      dom_msg <- if (is_poly())
+        ngcd_experimental_dominance_message(input$poly_dominance,
+                                            input$poly_allow_experimental_dominance)
+      # The two formal selection indices need covariance matrices the app now
+      # collects (Data > Trait covariance matrices). Three ways a run can still be
+      # unable to solve one, all refused up front with the reason rather than deep
+      # inside the backend after a full prediction pass:
+      #   1. an uploaded matrix that is not usable at all (not square, not
+      #      symmetric, not PSD, missing a trait, too ill-conditioned to invert) --
+      #      cov_state() has the breeder-facing verdict;
+      #   2. an EXPLICITLY chosen index whose matrix (or whose economic_weight /
+      #      desired_change column) is missing;
+      #   3. multi_trait_method = "auto" self-promoting to an index, on the mere
+      #      presence of a positive desired_change / economic_weight column, without
+      #      the matrices that promotion implies. When the matrices ARE there, the
+      #      promotion is legitimate and the run proceeds.
+      # All scoped to the standard diploid workflow, the only one that builds a
+      # multi-trait index. See the pure helpers in helpers.R.
+      cov_msg <- promo_msg <- idx_msg <- NULL
+      if (identical(wf, "standard")) {
+        st <- cov_state()
+        cov_msg <- Filter(Negate(is.null), list(st$P$message, st$G$message))
+        cov_msg <- if (length(cov_msg)) paste(unlist(cov_msg), collapse = " ") else NULL
+        idx_msg <- ngcd_index_method_message(input$multi_trait_method, rv$data$direction,
+                                             has_phenotypic = !is.null(st$P$matrix),
+                                             has_genetic = !is.null(st$G$matrix))
+        promo_msg <- ngcd_auto_index_promotion_message(rv$data$direction, input$objective_mode,
+                                             input$multi_trait_method,
+                                             has_phenotypic = !is.null(st$P$matrix),
+                                             has_genetic = !is.null(st$G$matrix))
+        # A broken matrix only blocks a run that would actually use one.
+        if (!is.null(cov_msg) &&
+            !(st$method %in% c("economic_index", "desired_gain"))) cov_msg <- NULL
+      }
+      budget_msg %||% dom_msg %||% cov_msg %||% idx_msg %||% promo_msg
+    }
+    # Hard version gate, scoped to check-configured runs only. Below backend
+    # 0.24.0 the <trait>_p_beat_check column still exists and still returns a
+    # number - it is simply the WRONG number, because the old code raised a
+    # *shared* posterior effect uncertainty to the k-th power (0.9997 on real
+    # barley data where the truth was 0.678). A run with NO check configured is
+    # entirely unaffected by this bug and must never be blocked here - only the
+    # advisory "Version OK" chip (setup_status) changes for it. Reuses
+    # cfg$required_backend_version (inst/BACKEND_VERSION, now 0.26.0) as the
+    # floor so this hard gate and that advisory chip can never drift apart. The
+    # floor deliberately rides the packaged BACKEND_VERSION rather than pinning
+    # 0.24.0 here: every release that needs a newer backend raises both at once.
+    # Shared by every run entry point (do_run, run_stage_manual, do_run_pipeline).
+    check_backend_version_message <- function(params) {
+      if (is.null(params$trait_checks)) return(NULL)
+      bv <- rv$backend$backend_version
+      if (is.null(bv) || !nzchar(bv)) return(NULL)   # unknown version: do not block
+      ok <- tryCatch(package_version(bv) >= package_version(cfg$required_backend_version),
+                     error = function(e) TRUE)
+      if (isTRUE(ok)) return(NULL)
+      paste0("Check lines need backend nextgenCrossDesign >= ", cfg$required_backend_version,
+             "; installed is ", bv, ". Below ", cfg$required_backend_version,
+             ", the check-probability columns (e.g. <trait>_p_beat_check) still return a number, ",
+             "but it is the wrong one - upgrade the backend before running with check lines configured.")
+    }
+    # A check line must never also be a candidate parent (the backend intersects
+    # rownames(check_geno) with rownames(geno) and hard-errors on any overlap, but
+    # without naming the offending IDs). Shared by every run entry point (do_run,
+    # run_stage_manual, do_run_pipeline); returns NULL when there is no clash to
+    # report, or the breeder-facing message (naming the clashing IDs) otherwise.
+    # See ngcd_check_parent_clash() in helpers.R for the pure ID comparison.
+    check_id_clash_message <- function() {
+      g <- rv$data$genotype; ck <- rv$data$check_geno
+      if (!is.data.frame(g) || !nrow(g) || !is.data.frame(ck) || !nrow(ck)) return(NULL)
+      gid_col <- input$genotype_id_col %||% ngcd_guess_col(names(g), c("NAME","parent","id","line"))
+      cid_col <- input$check_id_col %||% ngcd_guess_col(names(ck), c("NAME","id","line","check"))
+      if (is.null(gid_col) || !gid_col %in% names(g) || is.null(cid_col) || !cid_col %in% names(ck)) return(NULL)
+      ngcd_check_parent_clash(ck[[cid_col]], g[[gid_col]])
+    }
     csv_vec <- function(txt, numeric = FALSE) {
       v <- trimws(strsplit(txt %||% "", ",")[[1]]); v <- v[nzchar(v)]
       if (numeric) as.numeric(v) else v
@@ -1242,6 +1662,23 @@ workbench_server <- function(cfg) {
         multi_trait_method = if (obj$multi_trait_method_applies) input$multi_trait_method else NULL,
         trait_weights = if (obj$multi_trait_method_applies &&
                             identical(input$multi_trait_method,"weighted")) parse_named_num(input$trait_weights) else NULL,
+        # User-supplied P and G for the two formal selection indices. Sent as the
+        # LONG-FORM LABELLED payload built by ngcd_cov_payload(), never as a bare
+        # matrix: jsonlite drops dimnames on a matrix round trip, and backend
+        # 0.27.0 then reads the matrix POSITIONALLY (its documented fallback for a
+        # genuinely unlabelled matrix) without being able to detect a reordering --
+        # measured cost on a 3-trait permutation: max |db| = 0.1708 on the
+        # Smith-Hazel coefficients and a Spearman 0.9168 re-ranking of the crosses,
+        # silently. cov_state() has already validated each matrix and SUBSET it to
+        # exactly index_traits(), because 0.27.0 errors on an extra label rather
+        # than silently narrowing a program-wide matrix. A matrix that failed
+        # validation has a NULL payload and is never sent: the run gate refuses
+        # first and says why. Both are omitted entirely unless traits are actually
+        # being combined ("weighted"/"auto" ignore them, but sending a matrix a
+        # method does not use would still put it through the backend's label
+        # check for no reason).
+        phenotypic_covariance = if (obj$multi_trait_method_applies) cov_state()$P$payload else NULL,
+        genetic_covariance    = if (obj$multi_trait_method_applies) cov_state()$G$payload else NULL,
         threshold_policy = input$threshold_policy, threshold_penalty_weight = input$threshold_penalty_weight,
         threshold_penalty_autoscale = input$threshold_penalty_autoscale,
         trait_value_metric = input$trait_value_metric, uc_variance_source = input$uc_variance_source,
@@ -1249,20 +1686,37 @@ workbench_server <- function(cfg) {
         progeny = input$progeny, recomb_model = input$recomb_model,
         grm_method = input$grm_method, parent_type = input$parent_type,
         min_effect_reliability = input$min_effect_reliability,
-        # Per-trait check-line veto (Trait checks tab); backend requires trait_by_trait mode
-        # (both "single" and "multi" objective_mode map to trait_by_trait, so both get the veto).
+        # Per-trait check-line reference (Trait checks tab); backend requires trait_by_trait mode
+        # (both "single" and "multi" objective_mode map to trait_by_trait, so both get it).
         trait_checks = local({
           if (!identical(obj$prediction_mode, "trait_by_trait")) return(NULL)
           traits <- full_trait_set()
           if (!length(traits)) return(NULL)
           ngcd_build_trait_checks(traits,
             checks = stats::setNames(lapply(traits, function(t) input[[paste0("chk_", t)]]), traits),
-            directions = stats::setNames(lapply(traits, function(t) input[[paste0("dir_", t)]]), traits),
-            bases = stats::setNames(lapply(traits, function(t) {
-              b <- input[[paste0("basis_", t)]]; if (nzchar(b %||% "")) b else input$check_basis }), traits))
+            directions = stats::setNames(lapply(traits, function(t) input[[paste0("dir_", t)]]), traits))
         }),
-        check_basis = input$check_basis %||% "gebv",
-        exclude_threshold_violators = isTRUE(input$exclude_threshold_violators),
+        # Progeny per family the breeder will actually raise; the backend's P(beat check)
+        # column has no default, so this is NULL (never evaluated) until they type one.
+        check_progeny_size = num_or_null(input$check_progeny_size),
+        # Check-line reference data itself: required by the backend whenever trait_checks
+        # is non-NULL (check_pheno is optional there too - only consulted for traits whose
+        # mean source is phenotype). Sent as raw data.frames; the headless runner reshapes
+        # check_geno into the numeric matrix ng_run_cross_prediction() expects.
+        check_geno = rv$data$check_geno,
+        check_pheno = rv$data$check_pheno,
+        # ...keyed by THIS column. The check-ID picker (imp_id_sel("check_id_col")), the
+        # per-trait check picker and the check/parent clash guard all honour the breeder's
+        # pick, so the runner must too -- without it the runner fell back to column 1 and
+        # any other choice produced "trait_checks names check line(s) absent from
+        # check_geno" from the backend. A meta key, not a backend formal: the runner
+        # consumes it to build the matrix and drops it before calling the backend.
+        check_id_col = input$check_id_col,
+        # The one influence a check is MEANT to have on the plan: at 0 (the
+        # default) it is reporting only; raising it lets ng_rank_cross_priority()
+        # (via its check_weight arg) drop a failing cross a priority tier
+        # without ever excluding it. Clamped >= 0 per the backend contract.
+        priority_check_weight = max(0, num_or_null(input$priority_check_weight) %||% 0),
         include_trait_gebv = isTRUE(input$include_trait_gebv),
         duplicate_action = input$duplicate_action, duplicate_threshold = input$duplicate_threshold,
         duplicate_maf_min = input$duplicate_maf_min, duplicate_max_missing_prop = input$duplicate_max_missing_prop,
@@ -1274,14 +1728,32 @@ workbench_server <- function(cfg) {
         max_crosses_per_parent = input$max_crosses_per_parent,
         min_unique_parents = num_or_null(input$min_unique_parents), max_pair_kinship = num_or_null(input$max_pair_kinship),
         optimizer = input$optimizer, allocation_method = input$allocation_method, use_ocs = input$use_ocs,
-        lambda_group = input$lambda_group, lambda_mating = input$lambda_mating,
+        lambda_group = input$lambda_group,
+        # The unified Mate-relatedness control and the raw lambda_mating are the same
+        # axis (parent-pair relatedness) and the backend refuses both at once: "Set
+        # per-cross relatedness via EITHER mate_relatedness OR the raw lambda_mating /
+        # lambda_progeny_inbreeding, not both." mate_relatedness exists precisely to
+        # keep breeders off that rock, so it wins: any behaviour but Off suppresses
+        # lambda_mating entirely (NULL is dropped from the config by ngcd_write_config).
+        # The UI says so in the same breath (the raw input is replaced by that note
+        # while a behaviour is selected), so nothing here is silently discarded.
+        lambda_mating = if (identical(input$mate_relatedness %||% "off", "off"))
+          input$lambda_mating else NULL,
         lambda_parent_use = input$lambda_parent_use, lambda_parent_use_mode = input$lambda_parent_use_mode,
         local_iter = input$local_iter, ocs_iter = input$ocs_iter,
         mate_relatedness = input$mate_relatedness %||% "off",
         mate_relatedness_weight = num_or_null(input$mate_relatedness_weight) %||% 0,
         min_crosses_per_parent = input$min_crosses_per_parent,
         lambda_marker = input$lambda_marker, drop_lethal_carrier_crosses = input$drop_lethal_carrier_crosses,
-        budget = num_or_null(input$budget), lambda_cost = input$lambda_cost, lambda_logistic = input$lambda_logistic,
+        # A finite budget with no cost column is a hard backend error ("a finite budget
+        # requires cost_col"), so it never leaves the app. The breeder is not left
+        # guessing: the run gate refuses first with ngcd_budget_cost_message(), and this
+        # is the belt-and-braces so no other entry point (a replayed settings profile,
+        # say) can smuggle the pair through. lambda_cost / lambda_logistic are safe to
+        # send unconditionally -- without a cost/logistic column the backend simply
+        # ignores them.
+        budget = if (nzchar(cost_col_selected())) num_or_null(input$budget) else NULL,
+        lambda_cost = input$lambda_cost, lambda_logistic = input$lambda_logistic,
         run_posterior_prediction = input$run_posterior_prediction, posterior_method = input$posterior_method,
         n_iter = input$n_iter, burn_in = input$burn_in, use_parallel = input$use_parallel,
         n_threads = if (isTRUE(input$use_parallel)) num_or_null(input$n_threads) else NULL,
@@ -1562,6 +2034,12 @@ workbench_server <- function(cfg) {
           as.integer(input$cross_sweep_k_max %||% 30) else input$n_crosses,
         max_crosses_per_parent = input$max_crosses_per_parent,
         dominance = isTRUE(input$poly_dominance),
+        # Forwarded ONLY on the explicit acknowledgement, never blind: the backend
+        # calls additive+dominance fitting research-only (one shared ridge penalty for
+        # both variance components) and refuses it without this flag. A dominance run
+        # with the box unticked is refused at the run gate
+        # (ngcd_experimental_dominance_message()), not quietly demoted to additive.
+        allow_experimental_dominance = isTRUE(input$poly_allow_experimental_dominance),
         gain = input$poly_gain %||% "mean",
         double_reduction = num_or_null(input$poly_double_reduction) %||% 0,
         grm_method = input$poly_grm_method %||% "vanraden",
@@ -1668,6 +2146,22 @@ workbench_server <- function(cfg) {
         # non-inbred parents. Shared with the staged-pipeline qc run (see
         # reconciled_run_data()).
         run_data <- reconciled_run_data(force_drop_het)
+      }
+      if (check_progeny_size_blocked(params)) {
+        shiny::showNotification("Enter the progeny per family before running with check lines.",
+                                type = "error"); return()
+      }
+      version_msg <- check_backend_version_message(params)
+      if (!is.null(version_msg)) {
+        shiny::showNotification(version_msg, type = "error", duration = NULL); return()
+      }
+      clash_msg <- check_id_clash_message()
+      if (!is.null(clash_msg)) {
+        shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
+      }
+      combo_msg <- check_unsupported_combo_message()
+      if (!is.null(combo_msg)) {
+        shiny::showNotification(combo_msg, type = "error", duration = NULL); return()
       }
 
       # protect: never let this one-shot run's disk-pruning evict an active
@@ -1817,9 +2311,25 @@ workbench_server <- function(cfg) {
       upstream <- switch(stage, predict = "qc", index = "predict", NULL)
       if (!is.null(upstream) && !identical(ngcd_stage_status(upstream), "done")) {
         shiny::showNotification(paste0("Run the ", upstream, " stage first."), type = "error"); return() }
+      params <- staged_params()
+      if (check_progeny_size_blocked(params)) {
+        shiny::showNotification("Enter the progeny per family before running with check lines.",
+                                type = "error"); return()
+      }
+      version_msg <- check_backend_version_message(params)
+      if (!is.null(version_msg)) {
+        shiny::showNotification(version_msg, type = "error", duration = NULL); return()
+      }
+      clash_msg <- check_id_clash_message()
+      if (!is.null(clash_msg)) {
+        shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
+      }
+      combo_msg <- check_unsupported_combo_message()
+      if (!is.null(combo_msg)) {
+        shiny::showNotification(combo_msg, type = "error", duration = NULL); return()
+      }
       if (is.null(rv$pipeline$run_dir)) rv$pipeline$run_dir <- ngcd_new_pipeline_dir(cfg)
       prog <- shiny::Progress$new(session); on.exit(prog$close())
-      params <- staged_params()
       data_arg <- if (identical(stage, "qc")) staged_run_data() else NULL
       out <- ngcd_run_stage(cfg, stage, rv$pipeline$run_dir, params, data = data_arg, progress = prog)
       record_stage_outcome(stage, out, params)
@@ -1924,9 +2434,19 @@ workbench_server <- function(cfg) {
     output$run_index_ui <- shiny::renderUI({
       en <- identical(ngcd_stage_status("predict"), "done")
       hint <- if (!en) shiny::span(class = "help-hint", "  Fit effects & score first.") else NULL
+      # More than one check configured -> the backend also computes the joint
+      # p_beat_all_checks probability, a 150-draw Monte Carlo per cross
+      # (roughly 110s per 10,000 candidate crosses) inside this stage. Flag it
+      # so the pause reads as expected work, not a hang.
+      cost_note <- if (configured_check_count() > 1)
+        shiny::div(class = "help-hint", style = "margin-top:6px;",
+          "More than one check line is configured: this stage also runs a Monte Carlo ",
+          "estimate of the joint chance of beating every check at once, which can add a ",
+          "noticeable pause (roughly two minutes per 10,000 candidate crosses).")
       shiny::tagList(
         disable_if(shiny::actionButton("run_index", "Build selection index", class = "btn-ndsu"), !en),
-        shiny::div(class = "help-hint", style = "margin-top:6px;", stage_status_badge("index"), hint))
+        shiny::div(class = "help-hint", style = "margin-top:6px;", stage_status_badge("index"), hint),
+        cost_note)
     })
 
     # ---- on-demand Figure tags (activity screens) -- each `ngcd_figure_tag()`
@@ -2021,9 +2541,25 @@ workbench_server <- function(cfg) {
         shiny::showNotification("QC blocked the run - resolve the flagged issues first.", type = "error", duration = NULL); return() }
       if (!length(ns$stages)) { bslib::nav_select("nav", "Results"); return() }  # already complete
 
+      params <- staged_params()
+      if (check_progeny_size_blocked(params)) {
+        shiny::showNotification("Enter the progeny per family before running with check lines.",
+                                type = "error"); return()
+      }
+      version_msg <- check_backend_version_message(params)
+      if (!is.null(version_msg)) {
+        shiny::showNotification(version_msg, type = "error", duration = NULL); return()
+      }
+      clash_msg <- check_id_clash_message()
+      if (!is.null(clash_msg)) {
+        shiny::showNotification(clash_msg, type = "error", duration = NULL); return()
+      }
+      combo_msg <- check_unsupported_combo_message()
+      if (!is.null(combo_msg)) {
+        shiny::showNotification(combo_msg, type = "error", duration = NULL); return()
+      }
       prog <- shiny::Progress$new(session); on.exit(prog$close())
       prog$set(message = "Assembling configuration...", value = 0.1)
-      params <- staged_params()
       rv$run_dir <- rv$pipeline$run_dir
       final <- NULL
       stage_warns <- character(0)   # accumulate backend advisories across stages
@@ -2120,6 +2656,14 @@ workbench_server <- function(cfg) {
               paste(sprintf("%s=%s", names(sg$markers_per_subgenome), unlist(sg$markers_per_subgenome)), collapse = ", "),
               sg$mode %||% "ocs"))
         },
+        local({
+          # desired_gain solved on G alone: the index is complete, but the reported
+          # predicted response / index SD are NA because those need P. Blank cells
+          # with no explanation are worse than no cells.
+          dg <- ngcd_desired_gain_unavailable_message(r$plan_summary)
+          if (!is.null(dg)) ngcd_callout(kind = "warn",
+            shiny::tags$b("Desired gains: predicted response not reported. "), dg)
+        }),
         if (!is.null(r$multitrait_joint)) {
           mj <- r$multitrait_joint
           if (!is.null(mj$error))
@@ -2196,7 +2740,43 @@ workbench_server <- function(cfg) {
     output$mg_conf  <- plotly::renderPlotly({ r <- res(); shiny::req(r)
       ngcd_chart_cross_confidence(r$selected_crosses) })
     output$mg_div   <- plotly::renderPlotly({ r <- res(); shiny::req(r)
+      # THE UNITS RULE (Task 7): multi_trait_score is an aggregate across traits -- never a
+      # per-trait mean -- so this chart never draws a check reference line on it. No mean_axis
+      # is ever passed into this call; per-trait lines live in mg_div_extra below instead.
       ngcd_chart_cross_diversity(r$candidate_crosses, r$selected_crosses) })
+    # Per-trait check reference panels (Task 7): a single index axis cannot honestly carry
+    # several check lines on different scales, so each checked trait gets its own facet, drawn
+    # below the main scatter. A run with no checks configured renders nothing here.
+    output$mg_div_extra <- shiny::renderUI({
+      r <- res(); shiny::req(r)
+      ref <- r$trait_check_reference
+      if (is.null(ref)) return(NULL)
+      panel <- ngcd_chart_check_panels(r$candidate_crosses, ref)
+      # A breeder who configured checks and gets no panel is owed a reason rather than
+      # silence. ngcd_chart_check_panels() returns NULL only when no checked trait has a
+      # "<key>_mean" column in candidate_crosses -- so say exactly that. The note is NOT
+      # about multi-trait runs: a multi-trait run with per-trait means gets one facet per
+      # checked trait (the check line never goes on the aggregate axis -- THE UNITS RULE,
+      # see R/ui_charts.R), so it draws a panel and no note.
+      # kind = "info": ngcd_callout() only accepts info/warn/error. The dead version of
+      # this branch passed kind = "note", which would have match.arg()-errored the whole
+      # mg_div_extra output the moment it ever ran -- a second latent crash hidden behind
+      # the same unreachable guard.
+      note <- if (is.null(panel))
+        ngcd_callout(kind = "info",
+          paste("Checks are configured, but no per-trait reference panel could be drawn:",
+                "this run carries no per-trait mean column for any checked trait.",
+                "The check comparison columns in the results table are unaffected."))
+      else NULL
+      shiny::tagList(note,
+        if (!is.null(panel)) plotly::plotlyOutput("mg_div_panels", height = "320px"))
+    })
+    output$mg_div_panels <- plotly::renderPlotly({
+      r <- res(); shiny::req(r)
+      p <- ngcd_chart_check_panels(r$candidate_crosses, r$trait_check_reference)
+      shiny::req(p)
+      p
+    })
     output$mg_reliab <- plotly::renderPlotly({ r <- res(); shiny::req(r)
       ngcd_chart_trait_reliability(r$effect_summary) })
     # Results > Explore: four figures sharing one selection (see ui_explore.R).
@@ -2318,14 +2898,32 @@ workbench_server <- function(cfg) {
       obj_lab <- if (identical(sm$robust_objective, "posterior_topn_prob"))
         sprintf("top-%s inclusion probability", sm$robust_top_n_target %||% "N")
       else sprintf("pessimistic %s quantile of gain", sm$robustness_quantile %||% "?")
+      # For a ranked value where LOWER is better (a decrease trait scored on mean or
+      # usefulness), the pessimistic side is the UPPER tail, so the tail actually used is
+      # 1 - the slider setting. Say so rather than leaving "pessimistic 0.25 quantile"
+      # reading as if the lower tail had been taken.
+      tail_note <- if (identical(rp$direction, "minimize") && !is.null(sm$robust_tail_probability))
+        sprintf(" Lower is better for this ranked value, so the pessimistic side is the upper tail (%s).",
+                format(sm$robust_tail_probability)) else NULL
       shiny::tagList(
         ngcd_callout(kind = "info",
           shiny::tags$b(sprintf("Robust plan (%s).", obj_lab)),
           sprintf(" It keeps %s of your standard %s crosses and changes %s to more uncertainty-robust choices.",
                   rp$n_shared_with_standard %||% "?", rp$n_crosses %||% "?", rp$n_changed %||% "?"),
-          " Gain column: ", shiny::tags$code(rp$gain_col %||% "?"), "."),
+          # What was actually robustified. Before 0.29.0 a multi-trait run robustified
+          # ONE trait's posterior (whichever trait the direction file listed first)
+          # while this callout still said "your robust plan"; it now robustifies the
+          # selection index, and says which basis it used either way.
+          if (!is.null(rp$basis_label)) sprintf(" Computed on %s.", rp$basis_label),
+          " Gain column: ", shiny::tags$code(rp$gain_col %||% "?"), ".", tail_note),
         shiny::div(class = "help-hint",
           "Columns show the robust gain and the posterior mean / lower / upper for each cross."),
+        if (identical(rp$index_rescaling, "per_draw_restandardized"))
+          shiny::div(class = "help-hint",
+            "The selection index is re-standardised inside every posterior draw, so the ",
+            "posterior lower / upper columns order crosses correctly on a conservative tail ",
+            "but are not on the same scale as the point-estimate index score - compare ",
+            "crosses with each other, not with the standard plan's score."),
         DT::DTOutput("res_robust_tbl"))
     })
     output$res_robust_tbl <- DT::renderDT({

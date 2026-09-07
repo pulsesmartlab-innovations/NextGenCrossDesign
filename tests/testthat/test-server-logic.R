@@ -3,6 +3,8 @@ library(shiny)
 
 srv_cfg <- function() nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
 srv <- function() nextgenCrossWorkbench:::workbench_server(srv_cfg())
+# The advisory/hard version floor a fresh config resolves to (inst/BACKEND_VERSION).
+req_ver <- nextgenCrossWorkbench:::ngcd_default_backend_version()
 
 test_that("ID-column selector stays small for a wide genotype (no selectize warning)", {
   # A genotype with thousands of marker columns must not fill the Genotype-ID
@@ -46,6 +48,19 @@ test_that("demo data loads and reports ready + aligned", {
     expect_equal(d$het_n, 0L)          # demo parents are fully inbred
     expect_equal(d$n_shared_markers, 12L)
     expect_equal(d$n_shared_ids, 10L)
+  })
+})
+
+test_that("data_ready() is TRUE for the four required tables with no check file", {
+  # Regression: rv$data grew optional check_geno/check_pheno keys (check-line
+  # import card), and the diploid branch of data_ready() used to fold over
+  # every element of rv$data - making the optional check file mandatory and
+  # blocking the Run button/staged runner whenever no check file was uploaded.
+  testServer(srv(), {
+    do.call(session$setInputs, demo_inputs())
+    expect_null(rv$data$check_geno)
+    expect_null(rv$data$check_pheno)
+    expect_true(data_ready())
   })
 })
 
@@ -93,6 +108,19 @@ test_that("diversity dial maps to exactly one backend key", {
   })
 })
 
+test_that("priority_check_weight defaults to 0 and forwards the entered value, never negative", {
+  testServer(srv(), {
+    do.call(session$setInputs, demo_inputs())            # priority_check_weight never set
+    expect_equal(build_params()$priority_check_weight, 0)
+
+    session$setInputs(priority_check_weight = 0.4)
+    expect_equal(build_params()$priority_check_weight, 0.4)
+
+    session$setInputs(priority_check_weight = -1)         # backend contract: must be >= 0
+    expect_equal(build_params()$priority_check_weight, 0)
+  })
+})
+
 test_that("evolution tuning only added for evolution optimizer", {
   testServer(srv(), {
     do.call(session$setInputs, demo_inputs(optimizer = "greedy_local"))
@@ -137,8 +165,15 @@ test_that("non-inbred parents are detected", {
 })
 
 test_that("advanced mate-selection controls parse into backend shapes", {
+  # A budget only reaches the backend alongside a cost column (a finite budget with
+  # no cost_col is a hard backend error, refused at the run gate -- see
+  # test-run-gates.R), so this fixture supplies the cost table it always implied.
+  costf <- tempfile(fileext = ".csv")
+  utils::write.csv(data.frame(parent1 = "P01", parent2 = "P02", cost = 100, distance = 1),
+                   costf, row.names = FALSE)
   testServer(srv(), {
     do.call(session$setInputs, demo_inputs(
+      f_cost = list(datapath = costf, name = "cost.csv"), cost_col = "cost",
       mate_relatedness_weight = 0.05,   # replaces the removed lambda_progeny_inbreeding control
       min_crosses_per_parent = 2,
       committed_crosses = "P09,P10\nP01,P02",
@@ -282,5 +317,146 @@ test_that("edited cell updates data and flags edited", {
     session$setInputs(edit_pheno_cell_edit = data.frame(row = 1, col = 1, value = "99"))
     expect_true(rv$edited)
     expect_equal(as.numeric(rv$data$phenotype$yield[1]), 99)
+  })
+})
+
+# ---------------------------------------------------------------------------
+# Task 5 (gating): the backend-version floor and check_progeny_size run gates.
+#
+# check_backend_version_message() is a pure-ish helper (closes over rv$backend
+# and cfg) reachable directly in testServer, same as check_progeny_size_blocked
+# already was -- so its message content (naming both versions) is tested
+# directly here. Whether each of the three run entry points (do_run,
+# run_stage_manual, do_run_pipeline) actually CALLS it -- and, just as
+# important, never calls it when no check is configured -- is tested below by
+# mocking the real backend call (ngcd_run_backend / ngcd_run_stage) with a
+# sentinel error_message: if a gate wrongly lets a run through, the sentinel
+# lands in rv$error$message; if a gate wrongly blocks, rv$error stays NULL.
+# ---------------------------------------------------------------------------
+
+test_that("check_backend_version_message: NULL with no check, NULL at/above the floor, names both versions below it", {
+  testServer(srv(), {
+    do.call(session$setInputs, demo_inputs())   # no chk_* set -> trait_checks NULL
+    p <- build_params()
+    expect_null(p$trait_checks)
+    expect_null(check_backend_version_message(p))   # no check configured -> never blocks
+
+    session$setInputs(chk_yield = "CHK1")
+    p <- build_params()
+    expect_false(is.null(p$trait_checks))
+
+    rv$backend <- list(backend_installed = TRUE, backend_version = "0.20.0")
+    msg <- check_backend_version_message(p)
+    expect_false(is.null(msg))
+    expect_match(msg, "0.20.0", fixed = TRUE)          # installed version named
+    expect_match(msg, req_ver, fixed = TRUE)  # required version named
+
+    rv$backend <- list(backend_installed = TRUE, backend_version = req_ver)
+    expect_null(check_backend_version_message(p))      # exactly at the floor -> not blocked
+
+    rv$backend <- list(backend_installed = TRUE, backend_version = "9.9.9")
+    expect_null(check_backend_version_message(p))      # above the floor -> not blocked
+
+    rv$backend <- list(backend_installed = TRUE, backend_version = NULL)
+    expect_null(check_backend_version_message(p))      # unknown version -> do not block
+  })
+})
+
+test_that("do_run: check_progeny_size and backend-version gates block a check-configured run, but never block a run with no check configured", {
+  testServer(srv(), {
+    do.call(session$setInputs, demo_inputs())
+    rv$backend <- list(backend_installed = TRUE, backend_version = "9.9.9")
+    testthat::local_mocked_bindings(
+      ngcd_run_backend = function(...) list(ok = FALSE, error_message = "MOCK_REACHED_BACKEND",
+                                             log = "", run_dir = tempfile()),
+      .package = "nextgenCrossWorkbench")
+
+    # 1. check configured, no progeny size -> blocked (progeny gate)
+    session$setInputs(chk_yield = "CHK1")
+    do_run()
+    expect_null(rv$error)
+
+    # 2. check configured, progeny size set, backend below the floor -> blocked (version gate)
+    session$setInputs(check_progeny_size = 200)
+    rv$backend <- list(backend_installed = TRUE, backend_version = "0.20.0")
+    do_run()
+    expect_null(rv$error)
+
+    # 3. check configured, progeny size set, backend at the floor -> proceeds
+    rv$backend <- list(backend_installed = TRUE, backend_version = req_ver)
+    do_run()
+    expect_equal(rv$error$message, "MOCK_REACHED_BACKEND")
+
+    # 4. Regression (Task 2): NO check configured at all, and still on a
+    # below-floor backend with no progeny size set -- neither gate may fire.
+    session$setInputs(chk_yield = "", check_progeny_size = NA)
+    rv$backend <- list(backend_installed = TRUE, backend_version = "0.20.0")
+    rv$error <- NULL
+    do_run()
+    expect_equal(rv$error$message, "MOCK_REACHED_BACKEND")
+  })
+})
+
+test_that("run_stage_manual: check_progeny_size and backend-version gates block a check-configured run, but never block a run with no check configured", {
+  testServer(srv(), {
+    do.call(session$setInputs, demo_inputs())
+    rv$backend <- list(backend_installed = TRUE, backend_version = "9.9.9")
+    testthat::local_mocked_bindings(
+      ngcd_run_stage = function(...) list(ok = FALSE, status = "error",
+                                           error_message = "MOCK_REACHED_BACKEND",
+                                           log = "", warnings = NULL, stage_json = NULL),
+      .package = "nextgenCrossWorkbench")
+
+    session$setInputs(chk_yield = "CHK1")
+    run_stage_manual("qc")
+    expect_null(rv$error)
+
+    session$setInputs(check_progeny_size = 200)
+    rv$backend <- list(backend_installed = TRUE, backend_version = "0.20.0")
+    run_stage_manual("qc")
+    expect_null(rv$error)
+
+    rv$backend <- list(backend_installed = TRUE, backend_version = req_ver)
+    run_stage_manual("qc")
+    expect_equal(rv$error$message, "MOCK_REACHED_BACKEND")
+
+    session$setInputs(chk_yield = "", check_progeny_size = NA)
+    rv$backend <- list(backend_installed = TRUE, backend_version = "0.20.0")
+    rv$error <- NULL
+    rv$pipeline$stages$qc$status <- "stale"
+    run_stage_manual("qc")
+    expect_equal(rv$error$message, "MOCK_REACHED_BACKEND")
+  })
+})
+
+test_that("do_run_pipeline: check_progeny_size and backend-version gates block a check-configured run, but never block a run with no check configured", {
+  testServer(srv(), {
+    do.call(session$setInputs, demo_inputs())
+    rv$backend <- list(backend_installed = TRUE, backend_version = "9.9.9")
+    testthat::local_mocked_bindings(
+      ngcd_run_stage = function(...) list(ok = FALSE, status = "error",
+                                           error_message = "MOCK_REACHED_BACKEND",
+                                           log = "", warnings = NULL, stage_json = NULL),
+      .package = "nextgenCrossWorkbench")
+
+    session$setInputs(chk_yield = "CHK1")
+    do_run_pipeline()
+    expect_null(rv$error)
+
+    session$setInputs(check_progeny_size = 200)
+    rv$backend <- list(backend_installed = TRUE, backend_version = "0.20.0")
+    do_run_pipeline()
+    expect_null(rv$error)
+
+    rv$backend <- list(backend_installed = TRUE, backend_version = req_ver)
+    do_run_pipeline()
+    expect_equal(rv$error$message, "MOCK_REACHED_BACKEND")
+
+    session$setInputs(chk_yield = "", check_progeny_size = NA)
+    rv$backend <- list(backend_installed = TRUE, backend_version = "0.20.0")
+    rv$error <- NULL
+    rv$pipeline$stages$qc$status <- "stale"
+    do_run_pipeline()
+    expect_equal(rv$error$message, "MOCK_REACHED_BACKEND")
   })
 })

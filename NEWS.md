@@ -1,3 +1,251 @@
+# nextgenCrossWorkbench 0.32.0
+
+* Requires backend `nextgenCrossDesign` >= 0.30.0. The backend's own genetic-covariance
+  estimator now refuses to return a matrix implying a heritability above 1 rather than
+  letting it become index weights, and its development loader no longer sources files
+  that are not part of the package.
+
+# nextgenCrossWorkbench 0.31.0
+
+* Requires backend `nextgenCrossDesign` >= 0.29.0, which blocks invalid user-supplied
+  covariance matrices rather than solving an index from them. A supplied P/G pair is now
+  refused when it implies a heritability above 1 (`P - G` not positive semidefinite), when
+  an implied genetic correlation exceeds 1, when the matrix an index must invert is
+  numerically singular, or when asymmetry exceeds a scale-relative tolerance. Each refusal
+  names the traits and the offending number.
+
+# nextgenCrossWorkbench 0.30.0
+
+Requires backend nextgenCrossDesign >= 0.27.0 (`inst/BACKEND_VERSION`, enforced at run time).
+
+**The two real selection indices are back: Economic index (Smith-Hazel) and Desired gains
+(Pesek-Baker).** Until now the only multi-trait method the app offered was a rank sum -- it
+respects your ordering of the traits, but it knows nothing about their variances,
+heritabilities or genetic correlations. Both index methods were removed from the dropdown
+earlier because the app had no way to supply the phenotypic (P) and additive-genetic (G)
+covariance matrices they solve from, so every run with either was a guaranteed hard error.
+Backend 0.27.0 accepts those matrices, and the app now collects them.
+
+* **Import P and G.** A new optional card on the Data screen (`6 · Trait covariance matrices`)
+  takes one CSV each: a square traits x traits table with the trait names in the first column
+  AND as the column headers. Order does not matter -- the labels do. Both matrices are
+  optional; neither is used by Automatic or Relative weights.
+* **Validated before the run, never during it.** Each file is checked for: readable and
+  square; row labels and column headers naming the same traits; every entry finite; symmetric
+  within the backend's own 1e-8 tolerance (naming the two cells that disagree and by how
+  much); positive variances on the diagonal; positive semidefinite; and -- for the matrix the
+  chosen index actually has to invert -- non-singular and well enough conditioned to invert
+  meaningfully, reporting the condition number when it is not. That last check has no
+  equivalent in the backend, which ridges and pseudo-inverts: a near-singular P or G there
+  produces plausible-looking coefficients made of rounding error, with nothing to notice.
+* **Trait labels survive the JSON bridge -- provably.** `jsonlite` drops `dimnames` on a matrix
+  round trip, and the app drives the backend by writing config JSON. A bare matrix would
+  therefore arrive unlabelled and be read POSITIONALLY, which the backend cannot tell apart
+  from a reordering; on a 3-trait permutation the backend measured Smith-Hazel coefficients
+  moving by max |db| = 0.1708 and the emitted index re-ranking crosses at Spearman 0.9168,
+  silently. So P and G are serialised in long form -- `{traits, cells:[{trait_row, trait_col,
+  value}]}` -- with every value carrying its own row AND column label, and the runner rebuilds
+  each matrix by a tiling assert: the p^2 cells must exactly cover traits x traits, with no
+  unknown label, no duplicate and no gap, or the run stops. A permuted-but-labelled matrix
+  now gives a bit-identical index to the correctly-ordered one, asserted end to end against a
+  real backend run.
+* **A program-wide matrix is subset for you.** Backend 0.27.0 errors on a label the run does
+  not use, so a matrix covering more traits than the current index is narrowed here (to the
+  traits the TRAIT-DIRECTION file declares, filtered by your trait selection -- exactly the
+  set the backend builds the index over), and the card says which traits it ignored.
+* **Desired gains needs G alone.** Its coefficients `b = G^-1 d` never touch P; P only scales
+  the reported predicted response by the index SD `sqrt(b' P b)`. A G-only run is therefore
+  allowed and is fully valid -- and when the reported predicted response and index standard
+  deviation come back blank, the Results screen now says why and that the index and the cross
+  ranking are unaffected, instead of showing empty cells.
+* **Nothing is hidden when a matrix is missing.** Both methods stay in the dropdown whatever is
+  loaded. What changes is that the note under the dropdown, and the run gate, NAME the missing
+  matrix (P, G, or both) and point at the card -- and also name the `economic_weight` /
+  `desired_change` column the chosen index needs in your trait-direction file.
+* **The interim refusal of a self-promoting direction file is gone.** A positive
+  `economic_weight` / `desired_change` column makes `Automatic` promote itself to the matching
+  index inside the backend. That used to be refused outright, because the app could not supply
+  the matrices the promotion implies. It now runs when the matrices are there, and is refused
+  with the specific missing matrix named when they are not.
+* Swapping in a different P or G invalidates the compute-once **index** stage (and everything
+  downstream), so a changed matrix can never leave a stale index on screen.
+
+# nextgenCrossWorkbench 0.29.0
+
+Requires backend nextgenCrossDesign >= 0.26.0 (`inst/BACKEND_VERSION`, enforced at run time).
+
+Three multi-trait defects. The first two changed numbers a breeder was shown, so **any
+multi-trait result produced by 0.28.0 or earlier with "Robust posterior allocation" or the
+multi-trait joint probability turned on should be re-run.**
+
+* **The "Robust plan" on a multi-trait run was a SINGLE-TRAIT plan, chosen by the row order of
+  your trait-direction file.** Your multi-trait plan is ranked on the selection index over every
+  trait. The robust re-optimisation was run on `posterior_predictions[[1]]` -- the per-trait
+  posterior of whichever trait happened to be listed FIRST in the direction CSV -- with that
+  trait's usefulness as the gain column and that trait's orientation. Every other trait was
+  discarded without a word, and the Results screen still called it "your robust plan". On the
+  demo data the "robust plan" shared **2 of 6** crosses with the index plan; swapping the two
+  rows of the direction file changed the plan AND flipped its orientation (maximize to
+  minimize, because the newly-first trait is a decrease trait). Reordering two spreadsheet
+  rows changed the robust answer.
+  A multi-trait run now robust-allocates on the **index posterior itself**
+  (`multi_trait_score`), which backend 0.26.0 returns as `posterior_multitrait` with the exact
+  cached robustness quantile and its own orientation metadata -- so the robust plan and the
+  standard plan are now two views of the same merit, and the plan does not move when the
+  direction file is reordered. Single-trait runs are unchanged. If the index posterior is not
+  available (posterior prediction off, or a backend older than 0.26.0), robust allocation is
+  **refused with the reason** instead of silently falling back to trait 1. The Results screen
+  now names which basis was used, and badges the index posterior's per-draw re-standardisation.
+* **The multi-trait joint "probability of superior progeny" was wrong three ways at once.**
+  Measured on the demo data (10 parents, 45 crosses, yield increase / disease decrease):
+  the mean joint probability moves from **0.936 to 0.826**, with a **maximum per-cross change
+  of 0.92** and a Spearman correlation of only 0.88 between the old and new rankings -- so
+  individual crosses, not just the average, were misreported.
+  - *Wrong variance.* It passed each trait's `_pmv` as the per-progeny variance. The joint
+    probability is an order statistic over k progeny, `1 - (1 - p_one)^k`, which needs a
+    variance that is independent across progeny: VPM. PMV also carries the shared posterior
+    marker-effect uncertainty, which every progeny of the cross has in common and which cannot
+    be exponentiated away, so the per-progeny spread -- and with it every probability -- was
+    inflated. It now passes `_vpm`, the same column the backend's own `p_beat_all_checks` uses.
+  - *Silent independence.* When it could not build a covariance it fell back to `diag()` --
+    exact independence -- with no warning and nothing in the result. Within-family trait
+    correlations of -0.91 to +0.96 were measured in the audit's data, so that is a different
+    answer, not a mild approximation. It now uses the **exact** recombination-aware within-family
+    cross-trait covariance the run already computed and which was sitting unused on the same
+    table (`wf_var_*` / `wf_cov_*`). If that is genuinely unavailable it falls back to a
+    population genetic correlation and says so in the result (`covariance_model`,
+    `covariance_note`); if even that is unavailable the statistic is **not computed**.
+    Independence is never assumed silently, and never assumed at all.
+  - *Inverted directions.* `increase` and `maximize` were the only tokens treated as an increase
+    trait; `max`, `higher`, `high`, `positive` and `+` -- all accepted by the backend -- were
+    silently treated as DECREASE, swapping the bound and answering the opposite question. The
+    backend's own direction normaliser is now used, so the vocabularies cannot drift apart, and
+    an unknown token errors instead of defaulting to "minimize".
+  The result now also records which variance columns and which covariance model produced the
+  number, and that it is conditional on the point-estimated marker effects.
+* **A trait-direction file with an `economic_weight` or `desired_change` column is refused
+  before the run, with an explanation.** Those columns make `multi_trait_method = "auto"`
+  promote itself to the `economic_index` / `desired_gain` selection-index methods, which need
+  phenotypic (P) and genetic (G) covariance matrices this app does not collect -- so the run
+  died part-way through with an error naming two arguments the UI does not expose. The on-screen
+  help actively invited that configuration ("Economic weights / Desired gains if your direction
+  file carries economic weights"); it no longer does, and now says to leave those columns out.
+  The columns are **not** stripped and the method is **not** silently forced: a breeder who put
+  those numbers there deliberately is told why they are not being honoured.
+
+# nextgenCrossWorkbench 0.28.0
+
+Requires backend nextgenCrossDesign >= 0.25.0 (`inst/BACKEND_VERSION`, enforced at run time).
+
+* **Robust posterior allocation actually produces a plan now -- at any quantile the slider can
+  set.** Turning on "Robust posterior allocation" asked the backend for a pessimistic quantile
+  of gain that the posterior had never cached: the draws only ever kept the two 95%
+  credible-interval tails (0.025 / 0.975), and the allocator correctly refuses to fabricate a
+  quantile it does not have. **No value of the 0.05-0.50 Robustness quantile slider -- including
+  its 0.25 default -- could yield a robust plan**, and the run reported the refusal quietly
+  enough that a breeder saw an ordinary plan and was told nothing. The run now sends the
+  breeder's quantile into the prediction itself, so the posterior caches that exact empirical
+  tail from the same draws and the allocation is served exactly, with no normal approximation.
+  The reported credible interval is untouched: the quantile and the interval are separate
+  controls, so a 25% robustness setting no longer implies (and never silently produces) a 50%
+  "95%" interval.
+* **The robust plan now takes the conservative tail on the correct side.** The ranked value is
+  not normalised to higher-is-better, so for a minimize trait (disease, lodging) scored on mean
+  or usefulness the *lower* tail is the optimistic one. The app sent no direction at all, so the
+  allocator would have taken the lower tail unconditionally -- ranking crosses by their BEST case
+  and labelling the result robust. The orientation is now read back from the prediction's own
+  posterior metadata, which is the orientation of the *ranked value*, not of the trait:
+  pure-variance metrics (`pmv`, `vpm`, parent distance) stay "maximize" even for a minimize
+  trait, because more within-family variance is more opportunity whichever way the trait points.
+  The orientation used is written into the run JSON (`robust_plan$direction`).
+* **Numbers change for minimize traits: `prob_top_tier` and `<trait>_post_topn`.** The backend's
+  posterior top-N probability counted the N *largest* ranked values regardless of direction, so
+  for a minimize trait scored on mean or usefulness it reported the fraction of draws in which a
+  cross was among the WORST N and presented that as stability. Fixed in nextgenCrossDesign
+  0.25.0 and surfaced here: a re-run of an existing minimize-trait project will show different
+  (correct) top-tier probabilities and may reshuffle the cross-priority tiers that depend on
+  them. Maximize traits and pure-variance-scored traits are unaffected.
+* Changing the Robustness quantile now invalidates the *predict* stage of the staged run, not
+  just *rank* -- it steers what the posterior caches, so the posterior has to be recomputed.
+* `config.template.yml` no longer pins `required_backend_version: "0.7.0"`. A literal there
+  overrides the floor bundled with the release, which silently lowered both the "Version OK"
+  chip and the hard check-lines version gate for anyone whose config was seeded from the
+  template. The entry ships commented out, so a fresh config inherits `inst/BACKEND_VERSION`.
+  `tools/update-backend.R` reads that same file instead of the template.
+
+# nextgenCrossWorkbench 0.27.0
+
+* **Check lines are references, not filters.** Requires backend nextgenCrossDesign >= 0.24.0
+  (enforced at run time; a version below that reports a mismatch instead of running). Check
+  genotypes are uploaded in their own file (Data > Check lines) and are never crossed, never
+  mated, and never scored themselves -- a check contributes exactly one benchmark value per
+  trait. **A check never excludes a cross.** Crosses on the worse side of a check's line are
+  still ranked, still shown, and still selectable; the point of this release is to stop implying
+  otherwise. The exclude-violators toggle and the per-trait check-basis control are gone: nothing
+  is dropped by a check, and the reference always follows the run's own mean source (GEBV or
+  phenotype) so it sits on the same scale as the axis it is drawn on.
+* **New report figure: per-trait check reference panels.** Each checked trait gets its own facet
+  (mid-parent mean vs. diversity, with that trait's check as a dashed line on its own scale) in
+  Results > Modelling graphics and in the downloadable run report (HTML and PDF). This is
+  deliberately a NEW panel, not a line added to the existing "Selected vs all candidates"
+  scatter or the gain-diversity frontier: both of those plot an aggregate multi-trait score, and
+  a check's value has no honest place on an aggregate axis. A run with no check configured shows
+  no panel and no empty placeholder.
+* Marker opacity on the check panels now carries P(beat check), so a below-check cross with a
+  superior tail is visible instead of looking like a discard.
+* Multi-trait runs additionally get a `p_beat_all_checks` column when more than one trait is
+  checked -- the Monte Carlo-approximated probability that a progeny beats every check at once
+  (the per-trait `p_beat_check` columns remain exact/closed-form). The run report's Diagnostics
+  section explains its cost and its approximation caveat.
+* Known limitation: the check line can, internally, be drawn on either axis (mean on y or on x).
+  Only the horizontal case (mean on y) has a consuming view today -- every check line a breeder
+  sees is horizontal, on these per-trait panels. The vertical orientation is implemented and
+  tested but unused; it is not part of this release's user-facing surface.
+* Fixed: the "Which column is the check ID?" picker in Data > Check lines is now honoured by
+  the run itself. Picking any column other than the first left the check genotypes keyed by
+  the wrong column and the run then failed with the backend's "trait_checks names check
+  line(s) absent from check_geno" -- an error pointing nowhere near the cause. Picking the
+  first column, or leaving the guess alone, behaved correctly and is unchanged.
+* Fixed: when checks are configured but the run carries no per-trait mean column for any
+  checked trait, the modelling-graphics panel now explains why no reference panel could be
+  drawn instead of leaving an empty slot (and no longer errors while trying to say so).
+* Fixed: **the Mate-relatedness control now genuinely supersedes the raw `lambda_mating`.**
+  Choosing any per-cross relatedness behaviour while a non-zero `lambda_mating` sat in the
+  advanced OCS card sent both to the backend, which refuses them together ("Set per-cross
+  relatedness via EITHER mate_relatedness OR the raw lambda_mating ... not both") -- so the
+  unified control built to prevent exactly that stacking was leaking it. `lambda_mating` is now
+  omitted whenever a Mate-relatedness behaviour is selected, and the advanced card replaces the
+  raw input with a note saying so rather than showing a number that is not in effect.
+* Fixed: **"Economic weights" and "Desired gains" are no longer offered as multi-trait
+  methods.** Both were guaranteed hard errors: the backend needs per-trait economic weights or
+  desired changes *and* explicit phenotypic (P) and genetic (G) covariance matrices, and it
+  refuses to substitute candidate-score covariance for them -- while the app has no way to
+  collect P and G. The help hint claiming those values were read from your trait-direction file
+  was false and is gone. (A registry-declared "Threshold" method, which the backend rejects
+  outright, is dropped for the same reason.) Supplying real P and G is a separate feature; use
+  Automatic or Relative weights meanwhile.
+* Fixed: **a budget cap with no cost column is refused before the run, not after it.** Typing a
+  budget without uploading a per-cross cost table and picking its Cost column failed inside the
+  backend with "a finite budget requires cost_col". The run now stops at the gate with a message
+  naming your budget and telling you which two things to supply (or to clear the cap). The cost
+  and logistic emphasis sliders are unaffected -- they are simply ignored without a cost table.
+* **Polyploid dominance is now an explicit experimental opt-in.** Ticking "Model dominance
+  (heterosis)" used to fail every polyploid run outright, because the backend treats
+  additive+dominance fitting as research-only and refuses it unless told otherwise. The checkbox
+  stays; ticking it reveals an acknowledgement you must also tick, carrying the backend's reason
+  in plain terms -- the additive and dominance variance components currently share a single
+  ridge penalty, so how much of the genetic variance is called additive versus dominance is not
+  reliable. Suitable for exploring heterosis, not for selection decisions. Requesting dominance
+  without the acknowledgement refuses the run and says why; it is never silently downgraded to
+  additive-only scoring.
+* `run_combination_tests()`'s sweep no longer generates two configurations the backend
+  refuses and the app cannot build: `uc_variance_source = "parent_distance"` (genomic
+  distance is not a trait variance -- `parent_distance` remains a valid *cross-scoring
+  metric*, and is still swept as one) and `lambda_mating` set together with
+  `lambda_progeny_inbreeding` (two knobs on one axis, whose effects add). Each relatedness
+  lambda is now explored on its own. Sweep results are otherwise unchanged in kind, though
+  the random draw composition shifts.
+
 # nextgenCrossWorkbench 0.26.0
 
 * **Opt-in guided workbench view.** Set `options(ngcd.wizard = TRUE)` before

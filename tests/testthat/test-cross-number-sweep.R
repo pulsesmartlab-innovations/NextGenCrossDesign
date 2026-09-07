@@ -21,7 +21,12 @@ test_that("auto cross-number mode returns a recommended K and a curve", {
     phenotype_id_col = "NAME", genotype_id_col = "NAME", direction_trait_col = "Trait",
     direction_column_col = "Trait", direction_direction_col = "Selection_direction",
     map_marker_col = "SNP_code", map_chr_col = "Chromosome",
-    map_pos_bp_col = "Position_BP", map_position_unit = "bp",
+    # bp positions are physical, not genetic: the backend refuses to treat them as
+    # centimorgans without an explicit bp:cM ratio. 1e6 (1 Mb per cM) is the app's own
+    # default (NGCD_BP_PER_CM_DEFAULT) and what R/combinations.R uses for this same demo
+    # map, so every demo-data fixture stays on one genetic scale (the demo's four
+    # chromosomes span ~30-42 Mb, i.e. ~30-42 cM at this ratio).
+    map_pos_bp_col = "Position_BP", map_position_unit = "bp", bp_per_cm = 1e6,
     prediction_mode = "trait_by_trait", multi_trait_method = "auto",
     trait_value_metric = "var_complex", progeny = "DH", parent_type = "inbred",
     duplicate_action = "none", max_crosses_per_parent = 4, optimizer = "greedy_local",
@@ -36,7 +41,7 @@ test_that("auto cross-number mode returns a recommended K and a curve", {
   system2("Rscript", c(runner, cfgp, resp), stdout = FALSE, stderr = FALSE)
 
   res <- jsonlite::fromJSON(resp, simplifyVector = TRUE)
-  expect_true(isTRUE(res$ok))
+  expect_true(isTRUE(res$ok), info = res$error_message)
   sw <- res$cross_number_sweep
   expect_false(is.null(sw))
   expect_true(is.numeric(sw$recommended_k) && sw$recommended_k >= 3 && sw$recommended_k <= 12)

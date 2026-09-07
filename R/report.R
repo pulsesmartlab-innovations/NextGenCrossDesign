@@ -174,7 +174,15 @@ ngcd_exec_summary_html <- function(res, figs = NULL) {
 
     "<p>Priority tiers: ", tier_txt, ". Data QC status: <b>", qc_status, "</b>",
     (if (!is.null(qc$counts)) sprintf(" (blockers %s, warnings %s)", qc$counts$blockers %||% 0, qc$counts$warnings %||% 0) else ""),
-    ".</p>", fig_caption)
+    ".</p>",
+    # A desired_gain run solved on G alone: the index is complete but the
+    # P-scaled reported response is NA. Reported here as well as on the Results
+    # screen, because the exported report is what leaves the building.
+    (local({
+      dg <- ngcd_desired_gain_unavailable_message(ps)
+      if (is.null(dg)) "" else paste0("<p><b>Desired gains: predicted response not reported.</b> ", dg, "</p>")
+    })),
+    fig_caption)
 }
 
 # ===========================================================================
@@ -183,6 +191,19 @@ ngcd_exec_summary_html <- function(res, figs = NULL) {
 ngcd_has_tiers    <- function(res) { sc <- res$selected_crosses; is.data.frame(sc) && "priority_tier" %in% names(sc) && nrow(sc) > 0 }
 ngcd_has_scores   <- function(res) { cc <- res$candidate_crosses; is.data.frame(cc) && "multi_trait_score" %in% names(cc) && nrow(cc) > 0 }
 ngcd_has_scatter  <- function(res) { cc <- res$candidate_crosses; is.data.frame(cc) && all(c("multi_trait_score","pair_kinship") %in% names(cc)) && nrow(cc) > 0 }
+# A check run only: absence of trait_check_reference (or of any checked trait
+# whose "<key>_mean" column actually made it into candidate_crosses) means the
+# panel has nothing honest to draw -- omit it entirely, never a placeholder.
+ngcd_has_checkpanels <- function(res) {
+  ref <- res$trait_check_reference
+  if (is.null(ref)) return(FALSE)
+  cc <- res$candidate_crosses
+  if (!is.data.frame(cc) || !nrow(cc)) return(FALSE)
+  spec <- as.data.frame(ref$active, stringsAsFactors = FALSE)
+  if (!nrow(spec)) return(FALSE)
+  key <- if ("column_key" %in% names(spec)) as.character(spec$column_key) else as.character(spec$trait)
+  any(paste0(key, "_mean") %in% names(cc))
+}
 ngcd_has_parents  <- function(res) { sc <- res$selected_crosses; is.data.frame(sc) && all(c("parent1","parent2") %in% names(sc)) && nrow(sc) > 0 }
 ngcd_has_reliab   <- function(res) { es <- res$effect_summary; is.data.frame(es) && nrow(es) > 0 && "trait" %in% names(es) && any(is.finite(ngcd_reliability_values(es))) }
 ngcd_has_traitmap <- function(res) { sc <- res$selected_crosses; is.data.frame(sc) && length(grep("_value$", names(sc))) > 0 && nrow(sc) > 0 }
@@ -253,6 +274,45 @@ ngcd_fig_scatter <- function(res) {
     }
     legend("topright", legend = c("All candidate crosses", gsub("_", " ", NGCD_TIER_ORD)),
            pch = 19, col = c("#9aa5a0", NGCD_TIER_COL[NGCD_TIER_ORD]), bty = "n", pt.cex = c(0.6, rep(1.1, 4)))
+  }
+}
+# Per-trait check reference panel (base-R): one facet per checked trait, y =
+# that trait's mid-parent mean, x = diversity, each with ITS OWN check line on
+# its own scale. Never drawn on ngcd_fig_scatter's multi_trait_score axis --
+# that is an aggregate across traits (and, for non-linear multi-trait methods,
+# not even in the same units as any one trait's mean), and THE UNITS RULE
+# (see the header comment above ngcd_chart_check_panels() in R/ui_charts.R)
+# forbids a check line there regardless
+# of how many traits are checked. A cross on the worse side of the line is
+# drawn grey, never omitted -- a check is a reference, not a filter, and this
+# figure must not look like one. Mirrors the interactive
+# ngcd_chart_check_panels() (R/ui_charts.R) and is verified against the
+# installed backend's own base-R equivalent, nextgenCrossDesign::ng_plot_check_panels()
+# -- not a call to it, since the frontend runs the backend as a separate
+# process and must keep working when it is not installed at all.
+ngcd_fig_check_panels <- function(res) {
+  cc <- res$candidate_crosses; ref <- res$trait_check_reference
+  spec <- as.data.frame(ref$active, stringsAsFactors = FALSE)
+  key <- if ("column_key" %in% names(spec)) as.character(spec$column_key) else as.character(spec$trait)
+  keep <- paste0(key, "_mean") %in% names(cc)
+  traits <- spec$trait[keep]; key <- key[keep]
+  op <- graphics::par(mfrow = c(1L, length(traits)), mar = c(4, 4, 3, 1))
+  on.exit(graphics::par(op), add = TRUE)
+  for (i in seq_along(traits)) {
+    tr <- traits[[i]]; kk <- key[[i]]
+    x <- suppressWarnings(as.numeric(cc$pair_kinship))
+    y <- suppressWarnings(as.numeric(cc[[paste0(kk, "_mean")]]))
+    ok_col <- paste0(kk, "_check_ok")
+    ok <- if (ok_col %in% names(cc)) cc[[ok_col]] else rep(TRUE, nrow(cc))
+    base_col <- ifelse(ok %in% FALSE, "#BBBBBB", "#1F4E78")
+    p_col <- paste0(kk, "_p_beat_check")
+    pv <- if (p_col %in% names(cc)) suppressWarnings(as.numeric(cc[[p_col]])) else rep(NA_real_, nrow(cc))
+    al <- ifelse(is.finite(pv), pmax(0.15, pmin(1, pv)), 1)
+    col <- mapply(function(cl, a) grDevices::adjustcolor(cl, alpha.f = a), base_col, al)
+    plot(x, y, pch = 19, col = col, xlab = "Pair kinship", ylab = paste(tr, "mid-parent"), main = tr)
+    tau <- suppressWarnings(as.numeric(cc[[paste0(kk, "_check_value")]][[1L]]))
+    if (length(tau) && is.finite(tau[[1L]]))
+      graphics::abline(h = tau[[1L]], lty = 2, lwd = 2, col = "#B00020")
   }
 }
 ngcd_fig_trait_heatmap <- function(res) {
@@ -368,6 +428,17 @@ ngcd_ply_scatter <- function(res) {
   }
   plotly::layout(p, title = "Selected vs all candidates",
     xaxis = list(title = "Pair kinship"), yaxis = list(title = "Multi-trait score"))
+}
+# Reuses the shared chart builder (R/ui_charts.R) that the in-app Results >
+# Modelling graphics view also draws from, so the report and the live app can
+# never disagree on what a check panel looks like. ngcd_has_checkpanels()
+# already guards this from ever being called with nothing to draw, but the
+# empty-plot fallback is kept here too since ngcd_chart_check_panels() itself
+# can still return NULL (e.g. a checked trait whose "_mean" column did not
+# survive an upstream filter) and every ply() in this registry must be total.
+ngcd_ply_check_panels <- function(res) {
+  p <- ngcd_chart_check_panels(res$candidate_crosses, res$trait_check_reference)
+  if (is.null(p)) ngcd_empty_plot("No per-trait check panel available.") else p
 }
 # Portfolio scatter: level (y) x upside (x), colour = risk_bin, with iso-genetic-usefulness
 # contours (UC-VPM = mu + i*sigma; lines mu = U - i*sigma). Returns NULL if columns absent.
@@ -601,6 +672,12 @@ ngcd_fig_registry <- function() list(
   list(id = "scatter",  title = "Selected vs all candidates",
        desc = "Merit versus relatedness for every candidate cross; selected crosses coloured by tier.",
        applies = ngcd_has_scatter,  base = ngcd_fig_scatter,        ply = ngcd_ply_scatter),
+  list(id = "checkpanels", title = "Per-trait check reference",
+       desc = paste("Mid-parent mean versus diversity for each checked trait, with that trait's",
+                    "check as a reference line on its own scale. The check never removes a",
+                    "cross: crosses on its worse side are shown in grey, still ranked and",
+                    "still selectable."),
+       applies = ngcd_has_checkpanels, base = ngcd_fig_check_panels, ply = ngcd_ply_check_panels),
   list(id = "frontier", title = "Gain-diversity frontier",
        desc = "The trade-off between genetic gain and diversity, with your selected plan marked.",
        applies = ngcd_has_frontier, base = ngcd_fig_frontier,       ply = ngcd_ply_frontier),

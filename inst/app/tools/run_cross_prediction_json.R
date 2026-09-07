@@ -135,6 +135,12 @@ poly_design_args <- function(raw) {
     max_crosses_per_parent = as.integer(raw$max_crosses_per_parent %||% 4L),
     run_qc = isTRUE(as.logical(raw$run_qc %||% TRUE)), qc = qc,
     dominance = isTRUE(as.logical(raw$dominance %||% FALSE)),
+    # ng_polyploid_fit_effects() refuses additive+dominance unless this is TRUE:
+    # one ridge penalty is shared by both variance components, so the split is a
+    # research diagnostic. Defaults FALSE -- only the app's explicit experimental
+    # acknowledgement ever puts it in the config.
+    allow_experimental_dominance =
+      isTRUE(as.logical(raw$allow_experimental_dominance %||% FALSE)),
     gain = raw$gain %||% "mean",
     selection_prop = as.numeric(raw$selection_prop %||% 0.1),
     double_reduction = as.numeric(raw$double_reduction %||% 0),
@@ -462,9 +468,101 @@ run_subgenome_stage <- function(raw, stage, run_dir, result_path) {
 }
 
 # ===========================================================================
+# ngcd_robust_quantile(): the single resolution of the breeder's robustness
+# quantile, shared by the two places that must agree on it -- the backend run
+# (which caches that exact empirical tail from the posterior draws) and the
+# post-run ng_optimize_robust_mating_plan() call (which asks for it back).
+# Returns NULL when robust allocation is off, so the run caches nothing extra.
+# The value is NOT validated here: ng_run_cross_prediction() rejects a
+# non-probability with its own documented message, and a silent local coercion
+# would just recreate the "asked for robust, got ordinary, told nothing" bug.
+# ===========================================================================
+ngcd_robust_quantile <- function(raw) {
+  if (!isTRUE(as.logical(raw$robust_allocation %||% FALSE))) return(NULL)
+  as.numeric(raw$robustness_quantile %||% 0.25)
+}
+
+# ===========================================================================
+# ngcd_cov_from_payload(): rebuild a user-supplied covariance matrix (P or G)
+# from the long-form payload the frontend writes, WITH its trait labels.
+#
+# Why not just send the matrix: jsonlite drops dimnames on a matrix round trip
+# (jsonlite::fromJSON(jsonlite::toJSON(M)) is unlabelled), and backend 0.27.0
+# reads a genuinely unlabelled matrix POSITIONALLY -- its documented fallback,
+# which it cannot tell apart from a reordering. On a 3-trait permutation the
+# backend measured Smith-Hazel coefficients moving by max |db| = 0.1708 and the
+# emitted index re-ranking crosses at Spearman 0.9168, with no error and no
+# warning. So the frontend (ngcd_cov_payload() in R/helpers.R) serialises
+#   { schema, traits = [...], cells = [ {trait_row, trait_col, value}, ... ] }
+# and this rebuilds the matrix by a TILING ASSERT: every cell must name a row
+# label and a column label that are both in `traits`, no (row, col) may be
+# written twice, and no (row, col) may be left unwritten. p^2 cells must exactly
+# tile traits x traits or the run stops here -- which is a PROOF that the labels
+# survived the bridge, not an assumption that they did.
+#
+# An already-real matrix (an in-process caller, or a config replayed from an
+# older run) is accepted only when it carries dimnames on BOTH dimensions; an
+# unlabelled one is refused rather than passed on to be read positionally.
+# ===========================================================================
+ngcd_cov_from_payload <- function(x, name) {
+  if (is.null(x)) return(NULL)
+  if (is.matrix(x) || is.data.frame(x)) {
+    m <- as.matrix(x)
+    if (is.null(rownames(m)) || is.null(colnames(m))) {
+      stop(name, " arrived without trait labels on both dimensions. An unlabelled ",
+           "covariance matrix is read positionally and cannot be checked; send it as a ",
+           "{traits, cells} payload (see ngcd_cov_payload()) or label both dimensions.",
+           call. = FALSE)
+    }
+    return(m)
+  }
+  if (!is.list(x) || is.null(x$traits) || is.null(x$cells)) {
+    stop(name, " must be a labelled-matrix payload with `traits` and `cells` fields ",
+         "(schema ", "ngcd_labelled_matrix.v1", "). A bare matrix loses its trait names ",
+         "crossing the JSON bridge and would be read positionally.", call. = FALSE)
+  }
+  tn <- trimws(as.character(unlist(x$traits, use.names = FALSE)))
+  if (!length(tn)) stop(name, " payload carries an empty trait list.", call. = FALSE)
+  dup <- unique(tn[duplicated(tn)])
+  if (length(dup)) stop(name, " payload lists trait(s) twice: ", paste(dup, collapse = ", "),
+                        call. = FALSE)
+  p <- length(tn)
+  M <- matrix(NA_real_, p, p, dimnames = list(tn, tn))
+  cells <- x$cells
+  if (is.data.frame(cells)) cells <- split(cells, seq_len(nrow(cells)))
+  for (cell in cells) {
+    r <- as.character(cell$trait_row %||% NA_character_)[1]
+    cc <- as.character(cell$trait_col %||% NA_character_)[1]
+    if (is.na(r) || is.na(cc) || !(r %in% tn) || !(cc %in% tn)) {
+      stop(name, " payload has a cell labelled (", r, ", ", cc, ") that is not one of its ",
+           "traits: ", paste(tn, collapse = ", "), call. = FALSE)
+    }
+    if (!is.na(M[r, cc])) {
+      stop(name, " payload gives the cell (", r, ", ", cc, ") more than once.", call. = FALSE)
+    }
+    v <- suppressWarnings(as.numeric(cell$value %||% NA_real_)[1])
+    if (!is.finite(v)) {
+      stop(name, " payload has a non-finite value at (", r, ", ", cc, ").", call. = FALSE)
+    }
+    M[r, cc] <- v
+  }
+  if (anyNA(M)) {
+    hit <- which(is.na(M), arr.ind = TRUE)
+    shown <- utils::head(sprintf("(%s, %s)", tn[hit[, 1]], tn[hit[, 2]]), 5L)
+    stop(name, " payload is incomplete: no value for ", paste(shown, collapse = ", "),
+         if (nrow(hit) > 5L) paste0(" and ", nrow(hit) - 5L, " more") else "",
+         ". A ", p, " x ", p, " matrix needs all ", p * p, " labelled cells.", call. = FALSE)
+  }
+  M
+}
+
+# ===========================================================================
 # ngcd_coerce_backend_args(): the wrapper's config -> backend-arg translation.
 # Drops meta keys (fields the UI/dispatcher may include that are NOT
 # ng_run_cross_prediction() formals) and unknown formals (with a warning),
+# re-injects the one meta key that must ALSO reach the backend, under a
+# condition the generic path cannot express (robustness_quantile -- see
+# ngcd_robust_quantile() above),
 # coerces "Inf"/"-Inf" strings, and reshapes the advanced object-params
 # (committed_crosses, marker_target_spec, lethal_spec, trait_checks,
 # parent_group, group_quota, trait_weights, cross_cost, group_permission)
@@ -482,11 +580,22 @@ ngcd_coerce_backend_args <- function(raw) {
                  "cross_sweep_k_step", "cross_sweep_criterion",
                  "cross_sweep_relative_threshold", "cross_sweep_ne_min",
                  "cross_sweep_coancestry_max",
+                 # robustness_quantile is the ONE meta key that also has a life as a
+                 # backend formal (nextgenCrossDesign >= 0.25.0). It stays listed here so
+                 # the generic "supplied & formals" path never forwards it blindly --
+                 # it must reach the backend ONLY when robust allocation is actually on,
+                 # and with exactly the value the post-run allocator will ask for. That
+                 # single resolution lives in ngcd_robust_quantile() and is injected
+                 # explicitly a few lines below. See the comment there.
                  "robust_allocation", "robustness_quantile", "robust_objective",
                  "robust_top_n_target",
                  "family_size_total_progeny", "family_size_min", "family_size_max",
                  "multitrait_joint_prob", "multitrait_targets",
                  "pareto_explore", "pareto_lambdas",
+                 # check_id_col: which column of check_geno holds the check ID. Not a
+                 # backend formal (the backend takes an already-keyed matrix), but it is
+                 # consumed below to build that matrix -- see the check_geno block.
+                 "check_id_col",
                  "workflow", "run_dir", "stage")
   supplied  <- setdiff(names(raw), meta_keys)
   unknown   <- setdiff(supplied, formals_list)
@@ -506,6 +615,21 @@ ngcd_coerce_backend_args <- function(raw) {
   # function intentionally returns a *sparse* list. See
   # ngcd_full_backend_config() below for the staged-pipeline path, which
   # needs every formal filled in explicitly.
+
+  # ---- robustness quantile: cache the tail the allocator will actually ask for
+  # ng_optimize_robust_mating_plan() will only serve a quantile the posterior
+  # draws actually cached; it refuses to fabricate one (correctly). Before
+  # backend 0.25.0 the posterior cached only the CI tails (0.025 / 0.975), so
+  # EVERY quantile this app's 0.05-0.50 slider can produce was refused and the
+  # breeder silently got no robust plan. 0.25.0 lets the run cache an exact
+  # extra tail, so the run and the post-run allocation must be driven by ONE
+  # resolved value -- ngcd_robust_quantile(raw) -- or they can drift apart again.
+  # Guarded on the formal so an older backend just behaves as it did before
+  # instead of erroring with "unused argument".
+  if ("robustness_quantile" %in% formals_list) {
+    rq <- ngcd_robust_quantile(raw)
+    if (!is.null(rq)) args_in$robustness_quantile <- rq
+  }
 
   # Numeric infinities may arrive as the string "Inf".
   for (nm in names(args_in)) {
@@ -547,8 +671,55 @@ ngcd_coerce_backend_args <- function(raw) {
       c("marker", "risk_allele"), list(risk_allele = "alt"))
   if (!is.null(args_in$trait_checks))
     args_in$trait_checks <- as_rows_df(args_in$trait_checks,
-      c("trait", "check", "direction", "basis"),
-      list(direction = NA, basis = "gebv"))
+      c("trait", "check", "direction"),
+      list(direction = NA))
+  # check_geno arrives as JSON rows (or already a data.frame from an in-process
+  # caller); the backend wants a numeric matrix keyed by check id. Unlike
+  # trait_checks/marker_target_spec/lethal_spec, its column set is not fixed
+  # (one column per marker), so the column names are taken from the first row
+  # rather than passed to as_rows_df() as a literal vector.
+  #
+  # The ID column is `check_id_col` -- the user's own pick in the Data > Check lines
+  # importer, which the UI, the check picker and the check/parent clash guard all
+  # already honour. It is a META key (not an ng_run_cross_prediction() formal), so it
+  # lives on `raw` and never in `args_in`; read it from `raw`. Hardcoding column 1 here
+  # keyed the matrix by the wrong column whenever the breeder picked any other one, and
+  # the backend then failed with "trait_checks names check line(s) absent from
+  # check_geno" -- an error pointing nowhere near the cause. Column 1 stays the
+  # fallback for a config that carries no check_id_col (older config, in-process caller)
+  # or names a column the table does not have.
+  if (!is.null(args_in$check_geno)) {
+    cg <- args_in$check_geno
+    if (!is.data.frame(cg)) cg <- as_rows_df(cg, names(cg[[1L]]))
+    id_col <- raw$check_id_col
+    id_col <- if (is.character(id_col) && length(id_col) == 1L && id_col %in% names(cg))
+      id_col else names(cg)[[1L]]
+    ids <- as.character(cg[[id_col]])
+    m <- as.matrix(cg[, setdiff(names(cg), id_col), drop = FALSE])
+    storage.mode(m) <- "numeric"
+    rownames(m) <- ids
+    args_in$check_geno <- m
+  }
+  # check_pheno is a phenotype-shaped table (an id column + one column per trait,
+  # column set not fixed) consumed via as.data.frame(check_pheno, ...) deep inside
+  # the backend's ng_check_records_from_pheno(). as.data.frame() on a raw list of
+  # JSON row-lists does NOT reshape it correctly -- it silently produces a
+  # garbled 1-row data.frame with duplicated column names instead of erroring --
+  # so this needs the same row-list -> data.frame reshaping check_geno gets.
+  if (!is.null(args_in$check_pheno) && !is.data.frame(args_in$check_pheno))
+    args_in$check_pheno <- as_rows_df(args_in$check_pheno, names(args_in$check_pheno[[1L]]))
+  # ---- user-supplied P and G ------------------------------------------------
+  # Decoded from the long-form labelled payload (see ngcd_cov_from_payload()
+  # above). Both are ng_run_cross_prediction() formals from backend 0.27.0, so
+  # they reach args_in through the generic formals filter; an older backend
+  # simply drops them with the "Dropping config keys" warning rather than
+  # erroring on an unused argument.
+  for (cov_nm in c("phenotypic_covariance", "genetic_covariance")) {
+    if (!is.null(args_in[[cov_nm]]))
+      args_in[[cov_nm]] <- ngcd_cov_from_payload(args_in[[cov_nm]], cov_nm)
+  }
+  args_in$check_basis <- NULL
+  args_in$exclude_threshold_violators <- NULL
   if (!is.null(args_in$parent_group) && is.list(args_in$parent_group))
     args_in$parent_group <- stats::setNames(as.character(unlist(args_in$parent_group)),
                                             names(args_in$parent_group))
@@ -631,17 +802,86 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
     exists("ng_optimize_robust_mating_plan", where = asNamespace("nextgenCrossDesign")) &&
     exists("ng_parent_kinship", where = asNamespace("nextgenCrossDesign"))
   if (want_robust) {
-    ps <- tryCatch(result$posterior_predictions[[1L]], error = function(e) NULL)
-    if (is.data.frame(ps) && nrow(ps) > 0L) {
+    # ---- WHICH posterior is robustified: the index on a multi-trait run ------
+    # A multi-trait plan is ranked on `multi_trait_score`, the index over EVERY
+    # trait. Robustifying result$posterior_predictions[[1]] instead -- as this did
+    # before workbench 0.29.0 -- robustified ONE trait's per-trait posterior, and
+    # "trait 1" is nothing more principled than the first row of the breeder's
+    # direction CSV: reordering two spreadsheet rows changed which trait the
+    # "robust plan" was about, and its orientation with it (measured on the demo
+    # data: 2 of 6 crosses shared with the index plan in one row order, 3 of 6 and
+    # a flipped direction in the other). Backend 0.26.0 puts the index's own
+    # posterior on the result as `posterior_multitrait` -- multi_trait_score_post_*
+    # plus the exact cached robustness-quantile columns and a "posterior" metadata
+    # attribute in the shape ng_optimize_robust_mating_plan() reads -- so the
+    # multi-trait run now robust-allocates on the index itself.
+    #
+    # If that table is absent (posterior prediction off, or a backend older than
+    # 0.26.0) the robust allocation is REFUSED with the reason. Falling back to
+    # trait 1 is what produced the defect; a silent fallback is the failure mode
+    # being fixed here.
+    multi_trait_run <- is.data.frame(result$trait_direction) &&
+      nrow(result$trait_direction) > 1L
+    mt_post <- if (multi_trait_run) result$posterior_multitrait else NULL
+    mt_ready <- is.data.frame(mt_post) && nrow(mt_post) > 0L &&
+      "multi_trait_score_post_mean" %in% names(mt_post)
+    ps <- if (multi_trait_run) {
+      if (mt_ready) mt_post else NULL
+    } else tryCatch(result$posterior_predictions[[1L]], error = function(e) NULL)
+    if (multi_trait_run && !mt_ready) {
+      robust_out <- list(error = paste0(
+        "Robust allocation was refused for this multi-trait run: no posterior of the ",
+        "selection index (multi_trait_score) is available, so there is nothing to ",
+        "robustify that matches what the plan was ranked on. This needs backend ",
+        "nextgenCrossDesign >= 0.26.0 with posterior prediction on (installed: ",
+        as.character(utils::packageVersion("nextgenCrossDesign")), "). ",
+        "Earlier versions of this app fell back to a single trait's posterior -- the ",
+        "first row of your trait-direction file -- and labelled the result your robust ",
+        "plan; it no longer does that."))
+    } else if (is.data.frame(ps) && nrow(ps) > 0L) {
       objective <- raw$robust_objective %||% "posterior_quantile"
-      # gain column must carry posterior draws (has *_post_mean); prefer the
+      # gain column must carry posterior draws (has *_post_mean). On a multi-trait
+      # run that is the index the plan itself ranks on; otherwise prefer the
       # DH-GEBV usefulness, then fall back to any posterior column.
-      cand    <- c("usefulness_pmv_gebv", "usefulness_pmv", "pmv", "cross_mean")
-      hit     <- cand[paste0(cand, "_post_mean") %in% names(ps)]
-      gain_col <- if (length(hit)) hit[1L] else {
-        pm <- grep("_post_mean$", names(ps), value = TRUE)
-        if (length(pm)) sub("_post_mean$", "", pm[1L]) else "usefulness_pmv_gebv"
+      gain_col <- if (multi_trait_run) "multi_trait_score" else {
+        cand <- c("usefulness_pmv_gebv", "usefulness_pmv", "pmv", "cross_mean")
+        hit  <- cand[paste0(cand, "_post_mean") %in% names(ps)]
+        if (length(hit)) hit[1L] else {
+          pm <- grep("_post_mean$", names(ps), value = TRUE)
+          if (length(pm)) sub("_post_mean$", "", pm[1L]) else "usefulness_pmv_gebv"
+        }
       }
+      # ---- orientation of the RANKED value the *_post_* columns carry --------
+      # NOT the trait's breeding direction, and NOT derivable from it. The
+      # posterior's <gain_col>_post_* columns hold whatever ng_run_cp_trait_value()
+      # returned for the chosen trait_value_metric, which is not normalised to
+      # higher-is-better: "mean"/"usefulness" carry the trait's own units (so a
+      # minimize trait is LOWER-is-better there, and its conservative tail is the
+      # UPPER one), while the pure-variance and parent-distance metrics
+      # ("pmv", "vpm", "parent_distance", "le") are direction-agnostic and stay
+      # "maximize" even for a minimize trait -- more within-family variance is
+      # more opportunity whichever way the trait points. The backend resolves
+      # exactly this in ng_run_cp_value_orientation() and stamps the answer into
+      # the posterior table's "posterior" metadata attribute, so read it back
+      # rather than re-deriving it here (backend >= 0.25.0). Without a direction
+      # the allocator defaults to "maximize" and would pick a minimize trait's
+      # BEST case while calling the plan robust.
+      # On the multi-trait (index) path the same attribute carries "maximize", and
+      # that is a stated backend design invariant rather than a per-run accident:
+      # multi_trait_score is direction-normalised higher = better for every index
+      # method (the trait direction is applied upstream of the combination), which
+      # backend 0.26.0 re-verified on live data -- cor(index, yield) = +0.988 with
+      # yield increasing, cor(index, disease) = -0.988 with disease decreasing. It
+      # is still READ from the metadata here rather than hard-coded, so this app
+      # never asserts an orientation the backend did not stamp.
+      pmeta <- attr(ps, "posterior")
+      robust_direction <- if (is.list(pmeta) && is.character(pmeta$direction) &&
+                              length(pmeta$direction) == 1L && nzchar(pmeta$direction))
+        pmeta$direction else NULL
+      # Also keeps the posterior_topn_prob objective legal: the backend refuses a
+      # top-N objective whose plan direction disagrees with the direction the
+      # top-N column was built under, and this is that same direction by
+      # construction.
       nK  <- if (is.data.frame(result$selected_crosses)) nrow(result$selected_crosses)
              else as.integer(args_in$n_crosses %||% 10L)
       opt <- args_in$optimizer %||% "greedy_local"
@@ -649,10 +889,13 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
       tnt <- if (identical(objective, "posterior_topn_prob")) as.integer(raw$robust_top_n_target %||% nK) else NULL
       parent_kinship <- tryCatch(nextgenCrossDesign::ng_parent_kinship(result$cleaned_data$genotype),
                            error = function(e) NULL)
-      rob <- tryCatch(nextgenCrossDesign::ng_optimize_robust_mating_plan(
+      rob_args <- list(
         posterior_scores       = ps, n_crosses = nK, parent_kinship = parent_kinship,
         gain_col               = gain_col,
-        robustness_quantile    = as.numeric(raw$robustness_quantile %||% 0.25),
+        # The SAME resolution the run used to cache the tail (see
+        # ngcd_robust_quantile()), so the allocator can never ask for a quantile
+        # the draws were not asked to cache.
+        robustness_quantile    = ngcd_robust_quantile(raw),
         objective              = objective, top_n_target = tnt,
         max_crosses_per_parent = args_in$max_crosses_per_parent %||% 6L,  # match ng_run_cross_prediction's default; NULL breaks the allocator
         min_unique_parents     = args_in$min_unique_parents %||% NULL,
@@ -661,12 +904,23 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
         lambda_mating          = args_in$lambda_mating %||% 0.02,
         lambda_parent_use      = args_in$lambda_parent_use %||% 0,
         lambda_parent_use_mode = args_in$lambda_parent_use_mode %||% "absolute",
-        method = rmethod, local_iter = args_in$local_iter %||% 2000, ocs_iter = args_in$ocs_iter %||% 5),
+        method = rmethod, local_iter = args_in$local_iter %||% 2000, ocs_iter = args_in$ocs_iter %||% 5)
+      # Only send `direction` when the metadata actually carried one AND the
+      # installed backend understands it -- never guess an orientation.
+      if (!is.null(robust_direction) &&
+          "direction" %in% names(formals(nextgenCrossDesign::ng_optimize_robust_mating_plan)))
+        rob_args$direction <- robust_direction
+      rob <- tryCatch(do.call(nextgenCrossDesign::ng_optimize_robust_mating_plan, rob_args),
         error = function(e) { attr(e, "m") <- conditionMessage(e); e })
       if (inherits(rob, "data.frame")) {
         keep <- intersect(c("parent1", "parent2", gain_col,
                             paste0(gain_col, c("_post_mean", "_post_lower", "_post_upper")),
-                            "pair_kinship", "expected_progeny_inbreeding", ".robust_gain"), names(rob))
+                            "pair_kinship", "expected_progeny_inbreeding",
+                            # .robust_gain is the (possibly negated) objective the
+                            # allocator maximised; .robust_gain_value is the same
+                            # conservative tail on the trait's native scale, which is
+                            # the one a breeder should read.
+                            ".robust_gain", ".robust_gain_value"), names(rob))
         # which robust crosses are NOT in the point-estimate plan
         pkey <- function(df) paste(pmin(df$parent1, df$parent2), pmax(df$parent1, df$parent2))
         std_key <- if (is.data.frame(result$selected_crosses)) pkey(result$selected_crosses) else character(0)
@@ -675,6 +929,23 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
           crosses      = as.data.frame(rob)[, keep, drop = FALSE],
           summary      = attr(rob, "summary"),
           gain_col     = gain_col, n_crosses = nK,
+          # Orientation actually used, so a reader of the JSON can see whether the
+          # conservative tail was the lower or the upper one without re-deriving it.
+          direction    = robust_direction %||% "maximize",
+          direction_source = if (is.null(robust_direction)) "backend_default" else "posterior_metadata",
+          # What was robustified, in one machine-readable token plus a breeder-facing
+          # label, so the Results screen can never again present a single-trait plan
+          # as "your robust plan" without saying so.
+          basis        = if (multi_trait_run) "selection_index" else "single_trait",
+          basis_label  = if (multi_trait_run)
+            paste0("the selection index over all ", nrow(result$trait_direction),
+                   " traits (the same merit your standard plan was ranked on)")
+          else paste0("the single trait '", result$trait_direction$trait[[1L]], "'"),
+          # The index posterior is re-standardised inside every draw, so its interval is
+          # on a per-draw RELATIVE index and must not be differenced against the
+          # point-estimate multi_trait_score. Carried through from the backend metadata
+          # (never invented here) so the UI can badge it. NULL on a single-trait run.
+          index_rescaling = if (multi_trait_run && is.list(pmeta)) pmeta$index_rescaling else NULL,
           n_shared_with_standard = sum(rk %in% std_key),
           n_changed    = sum(!(rk %in% std_key)))
       } else {
@@ -753,9 +1024,36 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
       traits <- as.character(td$trait %||% td[[1]])
       dirs   <- as.character(td$direction %||% td$Selection_direction %||% td[[2]])
       cc <- result$candidate_crosses
-      mean_cols <- paste0(traits, "_mean"); var_cols <- paste0(traits, "_pmv")
-      if (!all(mean_cols %in% names(cc)) || !all(var_cols %in% names(cc)))
-        stop("candidate_crosses is missing per-trait mean/variance columns")
+      # Per-trait score columns are keyed by the CLEANED trait name (the backend's
+      # ng_run_cp_clean_trait_name()); the exact within-family covariance columns are
+      # keyed by the RAW trait name (ng_cross_trait_within_family_cov() names them from
+      # colnames(betas) = trait_spec$trait). Resolve each column by trying the cleaned
+      # name and then the raw one, so a trait like "Grain Yield" lands on a real column
+      # instead of producing a caught error.
+      clean_trait <- function(x) {
+        out <- make.names(as.character(x))
+        out <- gsub("[.]+", "_", out); out <- gsub("^_|_$", "", out)
+        ifelse(nzchar(out), out, "trait")
+      }
+      pick_col <- function(trait, suffix) {
+        cand <- unique(paste0(c(clean_trait(trait), trait), suffix))
+        hit <- cand[cand %in% names(cc)]
+        if (!length(hit)) stop("candidate_crosses has no '", suffix,
+                               "' column for trait '", trait, "'")
+        hit[[1L]]
+      }
+      mean_cols <- vapply(traits, pick_col, character(1L), suffix = "_mean",
+                          USE.NAMES = FALSE)
+      # DEFECT 2a fix: the per-progeny variance is VPM, not PMV. The joint probability
+      # is an order statistic over k progeny -- p = 1 - (1 - p_one)^k -- which requires a
+      # variance that is INDEPENDENT across progeny. PMV additionally carries the shared
+      # posterior marker-effect uncertainty, which is common to every progeny of the
+      # cross and cannot be exponentiated away; using it inflated the per-progeny SD
+      # (measured at ~5.4x for one trait in the audit's data) and with it every
+      # probability. This is the same defect the backend fixed for p_beat_all_checks,
+      # whose var_suffix is likewise "_vpm" (R/51 ng_attach_joint_check_probability()).
+      var_cols <- vapply(traits, pick_col, character(1L), suffix = "_vpm",
+                         USE.NAMES = FALSE)
       pheno <- result$cleaned_data$phenotype
       targets <- vapply(traits, function(t) mean(as.numeric(pheno[[t]]), na.rm = TRUE), 0)
       # optional "trait: value" overrides
@@ -766,18 +1064,66 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
             targets[[trimws(kv[1])]] <- suppressWarnings(as.numeric(kv[2]))
         }
       }
-      inc <- dirs %in% c("increase", "maximize")
+      # DEFECT 2c fix: use the BACKEND's direction vocabulary, not an ad-hoc string set.
+      # ng_multitrait_direction() (reached here through the exported ng_multitrait_spec())
+      # accepts max / maximize / maximise / increase / higher / high / positive / + and
+      # the mirrored minimize tokens. The old `dirs %in% c("increase","maximize")` treated
+      # every other accepted synonym as a DECREASE trait, which silently swapped tau_lower
+      # for tau_upper and answered the opposite question. It also errors loudly on a token
+      # the backend would not accept, instead of quietly assuming "minimize".
+      dirs <- nextgenCrossDesign::ng_multitrait_spec(trait = traits,
+                                                    direction = dirs)$direction
+      inc <- dirs == "maximize"
       tau_lower <- ifelse(inc, targets, -Inf)
       tau_upper <- ifelse(inc, Inf, targets)
-      Y  <- as.matrix(pheno[, traits, drop = FALSE])
-      Gh <- tryCatch(nextgenCrossDesign::ng_estimate_genetic_covariance(
-                       geno = result$cleaned_data$genotype, Y = Y),
-                     error = function(e) diag(length(traits)))
       ts <- data.frame(trait = traits, mean_col = mean_cols, var_col = var_cols,
                        stringsAsFactors = FALSE)
+      # DEFECT 2b/2d fix: use the EXACT within-family cross-trait covariance the run has
+      # already computed, Cov(t, s | i x j) = a_t' R a_s, which rides candidate_crosses as
+      # wf_var_<trait> / wf_cov_<t>_<s>. The previous code asked
+      # ng_estimate_genetic_covariance() for a POPULATION genetic correlation and, on any
+      # error, fell back to diag() -- exact independence -- with no warning and no flag in
+      # the JSON. Within-family trait correlations of -0.91 .. +0.96 were measured in the
+      # audit's data, so independence is a different answer, not a mild approximation.
+      # Ladder, with the rung actually used recorded in the JSON:
+      #   exact_within_family -> population_genetic_correlation -> refuse.
+      # Independence is never assumed silently, and never assumed at all.
+      wf_cols <- c(paste0("wf_var_", traits),
+                   unlist(lapply(seq_along(traits), function(a)
+                     if (a < length(traits)) paste0("wf_cov_", traits[a], "_",
+                                                    traits[seq(a + 1L, length(traits))]))))
+      ctc <- NULL; Gh <- NULL; cov_model <- NA_character_; cov_note <- NULL
+      if (all(wf_cols %in% names(cc))) {
+        ctc <- cc[, c("parent1", "parent2", wf_cols), drop = FALSE]
+        cov_model <- "exact_within_family"
+        cov_note <- paste0("Cross-trait covariance is the exact recombination-aware ",
+                           "within-family covariance a_t' R a_s the run already computed ",
+                           "(wf_var_* / wf_cov_* on the cross table).")
+      } else {
+        Y  <- as.matrix(pheno[, traits, drop = FALSE])
+        Gh <- tryCatch(nextgenCrossDesign::ng_estimate_genetic_covariance(
+                         geno = result$cleaned_data$genotype, Y = Y),
+                       error = function(e) NULL)
+        if (is.null(Gh))
+          stop("no cross-trait covariance is available for this run: the exact ",
+               "within-family columns (wf_var_* / wf_cov_*) are absent and ",
+               "ng_estimate_genetic_covariance() failed, so a joint probability could ",
+               "only be computed by assuming the traits are independent. It is not ",
+               "computed rather than reported as if the traits were uncorrelated.")
+        cov_model <- "population_genetic_correlation"
+        cov_note <- paste0("APPROXIMATION: the exact within-family cross-trait covariance ",
+                           "was unavailable for this run, so a POPULATION genetic ",
+                           "correlation from ng_estimate_genetic_covariance() was ",
+                           "substituted for the within-family one.")
+      }
       out <- nextgenCrossDesign::ng_add_p_superior_progeny_multitrait(
-        scores = cc, trait_specs = ts, tau_lower = tau_lower, tau_upper = tau_upper, G_hat = Gh)
-      attr(out, "targets") <- targets; out
+        scores = cc, trait_specs = ts, tau_lower = tau_lower, tau_upper = tau_upper,
+        G_hat = Gh, cross_trait_cov = ctc)
+      attr(out, "targets") <- targets
+      attr(out, "cov_model") <- cov_model
+      attr(out, "cov_note") <- cov_note
+      attr(out, "var_cols") <- var_cols
+      out
     }, error = function(e) structure(NULL, err = conditionMessage(e)))
     if (is.data.frame(aug) && "p_superior_progeny_mt" %in% names(aug)) {
       result$candidate_crosses <- aug
@@ -787,7 +1133,18 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
         result$selected_crosses$p_superior_progeny_mt <- aug$p_superior_progeny_mt[match(sk, k)]
       }
       mt_joint <- list(enabled = TRUE, traits = as.list(attr(aug, "targets")),
-                       mean_p = mean(aug$p_superior_progeny_mt, na.rm = TRUE))
+                       mean_p = mean(aug$p_superior_progeny_mt, na.rm = TRUE),
+                       # What the number is actually built from, so nothing about this
+                       # statistic is implicit any more.
+                       covariance_model = attr(aug, "cov_model"),
+                       covariance_note = attr(aug, "cov_note"),
+                       variance_columns = as.list(attr(aug, "var_cols")),
+                       effect_uncertainty = "point_estimate",
+                       effect_uncertainty_note = paste0(
+                         "Conditional on the point-estimated marker effects: the per-progeny ",
+                         "variance is VPM and no shared posterior effect uncertainty (PEV) is ",
+                         "integrated, so this is not directly comparable to a PEV-integrated ",
+                         "probability such as p_beat_all_checks."))
     } else {
       mt_joint <- list(enabled = TRUE, error = attr(aug, "err") %||% "could not compute joint probability")
     }
@@ -837,7 +1194,7 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
     plan_summary    = pick("plan_summary"),
     constraint_diagnostics = pick("constraint_diagnostics"),
     priority_risk_diagnostics = pick("priority_risk_diagnostics"),
-    trait_check_diagnostics = pick("trait_check_diagnostics"),
+    trait_check_reference = pick("trait_check_reference"),
     candidate_crosses = pick("candidate_crosses"),
     selected_crosses  = pick("selected_crosses"),
     ld_pruning_report = pick("ld_pruning_report"),

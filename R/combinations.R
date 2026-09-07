@@ -70,6 +70,18 @@ ngcd_run_combo <- function(cfg, overrides = list(), work_dir = tempdir()) {
        seconds = round(secs, 2), run_dir = run_dir)
 }
 
+# A per-pair cost table over the demo parents, in the shape the app builds from an
+# uploaded cost CSV (parent1, parent2, then value columns). Every candidate cross
+# must have a finite cost -- the backend refuses a cost_col with any NA -- so this
+# covers ALL unordered pairs. Shared by the combination sweep and
+# tests/testthat/test-advanced.R so the two cannot drift.
+ngcd_demo_cost_table <- function(parents = sprintf("P%02d", 1:10)) {
+  p <- utils::combn(as.character(parents), 2L)
+  list(parent1 = p[1, ], parent2 = p[2, ],
+       cost     = rep(c(100, 150, 200), length.out = ncol(p)),
+       distance = rep(c(1, 2, 3, 4),    length.out = ncol(p)))
+}
+
 # Build the combination list. `level` = "smoke" (one-at-a-time only) or
 # "full" (one-at-a-time + a factorial core).
 ngcd_combo_list <- function(level = c("full", "smoke")) {
@@ -80,8 +92,22 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
 
   metrics  <- c("mid_parent_mean", "family_variance", "reliable_family_variance", "usefulness", "parent_distance")
   optims   <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
-  methods  <- c("auto", "weighted", "economic_index", "desired_gain")
-  ucsrc    <- c("reliable_family_variance", "family_variance", "parent_distance")
+  # economic_index / desired_gain are deliberately absent HERE, though the app does
+  # offer both again (backend 0.27.0 + the Data screen's covariance-matrix card).
+  # They are absent because this sweep varies one control at a time over the demo
+  # inputs, and neither method is drivable that way: each also needs a covariance
+  # payload in the config AND an economic_weight / desired_change column in the
+  # trait-direction file, none of which the demo data carries. They get their own
+  # end-to-end coverage instead, against real P and G, in
+  # tests/testthat/test-covariance-index.R -- including the permuted-but-labelled
+  # matrix that is the whole point of the labelled payload.
+  methods  <- c("auto", "weighted")
+  # parent_distance is deliberately absent: it is a legitimate trait_value_metric (and is
+  # swept as one, above) but NOT a usefulness variance source -- genomic distance is not a
+  # trait variance, and the backend hard-errors on it. The UI does not offer it as a
+  # uc_variance_source either (see R/app.R and the backend capability registry, which both
+  # list only family_variance / reliable_family_variance).
+  ucsrc    <- c("reliable_family_variance", "family_variance")
   divspecs <- list(c("strategy", "high_gain"), c("strategy", "balanced"), c("strategy", "diversity"),
                    c("emphasis", "15"), c("emphasis", "50"), c("emphasis", "85"), c("target", "0.05"))
 
@@ -123,8 +149,13 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
   add("advanced", "lethal_guarding",
       list(lethal_spec = list(list(marker = "SNP_002", risk_allele = "alt")),
            drop_lethal_carrier_crosses = TRUE))
+  # A finite budget with no cost_col is a hard backend error ("a finite budget
+  # requires cost_col"), which is exactly what the app now refuses at the run gate.
+  # The sweep therefore drives the SUPPORTED shape: a cost table plus the columns
+  # that budget / lambda_cost / lambda_logistic act on.
   add("advanced", "cost_budget_logistic",
-      list(budget = 1e6, lambda_cost = 0.1, lambda_logistic = 0.1))
+      list(cross_cost = ngcd_demo_cost_table(), cost_col = "cost", logistic_col = "distance",
+           budget = 1e6, lambda_cost = 0.1, lambda_logistic = 0.1))
 
   # ---- factorial core (full only) ----
   if (level == "full") {
@@ -159,8 +190,8 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
   set.seed(seed)
   metrics <- c("mid_parent_mean", "family_variance", "reliable_family_variance", "usefulness", "parent_distance")
   optims  <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
-  methods <- c("auto", "weighted", "economic_index", "desired_gain")
-  ucsrc   <- c("reliable_family_variance", "family_variance", "parent_distance")
+  methods <- c("auto", "weighted")   # see ngcd_combo_list(): P/G-requiring methods are unreachable
+  ucsrc   <- c("reliable_family_variance", "family_variance")  # see ngcd_combo_list(): parent_distance is not a variance
   pick <- function(x) x[sample.int(length(x), 1L)]
   combos <- vector("list", n)
   for (i in seq_len(n)) {
@@ -169,6 +200,15 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
     # In index_as_trait mode the index IS the objective; a multi-trait method
     # does not apply, so keep it at the default.
     if (pmode == "index_as_trait") method <- "auto"
+    # lambda_mating and lambda_progeny_inbreeding are two knobs on ONE axis: both
+    # penalize parent-pair relatedness (immediate progeny inbreeding) and their effects
+    # ADD, so the backend hard-errors when both are set. Draw the axis value once and
+    # assign it to exactly one of the two, so each is explored independently -- which is
+    # also all the app can produce (build_params() sends neither key alongside the other).
+    # Note the sweep never sets mate_relatedness, so it also cannot produce the sibling
+    # invalid pairing (mate_relatedness != "off" together with a raw lambda_mating).
+    rel_lambda <- round(stats::runif(1, 0, 0.1), 3)
+    rel_knob   <- pick(c("lambda_mating", "lambda_progeny_inbreeding"))
     ov <- list(
       prediction_mode = pmode,
       trait_value_metric = pick(metrics),
@@ -186,9 +226,9 @@ ngcd_combo_random <- function(n = 1000, seed = 1) {
       n_crosses = sample(3:30, 1L),
       max_crosses_per_parent = sample(1:8, 1L),
       lambda_group = round(stats::runif(1, 0, 0.2), 3),
-      lambda_mating = round(stats::runif(1, 0, 0.1), 3),
+      lambda_mating = if (identical(rel_knob, "lambda_mating")) rel_lambda else NULL,
       lambda_parent_use = round(stats::runif(1, 0, 0.1), 3),
-      lambda_progeny_inbreeding = round(stats::runif(1, 0, 0.1), 3),
+      lambda_progeny_inbreeding = if (identical(rel_knob, "lambda_progeny_inbreeding")) rel_lambda else NULL,
       ld_pruning = stats::runif(1) < 0.2,
       grm = NULL)
     if (method == "weighted") {

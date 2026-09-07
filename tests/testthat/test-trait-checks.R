@@ -1,27 +1,36 @@
-ng <- function(f) getFromNamespace(f, "nextgenCrossWorkbench")
-
-test_that("ngcd_diag_trait_check reports flags/exclusions and not-evaluable", {
-  res <- list(trait_check_diagnostics = list(
-    n_flagged = 3L, n_excluded = 2L, n_not_evaluable = 1L,
-    active = data.frame(trait = c("yield","protein"), check = c("Ck1","Ck2"),
-                        reject_if = c("below","above"), basis = c("gebv","phenotype"))))
-  items <- ng("ngcd_diag_trait_check")(res)
-  expect_true(length(items) >= 1)
-  expect_true(any(vapply(items, function(x) grepl("check", x$title, ignore.case = TRUE), logical(1))))
-})
-test_that("ngcd_diag_trait_check no-ops when absent", {
-  expect_length(ng("ngcd_diag_trait_check")(list()), 0)
+test_that("build_trait_checks emits trait/check/direction and no basis", {
+  out <- ngcd_build_trait_checks(
+    traits = c("yield", "matur"),
+    checks = list(yield = "CHK_A", matur = "CHK_B"),
+    directions = list(yield = "auto", matur = "above"))
+  expect_equal(nrow(out), 2L)
+  expect_setequal(names(out), c("trait", "check", "direction"))
+  expect_false("basis" %in% names(out))
+  expect_true(is.na(out$direction[out$trait == "yield"]))   # auto -> NA, backend resolves it
+  expect_equal(out$direction[out$trait == "matur"], "above")
 })
 
-test_that("ngcd_build_trait_checks assembles a spec, dropping traits with no check", {
-  s <- ng("ngcd_build_trait_checks")(traits = c("yield","protein","oil"),
-                               checks = list(yield = "Ck1", protein = "", oil = "Ck3"),
-                               directions = list(yield = "auto", protein = "auto", oil = "above"),
-                               bases = list(yield = "gebv", protein = "gebv", oil = "phenotype"))
-  expect_s3_class(s, "data.frame")
-  expect_equal(sort(s$trait), c("oil","yield"))            # protein dropped (no check)
-  expect_equal(s$check[s$trait == "oil"], "Ck3")
-  expect_equal(s$basis[s$trait == "oil"], "phenotype")
-  expect_true(is.na(s$direction[s$trait == "yield"]) || s$direction[s$trait == "yield"] == "")  # auto -> unset, backend defaults
-  expect_null(ng("ngcd_build_trait_checks")(c("yield"), list(yield = ""), list(yield="auto"), list(yield="gebv")))
+test_that("traits with no check chosen are dropped, and all-empty gives NULL", {
+  out <- ngcd_build_trait_checks("yield", list(yield = ""), list(yield = "auto"))
+  expect_null(out)
+  out2 <- ngcd_build_trait_checks(c("yield", "matur"),
+                                  list(yield = "CHK_A", matur = ""),
+                                  list(yield = "auto", matur = "auto"))
+  expect_equal(nrow(out2), 1L)
+  expect_equal(out2$check, "CHK_A")
+})
+
+test_that("the trait-check panel no longer offers a basis or an exclude toggle", {
+  cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))
+  html <- suppressWarnings(as.character(nextgenCrossWorkbench:::workbench_ui(cfg, dev = FALSE)))
+  expect_false(grepl("exclude_threshold_violators", html, fixed = TRUE))
+  expect_false(grepl("check_basis", html, fixed = TRUE))
+  expect_false(grepl("Comparison basis", html, fixed = TRUE))
+  expect_false(grepl("Exclude violating crosses from the plan", html, fixed = TRUE))
+  # the check-line copy must describe a reference, not a veto (scoped to the check
+  # feature's own copy - the unrelated lethal-allele guard legitimately still
+  # "excludes carrier x carrier matings", so a blanket "excludes" grep would be a
+  # false positive against that untouched feature)
+  expect_false(grepl("Trait-check veto", html, fixed = TRUE))
+  expect_false(grepl("excludes) crosses whose mid-parent", html, fixed = TRUE))
 })

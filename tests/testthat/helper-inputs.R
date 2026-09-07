@@ -10,6 +10,39 @@ demo_paths <- function() {
        direction = file.path(d, "trait_direction.csv"))
 }
 
+# Load the wrapper's internal helper functions (ngcd_coerce_backend_args(),
+# ngcd_full_backend_config(), poly_design_args(), ...) from
+# inst/app/tools/run_cross_prediction_json.R WITHOUT invoking its main run()
+# entry point. That file is a standalone Rscript, not part of the package
+# namespace, so ng()/getFromNamespace() cannot reach its functions -- every
+# other test that needs its behaviour drives it as a real subprocess
+# (skip_on_cran + backend-gated). This gives fast, in-process unit tests of
+# its pure coercion helpers instead.
+#
+# Mechanics: the script's very first top-level statements read
+# commandArgs(trailingOnly = TRUE) and stop() if fewer than 2 were supplied --
+# sourcing it normally would abort right there, before ngcd_coerce_backend_args
+# is even defined. So this parses the file into individual top-level
+# expressions, gives the evaluation environment its own commandArgs() override
+# (returning two dummy strings) to clear that check, and evaluates every
+# expression EXCEPT the very last one, which is the file's own
+# `tryCatch(run(), error = ...)` invocation -- run() is a real end-to-end
+# driver (reads config JSON, calls the backend, writes results, quit()s the
+# whole R session on error), so it must never actually execute here.
+ngcd_runner_env <- function() {
+  runner <- testthat::test_path("..", "..", "inst", "app", "tools", "run_cross_prediction_json.R")
+  if (!file.exists(runner)) {
+    runner <- system.file("app", "tools", "run_cross_prediction_json.R",
+                          package = "nextgenCrossWorkbench")
+  }
+  exprs <- parse(runner)
+  e <- new.env()
+  e$commandArgs <- function(...) c("_unused_config_", "_unused_result_")
+  n <- length(exprs)
+  for (i in seq_len(n - 1L)) eval(exprs[[i]], envir = e)
+  e
+}
+
 # Can we actually drive a backend run? (Rscript + nextgenCrossDesign present.)
 backend_available <- function() {
   cfg <- nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb"))

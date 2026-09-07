@@ -119,3 +119,84 @@ test_that("logo helper returns embeddable SVG markup", {
   expect_match(svg, "PulseSmartLab")
   expect_false(grepl("<\\?xml", svg))  # XML prolog stripped for inline embedding
 })
+
+# --- Task 8: per-trait check reference panel in the run report -------------
+# A check is a benchmark genotype: reference-only, never crossed, never an
+# exclusion. THE UNITS RULE forbids drawing a check line on multi_trait_score
+# (an aggregate across traits, and possibly transformed), so this figure is a
+# NEW registry entry -- not an addition to the existing "scatter"/"frontier"
+# figures, which stay untouched.
+ngcd_res_with_check <- function() {
+  res <- ngcd_read_fixture()
+  res$candidate_crosses$yield_check_value <- 60
+  res$candidate_crosses$yield_check_ok <- res$candidate_crosses$yield_mean >= 60
+  res$candidate_crosses$yield_p_beat_check <- c(0.9, 0.4)[
+    (!res$candidate_crosses$yield_check_ok) + 1L]
+  res$trait_check_reference <- list(
+    active = data.frame(trait = "yield", check = "CHK_A", reject_if = "below",
+                        stringsAsFactors = FALSE),
+    # `values` as it really arrives: the result crosses a JSON boundary, and jsonlite
+    # drops the names off atomic vectors, so this is an UNNAMED numeric per trait -- never
+    # c(CHK_A = 60). Nothing in the report reads it (the drawn value is the
+    # yield_check_value COLUMN above); it is kept here only so the fixture matches the
+    # real shape and cannot tempt a values[[check]] lookup back into existence.
+    values = list(yield = 60),
+    diagnostics = list(n_candidates = nrow(res$candidate_crosses)))
+  res
+}
+
+test_that("the check-panel figure is absent when no check is configured", {
+  res <- ngcd_read_fixture()
+  expect_null(res$trait_check_reference)
+  expect_false(nextgenCrossWorkbench:::ngcd_has_checkpanels(res))
+  expect_false("checkpanels" %in% ngcd_active_ids(res))
+})
+
+test_that("the check-panel figure is active and renders when a check is configured", {
+  res <- ngcd_res_with_check()
+  expect_true(nextgenCrossWorkbench:::ngcd_has_checkpanels(res))
+  expect_true("checkpanels" %in% ngcd_active_ids(res))
+
+  # base-R (PDF/PNG) figure draws without error
+  tmp <- tempfile(fileext = ".png")
+  grDevices::png(tmp); on.exit(grDevices::dev.off(), add = TRUE)
+  expect_silent(nextgenCrossWorkbench:::ngcd_fig_check_panels(res))
+
+  if (requireNamespace("plotly", quietly = TRUE)) {
+    p <- nextgenCrossWorkbench:::ngcd_ply_check_panels(res)
+    expect_s3_class(p, "plotly")
+    j <- nextgenCrossWorkbench:::ngcd_fig_json(p)
+    expect_match(j, '"data"')
+  }
+})
+
+test_that("check-panel figure registry entry is well formed and reuses the shared chart builder", {
+  reg <- nextgenCrossWorkbench:::ngcd_fig_registry()
+  ids <- vapply(reg, function(f) f$id, character(1))
+  expect_true("checkpanels" %in% ids)
+  f <- reg[[match("checkpanels", ids)]]
+  expect_true(all(c("id","title","desc","applies","base","ply") %in% names(f)))
+  # honesty: the description may not imply a check excludes a cross
+  expect_false(grepl("exclud|reject|drop|filter|disqualif", f$desc, ignore.case = TRUE))
+})
+
+test_that("HTML report gets a check-panel section only when checks are configured", {
+  res_nochk <- ngcd_read_fixture()
+  out1 <- tempfile(fileext = ".html")
+  nextgenCrossWorkbench:::ngcd_report_html(res_nochk, out1)
+  html1 <- paste(readLines(out1, warn = FALSE), collapse = "\n")
+  expect_false(grepl("id='fig-checkpanels'", html1, fixed = TRUE))
+
+  res_chk <- ngcd_res_with_check()
+  out2 <- tempfile(fileext = ".html")
+  nextgenCrossWorkbench:::ngcd_report_html(res_chk, out2)
+  html2 <- paste(readLines(out2, warn = FALSE), collapse = "\n")
+  expect_true(grepl("id='fig-checkpanels'", html2, fixed = TRUE))
+})
+
+test_that("PDF report still builds when a check is configured", {
+  res <- ngcd_res_with_check()
+  out <- tempfile(fileext = ".pdf")
+  nextgenCrossWorkbench:::ngcd_report_pdf(res, out)
+  expect_true(file.exists(out) && file.size(out) > 2000)
+})

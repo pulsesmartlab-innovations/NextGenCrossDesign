@@ -161,6 +161,29 @@ test_that("ngcd_pipeline_mark: changing a rank-only meta key marks ONLY rank sta
   expect_identical(pipeline2$stages$rank$status, "stale")
 })
 
+test_that("ngcd_pipeline_mark: changing priority_check_weight marks ONLY rank stale", {
+  # priority_check_weight (Task 5) is caught by the rank stage's existing
+  # "priority_*_weight" glob (ngcd_stage_key_patterns$rank in R/helpers.R) --
+  # this confirms the glob actually matches it, rather than adding a redundant
+  # explicit entry for it.
+  init <- ng("ngcd_pipeline_init"); mark <- ng("ngcd_pipeline_mark")
+  p0 <- c(sample_params(), list(priority_check_weight = 0))
+  pipeline <- done_pipeline(init, mark, p0, data_version = 1L)
+
+  p1 <- c(sample_params(), list(priority_check_weight = 0.5))
+  pipeline2 <- mark(pipeline, p1, data_version = 1L)
+
+  expect_identical(pipeline2$stages$qc$status, "done")
+  expect_identical(pipeline2$stages$predict$status, "done")
+  expect_identical(pipeline2$stages$index$status, "done")
+  expect_identical(pipeline2$stages$allocate$status, "done")
+  expect_identical(pipeline2$stages$rank$status, "stale")
+
+  sub <- ng("ngcd_stage_cfg_subset")
+  expect_true("priority_check_weight" %in% names(sub(p1, "rank")))
+  expect_false("priority_check_weight" %in% names(sub(p1, "index")))
+})
+
 # A representative FULL build_params() param set (R/app.R): every top-level key
 # build_params() can emit, including the conditional advanced-knob keys. Kept in
 # sync with build_params() so the partition test below fails the moment a NEW
@@ -181,7 +204,16 @@ full_build_params <- function() {
     # index-stage keys
     trait_weights = c(yield = 1), threshold_penalty_autoscale = TRUE,
     trait_checks = data.frame(trait = "yield", check = "chk", stringsAsFactors = FALSE),
-    check_basis = "gebv", exclude_threshold_violators = FALSE,
+    check_progeny_size = 50,
+    # user-supplied P and G (the labelled long-form payload build_params() sends)
+    phenotypic_covariance = list(schema = "ngcd_labelled_matrix.v1", traits = "yield",
+                                 cells = list(list(trait_row = "yield", trait_col = "yield",
+                                                   value = 4))),
+    genetic_covariance = list(schema = "ngcd_labelled_matrix.v1", traits = "yield",
+                              cells = list(list(trait_row = "yield", trait_col = "yield",
+                                                value = 2))),
+    check_geno = data.frame(NAME = "chk", SNP = 0, stringsAsFactors = FALSE),
+    check_pheno = data.frame(NAME = "chk", yield = 5, stringsAsFactors = FALSE),
     drop_lethal_carrier_crosses = FALSE, marker_target_spec = list(),
     lethal_spec = list(),
     # allocate-stage keys
@@ -202,6 +234,10 @@ full_build_params <- function() {
     cost_col = "cost", logistic_col = "log",
     # rank-stage keys (post-run meta + terminal output side-effects)
     crop = "wheat", priority_threshold_weight = 1,
+    # priority_check_weight (Task 5): default 0, lets a failing check nudge a
+    # cross's priority tier without ever excluding it. Consumed in ng_rank_cross_priority()
+    # via the rank stage's existing "priority_*_weight" glob -- NOT a new pattern.
+    priority_check_weight = 0,
     cross_number_mode = "auto",
     cross_sweep_k_min = 3L, cross_sweep_k_max = 30L, cross_sweep_k_step = 1L,
     cross_sweep_criterion = "elbow_relative", cross_sweep_relative_threshold = 0.05,
@@ -227,6 +263,38 @@ full_build_params <- function() {
 #                            standard build_params() run; allow-listed defensively)
 partition_allow_list <- c("schema", "use_parallel", "n_threads",
                           "workflow", "run_dir", "stage")
+
+test_that("ngcd_pipeline_mark: changing check_progeny_size marks index+allocate+rank stale, qc+predict stay done", {
+  # check_progeny_size is the k in the backend's P(beat check) formula and is
+  # consumed inside ng_cp__stage_index (nextgenCrossDesign R/39_cross_prediction_runner.R)
+  # -- it must invalidate the compute-once index stage (and everything
+  # downstream), NOT rank alone, or a breeder who raises progeny size after
+  # completing all stages sees a P(beat check) column that never recomputes.
+  init <- ng("ngcd_pipeline_init"); mark <- ng("ngcd_pipeline_mark")
+  p0 <- c(sample_params(),
+          list(trait_checks = data.frame(trait = "yield", check = "chk",
+                                          stringsAsFactors = FALSE),
+               check_progeny_size = 100))
+  pipeline <- done_pipeline(init, mark, p0, data_version = 1L)
+
+  p1 <- c(sample_params(),
+          list(trait_checks = data.frame(trait = "yield", check = "chk",
+                                          stringsAsFactors = FALSE),
+               check_progeny_size = 500))
+  pipeline2 <- mark(pipeline, p1, data_version = 1L)
+
+  expect_identical(pipeline2$stages$qc$status, "done")
+  expect_identical(pipeline2$stages$predict$status, "done")
+  expect_identical(pipeline2$stages$index$status, "stale")
+  expect_identical(pipeline2$stages$allocate$status, "stale")
+  expect_identical(pipeline2$stages$rank$status, "stale")
+
+  # And directly at the cfg-subset level: check_progeny_size belongs to index,
+  # not rank.
+  sub <- ng("ngcd_stage_cfg_subset")
+  expect_true("check_progeny_size" %in% names(sub(p1, "index")))
+  expect_false("check_progeny_size" %in% names(sub(p1, "rank")))
+})
 
 test_that("ngcd_stage_key_patterns: the 5-stage partition is collision-free", {
   sub <- ng("ngcd_stage_cfg_subset")
@@ -299,4 +367,34 @@ test_that("ngcd_pipeline_init: fresh pipeline has all stages stale with no cfg/j
     expect_null(s$json)
     expect_null(s$ran_at)
   }
+})
+
+test_that("ngcd_stage_key_patterns: robustness_quantile invalidates predict (it steers the posterior cache), not rank alone", {
+  # From backend 0.25.0 robustness_quantile is a real ng_run_cross_prediction()
+  # formal: it makes the POSTERIOR stage cache that exact empirical tail, which is
+  # the only tail ng_optimize_robust_mating_plan() will then be served. If it stayed
+  # a rank-only key, moving the slider on a completed staged run would reuse a
+  # posterior that never cached the new tail and the breeder would silently get no
+  # robust plan -- exactly the defect this release fixes.
+  sub <- ng("ngcd_stage_cfg_subset")
+  full <- full_build_params()
+  expect_true("robustness_quantile" %in% names(sub(full, "predict")))
+  expect_false("robustness_quantile" %in% names(sub(full, "rank")))
+  # Its post-run-only siblings stay in rank.
+  expect_true(all(c("robust_allocation", "robust_objective", "robust_top_n_target") %in%
+                    names(sub(full, "rank"))))
+
+  # End to end through the invalidation machinery: changing only the quantile
+  # marks predict (and everything downstream) stale, while qc stays done.
+  init <- ng("ngcd_pipeline_init"); mark <- ng("ngcd_pipeline_mark")
+  p0 <- c(sample_params(), list(robust_allocation = TRUE, robustness_quantile = 0.25))
+  pipeline <- done_pipeline(init, mark, p0, data_version = 1L)
+  p1 <- c(sample_params(), list(robust_allocation = TRUE, robustness_quantile = 0.10))
+  pipeline2 <- mark(pipeline, p1, data_version = 1L)
+
+  expect_identical(pipeline2$stages$qc$status, "done")
+  expect_identical(pipeline2$stages$predict$status, "stale")
+  expect_identical(pipeline2$stages$index$status, "stale")
+  expect_identical(pipeline2$stages$allocate$status, "stale")
+  expect_identical(pipeline2$stages$rank$status, "stale")
 })
