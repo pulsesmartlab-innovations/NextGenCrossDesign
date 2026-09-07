@@ -10,3 +10,29 @@
 ^tools$
 ^docs$
 ^deploy$
+
+# Everything below was being SHIPPED. A 0.32.0 build came out at 25.5 MB
+# against 6.1 MB for 0.17.4, and the difference was development scratch.
+#
+# The dangerous one is the stale backend tarball: nextgenCrossDesign_0.14.0.tar.gz
+# was riding inside a package whose enforced floor is 0.30.0. Installing the
+# backend from it would land 0.14.0 -- below 0.24.0, where <trait>_p_beat_check
+# still returns a number but the WRONG one (0.9997 where the truth was 0.678).
+# A stale artefact that installs cleanly and answers incorrectly is exactly the
+# failure this release exists to remove, so no package tarball ships inside the
+# package.
+^nextgenCrossDesign_.*\.tar\.gz$
+^nextgenCrossWorkbench_.*\.tar\.gz$
+^dist$
+
+# Development scratch, never part of the distributed package.
+^\.superpowers$
+^_to_delete$
+^Claude outputs$
+^\.remember$
+
+# Local run helpers and their output.
+^run-workbench-.*\.sh$
+^.*\.log$
+^README\.html$
+^\.dockerignore$
