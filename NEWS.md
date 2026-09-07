@@ -1,3 +1,12 @@
+# nextgenCrossWorkbench 0.31.0
+
+* Requires backend `nextgenCrossDesign` >= 0.29.0, which blocks invalid user-supplied
+  covariance matrices rather than solving an index from them. A supplied P/G pair is now
+  refused when it implies a heritability above 1 (`P - G` not positive semidefinite), when
+  an implied genetic correlation exceeds 1, when the matrix an index must invert is
+  numerically singular, or when asymmetry exceeds a scale-relative tolerance. Each refusal
+  names the traits and the offending number.
+
 # nextgenCrossWorkbench 0.30.0
 
 Requires backend nextgenCrossDesign >= 0.27.0 (`inst/BACKEND_VERSION`, enforced at run time).

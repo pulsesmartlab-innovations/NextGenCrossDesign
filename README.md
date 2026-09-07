@@ -169,7 +169,7 @@ R CMD INSTALL nextgenCrossDesign_0.27.0.tar.gz
 install.packages("nextgenCrossWorkbench", dependencies = TRUE)
 
 #    …or from a local source tarball:
-install.packages("nextgenCrossWorkbench_0.30.0.tar.gz",
+install.packages("nextgenCrossWorkbench_0.31.0.tar.gz",
                  repos = NULL, type = "source", dependencies = TRUE)
 ```
 
@@ -642,7 +642,7 @@ If you use this workbench in published work, please cite both components:
 > (R package). North Dakota State University.
 >
 > Atanda, S., and Morales, M. *nextgenCrossWorkbench: NextGenCrossDesign — a Shiny
-> front-end for nextgenCrossDesign* (R package, v0.30.0). North Dakota State
+> front-end for nextgenCrossDesign* (R package, v0.31.0). North Dakota State
 > University, PulseSmartLab — PI: Dr. Sikiru Atanda.
 
 ---
