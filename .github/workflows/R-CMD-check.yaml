@@ -117,13 +117,139 @@ jobs:
       - uses: r-lib/actions/setup-r-dependencies@v2
         if: env.RUN == 'true'
         with:
-          extra-packages: any::rcmdcheck
+          extra-packages: any::rcmdcheck, any::remotes
           needs: check
+
+      # THE BACKEND IS A TEST DEPENDENCY, EVEN THOUGH IT IS NOT A PACKAGE
+      # DEPENDENCY.
+      #
+      # The workbench drives nextgenCrossDesign as an external Rscript process,
+      # so it is deliberately absent from DESCRIPTION. But the test suite guards
+      # every backend-touching test with backend_available(), and without the
+      # backend on the library path those tests SKIP and the job still passes.
+      #
+      # That gap is not theoretical. Four of them exist specifically to guard the
+      # config -> JSON -> backend bridge: check_geno keyed by the breeder's
+      # chosen ID column, check_pheno reshaping instead of silently mangling into
+      # a 1-row frame, the removed parameters never being forwarded, and the
+      # polyploid experimental-dominance flag. That bridge is where a whole
+      # feature once shipped inert -- the runner emitted the pre-rename field
+      # name, so the frontend read NULL and rendered nothing, while the entire
+      # unit suite passed against hand-built fixtures carrying the correct name.
+      #
+      # Installing the backend from its main branch also makes this the real
+      # integration signal: the workbench is checked against the backend it will
+      # actually be paired with, not against a mock of it.
+      - name: Install the nextgenCrossDesign backend (so backend tests run, not skip)
+        if: env.RUN == 'true'
+        run: |
+          remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR",
+                                  upgrade = "never", build_vignettes = FALSE)
+        shell: Rscript {0}
+
+      # Installing the backend is necessary but NOT sufficient, and the first
+      # attempt proved it: the install succeeded and the tests still skipped.
+      #
+      # backend_available() does not ask whether this R session can see the
+      # backend. It asks ngcd_check_backend(), which spawns a NESTED Rscript and
+      # probes for the package there. That child only searches the library paths
+      # it inherits, so the backend can be perfectly installed for the check
+      # process and invisible to the probe -- backend_available() returns FALSE,
+      # every backend test skips, and the job stays green.
+      #
+      # ngcd_load_config() maps any config key to NGCD_<KEY>, so pointing
+      # package_library at the library the backend actually landed in makes the
+      # probe prepend it to .libPaths() in the child. Resolve it with
+      # find.package() rather than assuming .libPaths()[1].
+      #
+      # The probe is also run here verbatim, so the log states plainly whether
+      # the child can see the backend -- rather than leaving a silent skip to be
+      # mistaken for a pass.
+      - name: Point the backend probe at the right library, and prove it works
+        if: env.RUN == 'true'
+        run: |
+          need <- trimws(readLines("inst/BACKEND_VERSION", warn = FALSE)[[1L]])
+          have <- tryCatch(as.character(packageVersion("nextgenCrossDesign")),
+                           error = function(e) NA_character_)
+          cat("backend installed:", have, "| declared floor:", need, "\n")
+          if (is.na(have))
+            stop("nextgenCrossDesign is not installed: every backend-guarded test ",
+                 "would skip and this job would pass without checking the bridge.")
+          if (package_version(have) < package_version(need))
+            stop("backend ", have, " is below the floor ", need,
+                 " declared in inst/BACKEND_VERSION.")
+
+          lib <- dirname(find.package("nextgenCrossDesign"))
+          cat("backend library:", lib, "\n")
+          cat("this session's .libPaths():\n"); print(.libPaths())
+
+          # Exactly what ngcd_check_backend() does, with the library exported.
+          Sys.setenv(NGCD_PACKAGE_LIBRARY = lib)
+          rs <- Sys.which("Rscript")
+          cat("Rscript resolved to:", rs, "\n")
+          probe <- sprintf(
+            'lib <- "%s"; if (nzchar(lib)) .libPaths(c(lib, .libPaths())); cat("BACKEND=", requireNamespace("nextgenCrossDesign", quietly=TRUE), "\\n", sep="")',
+            lib)
+          out <- system2(rs, c("-e", shQuote(probe)), stdout = TRUE, stderr = TRUE)
+          cat("probe says:", paste(out, collapse = " | "), "\n")
+          if (!any(grepl("BACKEND=TRUE", out, fixed = TRUE)))
+            stop("the nested Rscript probe cannot see the backend even with ",
+                 "package_library set, so backend_available() will stay FALSE ",
+                 "and every backend-guarded test will silently skip.")
+
+          # Export to the remaining steps, so R CMD check's test subprocess and
+          # the probe it spawns both resolve the backend.
+          cat(sprintf("NGCD_PACKAGE_LIBRARY=%s\n", lib),
+              file = Sys.getenv("GITHUB_ENV"), append = TRUE)
+        shell: Rscript {0}
 
       - uses: r-lib/actions/check-r-package@v2
         if: env.RUN == 'true'
         with:
           upload-snapshots: true
-          # The frontend spawns the backend as an external process, so R CMD
-          # check runs against the UI/logic only; fail the build on errors.
+          # R CMD check deliberately isolates itself: it substitutes its own
+          # Rscript shim (…/…​.Rcheck/R_check_bin/Rscript) and sets
+          # R_LIBS_USER=NULL. backend_available() probes by spawning a nested
+          # Rscript, so inside check that child is sandboxed away from the
+          # backend and every backend-guarded test skips -- no matter where the
+          # backend is installed. That is check working as intended, not a bug
+          # to defeat, so this leg stays a packaging + UI/logic check.
           error-on: '"error"'
+
+      # ...and the backend-guarded tests run HERE instead, outside that sandbox.
+      #
+      # This is the leg that actually exercises the config -> JSON -> backend
+      # bridge: check_geno keyed by the breeder's chosen ID column, check_pheno
+      # reshaping rather than silently mangling into a 1-row frame, the removed
+      # parameters never forwarded, the polyploid experimental-dominance flag.
+      # The bridge is where a whole feature once shipped inert -- the runner
+      # emitted the pre-rename field name, the frontend read NULL and rendered
+      # nothing, and the entire unit suite passed against hand-built fixtures
+      # carrying the correct name.
+      #
+      # NOT_CRAN=true because skip_on_cran() would otherwise hide much of it.
+      - name: Run the suite with the backend visible (the bridge tests)
+        if: env.RUN == 'true'
+        env:
+          NOT_CRAN: "true"
+        run: |
+          pkgload::load_all(".", quiet = TRUE)
+          source("tests/testthat/helper-inputs.R")
+
+          # Assert the premise. Without this the step degrades into exactly what
+          # it replaces: every backend test skips and the job still passes.
+          if (!backend_available()) stop(backend_skip_reason())
+          cat("backend visible to the probe; running the full suite\n")
+
+          res <- as.data.frame(testthat::test_dir("tests/testthat",
+                                                  reporter = "silent",
+                                                  stop_on_failure = FALSE))
+          cat(sprintf("pass=%d fail=%d error=%d skip=%d\n",
+                      sum(res$passed), sum(res$failed), sum(res$error),
+                      sum(res$skipped)))
+          bad <- res[res$failed > 0 | res$error, c("file", "test")]
+          if (nrow(bad)) {
+            for (i in seq_len(nrow(bad))) cat("  FAIL:", bad$file[i], "|", bad$test[i], "\n")
+            stop(nrow(bad), " test(s) failed with the backend present")
+          }
+        shell: Rscript {0}

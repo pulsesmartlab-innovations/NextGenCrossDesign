@@ -50,6 +50,36 @@ backend_available <- function() {
   !is.null(b) && isTRUE(b$rscript_ok) && isTRUE(b$backend_installed)
 }
 
+# Why the backend was judged unavailable, in the skip message itself.
+#
+# backend_available() does not test whether THIS session can see the backend --
+# ngcd_check_backend() spawns a nested Rscript and probes there, so it can be
+# false for several unrelated reasons: Rscript unresolvable, the child not
+# searching the library the backend was installed into, or the check erroring
+# outright. A bare "Backend not available." cannot distinguish them, which cost
+# a full CI cycle: the backend installed correctly, a hand-run probe reported
+# BACKEND=TRUE, and these tests still skipped with no way to see why.
+#
+# Report the actual state instead. A skip that explains itself is the whole
+# difference between a diagnosable CI run and a guess.
+backend_skip_reason <- function() {
+  cfg <- tryCatch(nextgenCrossWorkbench:::ngcd_load_config(tempfile("wb")),
+                  error = function(e) NULL)
+  if (is.null(cfg)) return("Backend not available: ngcd_load_config() errored.")
+  b <- tryCatch(nextgenCrossWorkbench:::ngcd_check_backend(cfg), error = function(e) e)
+  if (inherits(b, "condition"))
+    return(paste0("Backend not available: ngcd_check_backend() errored: ",
+                  conditionMessage(b)))
+  paste0("Backend not available: rscript_ok=", isTRUE(b$rscript_ok),
+         " resolved='", b$rscript_resolved, "'",
+         " installed=", isTRUE(b$backend_installed),
+         " version=", b$backend_version,
+         " package_library='", b$package_library, "'",
+         " runner_exists=", isTRUE(b$runner_exists),
+         " R_LIBS_USER='", Sys.getenv("R_LIBS_USER"), "'",
+         if (length(b$messages)) paste0(" | ", paste(b$messages, collapse = "; ")) else "")
+}
+
 # A complete set of default inputs for the server, overridable via `...`.
 demo_inputs <- function(...) {
   base <- list(
