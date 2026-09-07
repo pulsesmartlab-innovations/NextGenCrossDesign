@@ -201,3 +201,27 @@ test_that("an unrecognized deployment_mode falls back to local", {
     expect_equal(cfg$deployment_mode, "local")
   })
 })
+
+test_that("a config.yml can raise the backend floor but never lower it", {
+  # A safety gate a config file can switch off is not a gate. Older templates
+  # shipped required_backend_version: "0.7.0"; anyone seeded from one had the
+  # check-line version gate silently disabled, and would have been shown
+  # <trait>_p_beat_check values that are wrong rather than merely unsupported.
+  packaged <- ngcd_default_backend_version()
+
+  d <- withr::local_tempdir()
+  writeLines(c("default:", '  required_backend_version: "0.7.0"'),
+             file.path(d, "config.yml"))
+  expect_equal(ngcd_load_config(d)$required_backend_version, packaged)
+
+  # A genuinely higher pin is respected.
+  higher <- "99.0.0"
+  d2 <- withr::local_tempdir()
+  writeLines(c("default:", paste0('  required_backend_version: "', higher, '"')),
+             file.path(d2, "config.yml"))
+  expect_equal(ngcd_load_config(d2)$required_backend_version, higher)
+
+  # No pin at all falls back to the packaged floor.
+  d3 <- withr::local_tempdir()
+  expect_equal(ngcd_load_config(d3)$required_backend_version, packaged)
+})

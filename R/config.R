@@ -101,6 +101,25 @@ ngcd_load_config <- function(dir = getwd()) {
     (is.character(cfg$developer_mode) &&
        tolower(trimws(cfg$developer_mode)) %in% c("true", "1", "yes", "on"))
 
+  # A config.yml (or NGCD_REQUIRED_BACKEND_VERSION) may RAISE the backend floor,
+  # never lower it below what this build of the workbench actually needs. The
+  # floor is a safety gate, not a preference: `check_backend_version_message()`
+  # uses it to refuse a check-line run against a backend older than 0.24.0,
+  # where <trait>_p_beat_check still returns a number but the WRONG one (it
+  # raised a shared posterior effect uncertainty to the k-th power -- 0.9997
+  # where the truth was 0.678). Older templates shipped
+  # `required_backend_version: "0.7.0"`, and anyone who seeded a config.yml from
+  # one had that gate silently disabled. Flooring here fixes the advisory chip
+  # and the hard gate together, and makes a stale pin inert rather than harmful.
+  cfg$required_backend_version <- local({
+    packaged <- ngcd_default_backend_version()
+    configured <- as.character(cfg$required_backend_version %||% "")[[1L]]
+    if (!nzchar(configured)) return(packaged)
+    ok <- tryCatch(package_version(configured) > package_version(packaged),
+                   error = function(e) NA)
+    if (isTRUE(ok)) configured else packaged
+  })
+
   cfg$work_dir      <- dir
   cfg$config_path   <- cfg_path
   cfg$runner_script <- ngcd_res("tools", "run_cross_prediction_json.R")
