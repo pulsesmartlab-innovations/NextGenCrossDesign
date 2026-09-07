@@ -1,3 +1,10 @@
+# nextgenCrossWorkbench 0.32.0
+
+* Requires backend `nextgenCrossDesign` >= 0.30.0. The backend's own genetic-covariance
+  estimator now refuses to return a matrix implying a heritability above 1 rather than
+  letting it become index weights, and its development loader no longer sources files
+  that are not part of the package.
+
 # nextgenCrossWorkbench 0.31.0
 
 * Requires backend `nextgenCrossDesign` >= 0.29.0, which blocks invalid user-supplied
