@@ -297,7 +297,7 @@ test_that("the joint-probability block no longer carries its own direction vocab
 # FIX C -- the auto -> economic_index / desired_gain self-promotion
 # ===========================================================================
 
-test_that("ngcd_auto_index_promotion_message fires exactly when the backend would promote", {
+test_that("ngcd_auto_index_promotion_message fires exactly when the backend would promote AND the matrices are missing", {
   m <- nextgenCrossWorkbench:::ngcd_auto_index_promotion_message
   plain <- data.frame(Trait = c("yield", "disease"),
                       Selection_direction = c("increase", "decrease"),
@@ -317,7 +317,8 @@ test_that("ngcd_auto_index_promotion_message fires exactly when the backend woul
   expect_false(is.null(msg))
   expect_match(msg, "economic_weight", fixed = TRUE)
   expect_match(msg, "economic_index", fixed = TRUE)
-  expect_match(msg, "genetic (G) covariance", fixed = TRUE)
+  expect_match(msg, "genetic covariance (G)", fixed = TRUE)
+  expect_match(msg, "phenotypic covariance (P)", fixed = TRUE)
   # The breeder is told nothing was rewritten behind their back.
   expect_match(msg, "nothing has been dropped", fixed = TRUE)
 
@@ -325,6 +326,18 @@ test_that("ngcd_auto_index_promotion_message fires exactly when the backend woul
   expect_match(m(des, "multi", "auto"), "desired_gain", fixed = TRUE)
   expect_match(m(cbind(des, economic_weight = c(2, 1)), "multi", "auto"),
                "desired_gain", fixed = TRUE)
+
+  # ---- the interim refusal is gone: a BACKED promotion runs -----------------
+  # Smith-Hazel needs both matrices; with only one it still names the other.
+  expect_match(m(econ, "multi", "auto", has_phenotypic = TRUE, has_genetic = FALSE),
+               "genetic covariance (G)", fixed = TRUE)
+  expect_match(m(econ, "multi", "auto", has_phenotypic = FALSE, has_genetic = TRUE),
+               "phenotypic covariance (P)", fixed = TRUE)
+  expect_null(m(econ, "multi", "auto", has_phenotypic = TRUE, has_genetic = TRUE))
+  # Pesek-Baker needs G alone -- P is optional there, so G by itself is enough.
+  expect_match(m(des, "multi", "auto", has_phenotypic = TRUE, has_genetic = FALSE),
+               "genetic covariance (G)", fixed = TRUE)
+  expect_null(m(des, "multi", "auto", has_phenotypic = FALSE, has_genetic = TRUE))
 })
 
 test_that("the run gate refuses a direction file that would self-promote, and only in the workflow that builds an index", {
@@ -362,13 +375,17 @@ test_that("the run gate refuses a direction file that would self-promote, and on
   })
 })
 
-test_that("the Selection objective help no longer invites economic weights / desired gains", {
+test_that("the Selection objective help explains what each index method needs", {
   html <- paste(suppressWarnings(as.character(
     nextgenCrossWorkbench:::workbench_ui(mtf_cfg(), dev = FALSE))), collapse = " ")
-  # The old text promised a path the dropdown removed and the backend hard-errors on.
+  # The original text promised a path that could not run at all.
   expect_false(grepl("if your direction file carries economic weights", html, fixed = TRUE))
-  # ...and the replacement says to leave those columns out.
+  # The interim text told breeders to leave those columns out entirely; both
+  # methods work now, so the help must name the columns AND the two matrices.
+  expect_false(grepl("refused before it starts", html, fixed = TRUE))
   expect_match(html, "economic_weight", fixed = TRUE)
   expect_match(html, "desired_change", fixed = TRUE)
-  expect_match(html, "refused before it starts", fixed = TRUE)
+  expect_match(html, "Smith-Hazel", fixed = TRUE)
+  expect_match(html, "Pesek-Baker", fixed = TRUE)
+  expect_match(html, "desired gains needs G alone", fixed = TRUE)
 })

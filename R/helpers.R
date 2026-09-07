@@ -652,30 +652,329 @@ ngcd_experimental_dominance_message <- function(dominance, acknowledged) {
          "or untick Model dominance to score on additive effects only.")
 }
 
+# ===========================================================================
+# User-supplied phenotypic (P) and genetic (G) covariance matrices
+# ===========================================================================
+# Smith-Hazel (economic_index, b = P^{-1} G a) and Pesek-Baker
+# (desired_gain, b = G^{-1} d) are the only two REAL selection indices the
+# backend offers. "weighted", the app's other multi-trait method, is a rank
+# sum: scale-invariant but magnitude-blind, with no P, no G, no heritabilities
+# and no genetic correlations. Both index methods need quantitative-genetic
+# covariance matrices that no part of a cross-prediction run can invent --
+# ng_multitrait_index_covariance() refuses to substitute candidate-score
+# covariance for them. Backend 0.27.0 takes them as ng_run_cross_prediction()
+# formals (phenotypic_covariance / genetic_covariance) and is label-aware: a
+# fully labelled matrix is reordered BY NAME, and a missing / extra /
+# misspelled / one-sided label is a hard error.
+#
+# THE JSON-BRIDGE HAZARD, and why the payload looks the way it does
+# ----------------------------------------------------------------
+# The app reaches the backend by writing config JSON and shelling out to
+# inst/app/tools/run_cross_prediction_json.R. jsonlite DROPS dimnames on a
+# matrix round trip -- jsonlite::fromJSON(jsonlite::toJSON(M)) is an UNLABELLED
+# matrix. The backend then reads it POSITIONALLY (its documented fallback for a
+# genuinely unlabelled matrix) and cannot detect a reordering. The backend
+# measured what that costs on a 3-trait permutation: Smith-Hazel coefficients
+# moved by max |db| = 0.1708 and the emitted index re-ranked the candidate
+# crosses at Spearman 0.9168 -- a coherent-looking index that is simply wrong,
+# with nothing on screen to notice it.
+#
+# So a matrix is NEVER sent as a matrix. ngcd_cov_payload() emits LONG FORM:
+#   { schema, traits = [...], cells = [ {trait_row, trait_col, value}, ... ] }
+# Every scalar carries its own row AND column label, so no part of the payload
+# can be read positionally even in principle, and the runner's decoder
+# (ngcd_cov_from_payload(), defined in the runner script because that script is
+# a standalone Rscript outside this namespace) rebuilds the matrix by a TILING
+# ASSERT: the p^2 cells must exactly cover traits x traits, with no unknown
+# label, no duplicate and no gap, or the run stops. A {traits, matrix} object
+# would have been smaller, but if its `traits` field ever went missing what is
+# left is still a plausible bare matrix that degrades silently back to a
+# positional read -- precisely the failure this shape exists to make impossible.
+NGCD_COV_SCHEMA <- "ngcd_labelled_matrix.v1"
+
+# The trait set the backend will actually build the index over, derived exactly
+# the way ng_run_cp_trait_spec() (nextgenCrossDesign R/39) derives it: the rows
+# of the TRAIT-DIRECTION file (not the phenotype file's columns), filtered by
+# traits_to_use matched against either the trait label or the phenotype column.
+# P and G must be subset to THIS set -- backend 0.27.0 errors on an extra label,
+# so a program-wide covariance matrix has to be narrowed by the caller. Pure.
+ngcd_index_trait_set <- function(direction, trait_col = NULL, column_col = NULL,
+                                 traits_to_use = NULL) {
+  if (!is.data.frame(direction) || !nrow(direction) || !ncol(direction)) return(character(0))
+  pick <- function(col, guesses) {
+    if (!is.null(col) && length(col) == 1L && nzchar(col) && col %in% names(direction)) return(col)
+    ngcd_guess_col(names(direction), guesses) %||% names(direction)[[1L]]
+  }
+  tcol <- pick(trait_col,  c("Trait", "trait", "trait_name", "TraitName", "name"))
+  ccol <- pick(column_col, c("Trait", "trait", "column"))
+  traits  <- trimws(as.character(direction[[tcol]]))
+  columns <- trimws(as.character(direction[[ccol]]))
+  keep <- nzchar(traits)
+  if (!is.null(traits_to_use) && length(traits_to_use)) {
+    sel <- trimws(as.character(traits_to_use))
+    keep <- keep & (traits %in% sel | columns %in% sel)
+  }
+  unique(traits[keep])
+}
+
+# Read an uploaded covariance CSV into a LABELLED square numeric matrix.
+# Contract: trait names in the first column AND as the remaining headers.
+# Returns list(ok, matrix, message) -- `message` is breeder-facing and names
+# the offending labels/cells; it is never a bare R condition.
+ngcd_cov_from_table <- function(df, name = "covariance matrix") {
+  bad <- function(...) list(ok = FALSE, matrix = NULL, message = paste0(name, ": ", ...))
+  if (is.null(df) || !is.data.frame(df) || !ncol(df) || !nrow(df))
+    return(bad("the file could not be read as a table."))
+  if (ncol(df) < 2L)
+    return(bad("only one column was read - check the file's delimiter (comma / semicolon / tab)."))
+  rows <- trimws(as.character(df[[1L]]))
+  cols <- trimws(as.character(names(df)[-1L]))
+  if (any(!nzchar(rows)))
+    return(bad("every row must be labelled with a trait name in the first column; row(s) ",
+               paste(which(!nzchar(rows)), collapse = ", "), " are blank."))
+  if (any(!nzchar(cols)))
+    return(bad("every value column must be headed by a trait name; column header(s) ",
+               paste(which(!nzchar(cols)) + 1L, collapse = ", "), " are blank."))
+  dup_r <- unique(rows[duplicated(rows)]); dup_c <- unique(cols[duplicated(cols)])
+  if (length(dup_r) || length(dup_c))
+    return(bad("a trait may appear only once. Duplicated row label(s): ",
+               if (length(dup_r)) paste(dup_r, collapse = ", ") else "<none>",
+               "; duplicated column header(s): ",
+               if (length(dup_c)) paste(dup_c, collapse = ", ") else "<none>", "."))
+  if (length(rows) != length(cols))
+    return(bad("a covariance matrix must be square, but the file has ", length(rows),
+               " row(s) and ", length(cols), " value column(s)."))
+  if (!setequal(rows, cols))
+    return(bad("the row labels and the column headers must name the SAME traits. Only in rows: ",
+               if (length(setdiff(rows, cols))) paste(setdiff(rows, cols), collapse = ", ") else "<none>",
+               "; only in headers: ",
+               if (length(setdiff(cols, rows))) paste(setdiff(cols, rows), collapse = ", ") else "<none>", "."))
+  vals <- df[, -1L, drop = FALSE]
+  m <- suppressWarnings(matrix(as.numeric(as.character(unlist(vals, use.names = FALSE))),
+                               nrow = nrow(df), ncol = ncol(vals)))
+  dimnames(m) <- list(rows, cols)
+  if (any(!is.finite(m))) {
+    hit <- which(!is.finite(m), arr.ind = TRUE)
+    shown <- utils::head(sprintf("(%s, %s)", rows[hit[, 1]], cols[hit[, 2]]), 5L)
+    return(bad("every entry must be a finite number. Non-numeric or missing at ",
+               paste(shown, collapse = ", "),
+               if (nrow(hit) > 5L) paste0(", and ", nrow(hit) - 5L, " more") else "", "."))
+  }
+  m <- m[rows, rows, drop = FALSE]   # put the columns in row order
+  list(ok = TRUE, matrix = m, message = NULL)
+}
+
+# Validate a labelled covariance matrix against the traits this run will index,
+# and SUBSET it to exactly those traits (backend 0.27.0 errors on an extra
+# label, so the narrowing is the caller's job -- i.e. ours).
+#
+# Refuses, with a breeder-facing message, when: a trait of the run is absent
+# from the matrix; the matrix is not symmetric within the backend's own 1e-8
+# tolerance (refusing here rather than letting the same rule fail 20 minutes
+# into a run); a variance on the diagonal is not positive; the matrix is not
+# positive semidefinite; or -- when the chosen index has to invert it -- it is
+# singular or so ill-conditioned that the solve returns numerical noise. The
+# backend would NOT error on that last one: it ridges (1e-6) and pseudo-inverts,
+# so a near-singular P or G yields plausible-looking coefficients built out of
+# rounding error. The condition number is reported so the breeder can see why.
+# cond_max = 1e6: with IEEE doubles carrying ~16 significant digits, a solve
+# against a matrix of condition number k keeps roughly 16 - log10(k) of them, so
+# by 1e6 a third of the precision of every coefficient is already gone and the
+# ratio is climbing fast. It is also comfortably above anything a genuinely
+# estimated covariance matrix over a handful of traits produces, and comfortably
+# BELOW the 1e8 ceiling implied by the positive-semidefinite tolerance above
+# (which already rejects min_eigen < 1e-8 * max_eigen as singular).
+ngcd_validate_cov <- function(M, traits, name = "covariance matrix",
+                              require_invertible = FALSE, cond_max = 1e6) {
+  bad <- function(...) list(ok = FALSE, matrix = NULL, message = paste0(name, ": ", ...), notes = character(0))
+  notes <- character(0)
+  if (is.null(M) || !is.matrix(M)) return(bad("no matrix was loaded."))
+  traits <- unique(trimws(as.character(traits %||% character(0))))
+  if (!length(traits)) return(bad("the run has no traits to index yet - load a trait-direction file first."))
+  rn <- rownames(M); cn <- colnames(M)
+  if (is.null(rn) || is.null(cn)) return(bad("the matrix lost its trait labels."))
+  missing <- setdiff(traits, rn)
+  if (length(missing))
+    return(bad("every trait in the run needs a row and a column. Missing: ",
+               paste(missing, collapse = ", "), ". The matrix covers: ",
+               paste(rn, collapse = ", "), "."))
+  extra <- setdiff(rn, traits)
+  if (length(extra)) {
+    notes <- c(notes, paste0("Using the ", length(traits), " trait(s) in this run (",
+                             paste(traits, collapse = ", "), "); ignoring ",
+                             paste(extra, collapse = ", "), "."))
+  }
+  M <- M[traits, traits, drop = FALSE]
+  if (any(!is.finite(M))) return(bad("contains non-numeric or missing entries for the traits in this run."))
+  asym <- max(abs(M - t(M)))
+  if (!is.finite(asym) || asym > 1e-8) {
+    d <- abs(M - t(M)); hit <- which(d == max(d), arr.ind = TRUE)[1, ]
+    return(bad("a covariance matrix must be symmetric, but the cell (",
+               traits[hit[[1]]], ", ", traits[hit[[2]]], ") = ",
+               format(M[hit[[1]], hit[[2]]], digits = 8), " and its mirror (",
+               traits[hit[[2]]], ", ", traits[hit[[1]]], ") = ",
+               format(M[hit[[2]], hit[[1]]], digits = 8), " differ by ",
+               format(asym, digits = 3), ". Make the two mirrored cells exactly equal."))
+  }
+  if (any(diag(M) <= 0)) {
+    z <- traits[diag(M) <= 0]
+    return(bad("the diagonal holds each trait's variance, which must be positive. Not positive for: ",
+               paste(z, collapse = ", "), "."))
+  }
+  Ms <- (M + t(M)) / 2
+  ev <- eigen(Ms, symmetric = TRUE, only.values = TRUE)$values
+  tol <- 1e-8 * max(1, max(abs(ev)))
+  if (min(ev) < -tol)
+    return(bad("the matrix is not a valid covariance matrix (not positive semidefinite): its smallest ",
+               "eigenvalue is ", format(min(ev), digits = 3),
+               ". Some pair of traits is given a correlation stronger than the variances allow."))
+  if (isTRUE(require_invertible)) {
+    if (min(ev) <= tol)
+      return(bad("this index has to invert the matrix, but it is singular (smallest eigenvalue ",
+                 format(min(ev), digits = 3), ") - at least one trait is an exact linear combination ",
+                 "of the others. Drop a redundant trait, or supply a matrix estimated with more data."))
+    cond <- max(ev) / min(ev)
+    if (cond > cond_max)
+      return(bad("this index has to invert the matrix, but it is too ill-conditioned to invert ",
+                 "reliably: condition number ", format(cond, digits = 3), " (the limit is ",
+                 format(cond_max, digits = 3), "). The coefficients would be dominated by rounding ",
+                 "error rather than by your data. Two traits are very nearly redundant - drop one, ",
+                 "or supply a better-estimated matrix."))
+    notes <- c(notes, paste0("Condition number ", format(cond, digits = 4), " (invertible)."))
+  }
+  list(ok = TRUE, matrix = M, message = NULL, notes = notes)
+}
+
+# Labelled matrix -> the JSON-safe long-form payload described at the top of
+# this block. Errors (rather than emitting something the bridge would read
+# positionally) if the matrix is not square or is not labelled on BOTH
+# dimensions. Pure.
+ngcd_cov_payload <- function(M, name = "covariance matrix") {
+  if (is.null(M)) return(NULL)
+  M <- as.matrix(M)
+  rn <- rownames(M); cn <- colnames(M)
+  if (is.null(rn) || is.null(cn))
+    stop(name, " must carry trait names on BOTH rownames and colnames before it is serialised; ",
+         "an unlabelled matrix is read positionally by the backend.", call. = FALSE)
+  if (nrow(M) != ncol(M) || !setequal(rn, cn))
+    stop(name, " must be square and labelled with the same traits on rows and columns.", call. = FALSE)
+  M <- M[rn, rn, drop = FALSE]
+  cells <- vector("list", length(rn) * length(rn))
+  k <- 0L
+  for (i in seq_along(rn)) for (j in seq_along(rn)) {
+    k <- k + 1L
+    cells[[k]] <- list(trait_row = rn[[i]], trait_col = rn[[j]], value = as.numeric(M[i, j]))
+  }
+  list(schema = NGCD_COV_SCHEMA, traits = as.character(rn), cells = cells)
+}
+
+# The multi-trait method the backend will ACTUALLY solve with. An explicit pick
+# is used as picked; "auto" is promoted by ng_breeder_selection_objective() on
+# the mere presence of a positive desired_change (-> desired_gain) or
+# economic_weight (-> economic_index) column in the trait-direction file, with
+# desired_change winning. Returns "auto" when nothing promotes it, or NA when
+# the run is not combining traits at all. Pure.
+ngcd_effective_index_method <- function(direction, objective_mode, multi_trait_method) {
+  if (!identical(objective_mode %||% "single", "multi")) return(NA_character_)
+  m <- as.character(multi_trait_method %||% "auto")[1]
+  if (!identical(m, "auto")) return(m)
+  if (!is.data.frame(direction) || !nrow(direction)) return("auto")
+  finite_positive <- function(col) {
+    if (!(col %in% names(direction))) return(FALSE)
+    x <- suppressWarnings(as.numeric(direction[[col]]))
+    isTRUE(any(is.finite(x) & x > 0))
+  }
+  if (finite_positive("desired_change")) return("desired_gain")
+  if (finite_positive("economic_weight")) return("economic_index")
+  "auto"
+}
+
+# Which selection-index methods this run can actually offer, given what is
+# loaded. desired_gain (Pesek-Baker) needs G alone -- backend 0.27.0 made P
+# optional there, and without it the index is fully valid while only the
+# REPORTED predicted response and index SD come back NA. economic_index
+# (Smith-Hazel) still needs both. Pure; drives both the dropdown note and the
+# run gate so the two can never disagree.
+ngcd_index_method_message <- function(method, direction = NULL, has_phenotypic = FALSE,
+                                      has_genetic = FALSE) {
+  method <- as.character(method %||% "")[1]
+  if (!(method %in% c("economic_index", "desired_gain"))) return(NULL)
+  label <- if (identical(method, "economic_index")) "Economic index (Smith-Hazel, b = P^-1 G a)"
+           else "Desired gains (Pesek-Baker, b = G^-1 d)"
+  need <- if (identical(method, "economic_index"))
+    c(if (!isTRUE(has_phenotypic)) "phenotypic covariance (P)",
+      if (!isTRUE(has_genetic)) "genetic covariance (G)")
+  else if (!isTRUE(has_genetic)) "genetic covariance (G)" else character(0)
+  reasons <- character(0)
+  if (length(need))
+    reasons <- c(reasons, paste0(label, " needs the ", paste(need, collapse = " and the "),
+      ". Upload it on the Data screen under ", sQuote("Trait covariance matrices"),
+      " (a square traits x traits CSV with the trait names in the first column and as the headers)."))
+  # The target vector: `a` for Smith-Hazel, `d` for Pesek-Baker. Both come from
+  # the trait-direction file, and the backend refuses without them.
+  col <- if (identical(method, "economic_index")) "economic_weight" else "desired_change"
+  if (is.data.frame(direction) && nrow(direction)) {
+    vals <- if (col %in% names(direction)) suppressWarnings(as.numeric(direction[[col]])) else numeric(0)
+    if (!isTRUE(any(is.finite(vals) & vals > 0)))
+      reasons <- c(reasons, paste0(label, " also needs a ", col,
+        " column in your trait-direction file, with a positive value for at least one trait. ",
+        "Without it the run stops in the backend."))
+  }
+  if (!length(reasons)) return(NULL)
+  paste(reasons, collapse = " ")
+}
+
+# desired_gain solves b = G^{-1} d without ever touching P; P only standardises
+# the REPORTED predicted response by the index SD sqrt(b' P b). Backend 0.27.0
+# therefore lets a G-only run through and returns NA for those two reported
+# quantities, naming them in the plan summary. Blank cells with no explanation
+# are worse than no cells, so this turns that stamp into one sentence for the
+# results screen. Returns NULL when nothing degraded. Pure.
+ngcd_desired_gain_unavailable_message <- function(plan_summary) {
+  if (!is.list(plan_summary)) return(NULL)
+  un <- plan_summary$multitrait_desired_gain_unavailable
+  un <- as.character(unlist(un, use.names = FALSE))
+  un <- un[!is.na(un) & nzchar(un)]
+  if (!length(un)) return(NULL)
+  pretty <- c(predicted_response = "predicted response", index_sd = "index standard deviation")
+  shown <- unname(ifelse(un %in% names(pretty), pretty[un], un))
+  paste0("Desired gains ran on the genetic covariance (G) alone, which is all the ",
+         "Pesek-Baker coefficients b = G^-1 d need - the index and the cross ranking are ",
+         "complete and unaffected. Only the reported ", paste(shown, collapse = " and "),
+         " is blank, because reporting it needs the phenotypic covariance (P) for the index ",
+         "scale sqrt(b' P b). Upload P on the Data screen if you want that number too.")
+}
+
 # multi_trait_method = "auto" SELF-PROMOTES on the mere presence of a positive
 # value in the trait-direction file's desired_change or economic_weight column:
 # ng_breeder_selection_objective() (backend R/19) promotes to "desired_gain" or
 # "economic_index" respectively, ahead of the plain "weight" column. Both are
-# genuine selection indices and both need explicit phenotypic (P) and genetic (G)
-# covariance matrices, which this app does not collect --
-# ng_multitrait_index_covariance() refuses to substitute candidate-score
-# covariance for them, and with posterior prediction on the refusal now comes even
-# earlier, from ng_posterior_multitrait_cross_predict(). Either way the breeder
-# gets a hard error AFTER a full run, naming arguments the UI does not expose.
+# genuine selection indices; desired_gain needs the genetic covariance (G) and
+# economic_index needs both P and G, and ng_multitrait_index_covariance() refuses
+# to substitute candidate-score covariance for either.
+#
+# Until backend 0.27.0 the app could not supply P or G at all, so this helper
+# refused every promoting file outright. It no longer does: the Data screen now
+# collects both matrices, so when the promotion is BACKED by the matrices it
+# needs, the run is simply allowed to proceed and this returns NULL. It refuses
+# only when the promotion would reach the backend without them -- and then it
+# says which matrix is missing and where to put it, instead of letting the run
+# fail part-way through naming arguments the breeder never typed.
 #
 # ng_run_cp_trait_spec() carries EVERY column of the direction file through
-# untouched, so adding one column to a spreadsheet is all it takes -- and the
-# on-screen help used to invite exactly that.
+# untouched, so adding one column to a spreadsheet is all it takes.
 #
 # The columns are deliberately NOT stripped and the method is deliberately NOT
-# forced: the breeder put those numbers there on purpose and must be told why they
-# are not being honoured, not have them quietly deleted or quietly ignored.
+# forced: the breeder put those numbers there on purpose.
 # Returns NULL when there is nothing to report. Pure (no shiny) so the run gate and
 # a unit test can both call it. `direction` is the loaded trait-direction table.
 ngcd_auto_index_promotion_message <- function(direction, objective_mode,
-                                              multi_trait_method) {
+                                              multi_trait_method,
+                                              has_phenotypic = FALSE,
+                                              has_genetic = FALSE) {
   if (!identical(objective_mode %||% "single", "multi")) return(NULL)
-  # Only "auto" promotes; an explicitly chosen method is used as chosen.
+  # Only "auto" promotes; an explicitly chosen method is used as chosen (and is
+  # gated by ngcd_index_method_message() instead).
   if (!identical(multi_trait_method %||% "auto", "auto")) return(NULL)
   if (!is.data.frame(direction) || !nrow(direction)) return(NULL)
   # Same test the backend applies: any finite POSITIVE value in the column.
@@ -688,19 +987,25 @@ ngcd_auto_index_promotion_message <- function(direction, objective_mode,
   hits <- hits[vapply(hits, function(nm) finite_positive(direction[[nm]]), logical(1))]
   if (!length(hits)) return(NULL)
   # desired_change wins over economic_weight, exactly as the backend orders them.
-  promoted <- if ("desired_change" %in% hits) "Desired gains (desired_gain)" else
+  promoted <- if ("desired_change" %in% hits) "desired_gain" else "economic_index"
+  promoted_label <- if (identical(promoted, "desired_gain")) "Desired gains (desired_gain)" else
     "Economic weights (economic_index)"
+  # Supplied and valid? Then the promotion is legitimate: let it run.
+  need <- if (identical(promoted, "economic_index"))
+    c(if (!isTRUE(has_phenotypic)) "phenotypic covariance (P)",
+      if (!isTRUE(has_genetic)) "genetic covariance (G)")
+  else if (!isTRUE(has_genetic)) "genetic covariance (G)" else character(0)
+  if (!length(need)) return(NULL)
   paste0("Your trait-direction file has a ", paste(hits, collapse = " and a "),
          " column with positive values, and the multi-trait method is set to Automatic. ",
-         "The backend reads that as a request for ", promoted,
-         " - a true selection index, which needs phenotypic (P) and genetic (G) covariance ",
-         "matrices. This version of the workbench cannot supply them, so the run would fail ",
-         "part-way through with an error naming two arguments the app does not expose. ",
-         "Remove the ", paste(hits, collapse = " / "),
-         " column from your trait-direction file, or set those values to 0, or pick ",
-         "Relative weights explicitly and give the weights in the Trait weights box. ",
-         "Your numbers are left exactly as you entered them - nothing has been dropped ",
-         "or silently rewritten.")
+         "The backend reads that as a request for ", promoted_label,
+         " - a true selection index, which needs the ", paste(need, collapse = " and the "),
+         ". Upload it on the Data screen under ", sQuote("Trait covariance matrices"),
+         " (a square traits x traits CSV, trait names in the first column and as the headers), ",
+         "or remove the ", paste(hits, collapse = " / "),
+         " column from your trait-direction file, or pick Relative weights explicitly and give ",
+         "the weights in the Trait weights box. Your numbers are left exactly as you entered ",
+         "them - nothing has been dropped or silently rewritten.")
 }
 
 # Pure derivation from the breeder-facing 3-way "Selection objective" choice
@@ -816,6 +1121,14 @@ ngcd_stage_key_patterns <- list(
     # it re-keys the check lines, so it invalidates index for exactly the same reason
     # check_geno itself does.
     "trait_checks", "check_progeny_size", "check_geno", "check_pheno", "check_id_col",
+    # phenotypic_covariance / genetic_covariance: the user-supplied P and G that
+    # the Smith-Hazel (economic_index) and Pesek-Baker (desired_gain) solves are
+    # built from. They enter at ng_cp__stage_index (through
+    # ng_add_multitrait_score), exactly where multi_trait_method and
+    # trait_weights do, so they belong to index -- swapping in a different G must
+    # invalidate the compute-once index stage and everything downstream, or the
+    # breeder silently keeps an index solved from the previous matrix.
+    "phenotypic_covariance", "genetic_covariance",
     "marker_target_spec", "lambda_marker"),
   allocate = c(
     "n_crosses", "max_crosses_per_parent",

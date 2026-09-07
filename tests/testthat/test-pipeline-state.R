@@ -205,6 +205,13 @@ full_build_params <- function() {
     trait_weights = c(yield = 1), threshold_penalty_autoscale = TRUE,
     trait_checks = data.frame(trait = "yield", check = "chk", stringsAsFactors = FALSE),
     check_progeny_size = 50,
+    # user-supplied P and G (the labelled long-form payload build_params() sends)
+    phenotypic_covariance = list(schema = "ngcd_labelled_matrix.v1", traits = "yield",
+                                 cells = list(list(trait_row = "yield", trait_col = "yield",
+                                                   value = 4))),
+    genetic_covariance = list(schema = "ngcd_labelled_matrix.v1", traits = "yield",
+                              cells = list(list(trait_row = "yield", trait_col = "yield",
+                                                value = 2))),
     check_geno = data.frame(NAME = "chk", SNP = 0, stringsAsFactors = FALSE),
     check_pheno = data.frame(NAME = "chk", yield = 5, stringsAsFactors = FALSE),
     drop_lethal_carrier_crosses = FALSE, marker_target_spec = list(),

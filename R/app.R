@@ -243,7 +243,31 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::checkboxInput("restrict_shared_ids",
                 "Use only parents present in BOTH genotype and phenotype", FALSE),
               shiny::checkboxInput("drop_noninbred_parents",
-                "Exclude non-inbred parents (>2% heterozygous markers) for the DH/RIL model", FALSE)))),
+                "Exclude non-inbred parents (>2% heterozygous markers) for the DH/RIL model", FALSE)),
+              # Deliberately OUTSIDE the `data_source == 'upload'` panel above: P and G
+              # are never one of the demo tables and never can be (they are a property
+              # of the breeding programme's own trial history, not of a marker or
+              # phenotype file), so a breeder trying the formal indices on the demo data
+              # must still be able to bring their own.
+              shiny::conditionalPanel("input.workflow == 'standard'",
+                shiny::tags$div(id = "imp-cov",
+                  bslib::card(bslib::card_header("6 \u00b7 Trait covariance matrices (optional)"),
+                    shiny::fileInput("f_pcov", "Phenotypic covariance (P) CSV",
+                                     accept = c(".csv", ".txt", ".tsv")),
+                    shiny::fileInput("f_gcov", "Genetic covariance (G) CSV",
+                                     accept = c(".csv", ".txt", ".tsv")),
+                    shiny::div(class = "help-hint",
+                      "Needed only for the two ", shiny::tags$b("formal selection indices"),
+                      " on the Selection objective screen: ",
+                      shiny::tags$b("Economic index (Smith-Hazel)"), " needs both P and G; ",
+                      shiny::tags$b("Desired gains (Pesek-Baker)"), " needs G alone. Leave both ",
+                      "empty for Automatic or Relative weights - those never use them. ",
+                      "Each file is a ", shiny::tags$b("square traits x traits table"),
+                      ": the trait names in the first column AND as the column headers, ",
+                      "variances on the diagonal, covariances off it, in your traits' own ",
+                      "units. The order does not matter - the labels are what count, and ",
+                      "they travel with every value all the way to the engine."),
+                    shiny::uiOutput("cov_step")))))),
         bslib::card(bslib::card_header("Input data (editable)"),
           bslib::navset_tab(
             bslib::nav_panel("Genotype", DT::DTOutput("edit_geno")),
@@ -293,21 +317,25 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                             shiny::tags$b("Multiple traits"), " (usual choice for more than one trait): the app scores each trait and combines them into a computed selection index. ",
                             shiny::tags$b("Use my selection-index column"), ": use only if your phenotype file already has one pre-built, trusted selection-index column - not the same as the index this app computes for you."),
             shiny::tags$li("For multiple traits, tick the traits to include (leave all ticked to use every trait)."),
-            # This used to say "Economic weights / Desired gains if your direction file
-            # carries economic weights", which invited a configuration that cannot run:
-            # an economic_weight / desired_change column makes Automatic promote itself
-            # to a selection-index method needing P and G matrices this app does not
-            # collect, and the run then hard-errors. Neither method is offered in the
-            # dropdown, so the help must not advertise them either. The run gate
-            # (ngcd_auto_index_promotion_message()) refuses such a file up front.
             shiny::tags$li(shiny::tags$b("Multi-trait method"), ": start with ", shiny::tags$code("Automatic"),
                             " - it ranks each trait and combines the ranks with equal weight. Use ",
                             shiny::tags$code("Relative weights"),
-                            " if some traits should count for more, and type the weights in the box."),
-            shiny::tags$li("Leave ", shiny::tags$code("economic_weight"), " and ", shiny::tags$code("desired_change"),
-                            " columns OUT of your trait-direction file. They select true selection-index methods ",
-                            "(economic index / desired gains) that need phenotypic and genetic covariance matrices ",
-                            "this version cannot supply, so a run carrying them is refused before it starts.")),
+                            " if some traits should count for more, and type the weights in the box. ",
+                            "Both of those are rank sums: they respect your ordering of the traits, but they ",
+                            "know nothing about the traits' variances, heritabilities or genetic correlations."),
+            shiny::tags$li(shiny::tags$b("Economic index (Smith-Hazel)"), " and ",
+                            shiny::tags$b("Desired gains (Pesek-Baker)"),
+                            " are true selection indices and DO use that information. They need two things: ",
+                            "a column in your trait-direction file (",
+                            shiny::tags$code("economic_weight"), " for the economic index, ",
+                            shiny::tags$code("desired_change"), " for desired gains), and the covariance ",
+                            "matrices you upload on the Data screen - the economic index needs both the ",
+                            "phenotypic (P) and genetic (G) matrices, desired gains needs G alone. ",
+                            "With ", shiny::tags$code("Automatic"), " selected, either column switches the ",
+                            "run to the matching index on its own."),
+            shiny::tags$li("Whichever you pick, the note under the Method dropdown says exactly what is ",
+                            "still missing, and a run is never started against a matrix that cannot ",
+                            "produce a valid index.")),
           shiny::tags$p(class = "help-hint", "Direction is set in your trait-direction file - e.g. yield increases, disease decreases.")),
           next_hint = "Prediction & scoring - how each cross is valued."),
         bslib::layout_columns(col_widths = c(6, 6),
@@ -325,26 +353,31 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
               shiny::selectInput("index_direction", "Index direction", c("increase","decrease")))),
           bslib::card(bslib::card_header("Multi-trait method"),
             shiny::conditionalPanel("input.objective_mode == 'multi'",
-              # economic_index / desired_gain / threshold are backend capabilities that
-              # this app cannot drive, so they are dropped rather than offered:
-              #   - economic_index and desired_gain need per-trait economic_weight /
-              #     desired_change AND explicit phenotypic (P) and genetic (G)
-              #     covariance matrices. ng_multitrait_index_covariance() refuses to
-              #     substitute candidate-score covariance for them, and nothing in this
-              #     app collects P and G, so every run with either method was a
-              #     guaranteed hard error. Restoring them is a feature (a P/G upload),
-              #     not a dropdown entry.
-              #   - threshold is declared by the backend capability registry (so the
-              #     registry merge used to append it) but ng_breeder_selection_objective()
-              #     rejects it outright: "method must be one of: auto, weighted,
-              #     economic_index, desired_gain".
+              # economic_index (Smith-Hazel, b = P^-1 G a) and desired_gain
+              # (Pesek-Baker, b = G^-1 d) are the only two REAL selection indices here:
+              # "weighted" is a rank sum, scale-invariant but magnitude-blind, with no
+              # P, no G, no heritabilities and no genetic correlations. Both were
+              # dropped from this list while the app had no way to collect P and G, so
+              # every run with either was a guaranteed hard error. The Data screen now
+              # collects them (card 6), so both are offered again -- and stay offered
+              # whatever is loaded: the note underneath says which matrix is missing
+              # rather than hiding a method the breeder asked for. The run gate refuses
+              # with the same sentence (ngcd_index_method_message()).
+              #
+              # threshold stays dropped: the backend capability registry declares it
+              # (so the registry merge would append it) but
+              # ng_breeder_selection_objective() rejects it outright -- "method must be
+              # one of: auto, weighted, economic_index, desired_gain".
               shiny::selectInput("multi_trait_method", "Method",
                 ngcd_control_choices(cfg$backend_registry, "multi_trait_method",
-                  c("Automatic" = "auto", "Relative weights" = "weighted"),
-                  drop = c("economic_index", "desired_gain", "threshold")), selected = "auto"),
+                  c("Automatic" = "auto", "Relative weights" = "weighted",
+                    "Economic index (Smith-Hazel)" = "economic_index",
+                    "Desired gains (Pesek-Baker)" = "desired_gain"),
+                  drop = c("threshold")), selected = "auto"),
               shiny::conditionalPanel("input.multi_trait_method == 'weighted'",
                 shiny::textAreaInput("trait_weights", "Trait weights ('trait: value' per line)",
-                                     placeholder = "yield: 0.5\ndisease: 0.5", height = "90px"))),
+                                     placeholder = "yield: 0.5\ndisease: 0.5", height = "90px")),
+              shiny::uiOutput("multitrait_index_note")),
             shiny::tags$b("Threshold handling"),
             shiny::selectInput("threshold_policy", "Threshold policy", ngcd_control_choices(cfg$backend_registry, "threshold_policy", c("soft","strict"))),
             shiny::numericInput("threshold_penalty_weight", "Threshold penalty weight", 1, min = 0, step = 0.1),
@@ -744,7 +777,8 @@ workbench_server <- function(cfg) {
     rv <- shiny::reactiveValues(backend = NULL, result = NULL, last = NULL,
                                 run_dir = NULL, runlog = NULL, error = NULL, warnings = NULL,
                                 data = list(genotype = NULL, phenotype = NULL, map = NULL, direction = NULL,
-                                            check_geno = NULL, check_pheno = NULL),
+                                            check_geno = NULL, check_pheno = NULL,
+                                            pheno_cov = NULL, gen_cov = NULL),
                                 edited = FALSE,
                                 # Staged pipeline (Phase 2): compute-once state + staleness. data_version
                                 # is bumped every time the input tables mutate (load/reset/cell-edit) so
@@ -843,8 +877,17 @@ workbench_server <- function(cfg) {
     # ---- load data into editable store ----
     is_poly <- shiny::reactive(identical(input$workflow, "polyploid"))
     is_subgenome <- shiny::reactive(identical(input$workflow, "subgenome"))
+    # The two covariance matrices are NOT one of the demo tables and never can be
+    # (they are a property of the breeding programme's own trial history, not of
+    # a marker/phenotype file), so they are attached the same way in BOTH data
+    # sources rather than living inside the upload branch: a breeder trying the
+    # formal indices on the demo data must be able to bring their own P and G.
+    cov_src_files <- shiny::reactive(list(
+      pheno_cov = if (!is_poly() && !is.null(input$f_pcov)) input$f_pcov$datapath else NULL,
+      gen_cov   = if (!is_poly() && !is.null(input$f_gcov)) input$f_gcov$datapath else NULL))
+
     src_files <- shiny::reactive({
-      if (identical(input$data_source, "demo"))
+      base <- if (identical(input$data_source, "demo"))
         (if (is_subgenome()) ngcd_subgenome_demo_files(cfg)
          else if (is_poly()) ngcd_poly_demo_files(cfg) else ngcd_demo_files(cfg))
       else list(
@@ -857,6 +900,10 @@ workbench_server <- function(cfg) {
         # rv$data keys so they can never be mistaken for a parent.
         check_geno  = if (!is_poly() && !is.null(input$f_check))       input$f_check$datapath       else NULL,
         check_pheno = if (!is_poly() && !is.null(input$f_check_pheno)) input$f_check_pheno$datapath else NULL)
+      # Trait covariance matrices (P and G) for the two formal selection indices:
+      # both optional, and they are not candidate/marker data at all, so they get
+      # their own rv$data keys and are never mistaken for an input table.
+      c(base, cov_src_files())
     })
 
     load_data <- function() {
@@ -864,7 +911,8 @@ workbench_server <- function(cfg) {
       rd <- function(p) if (!is.null(p) && file.exists(p)) ngcd_read_full(p) else NULL
       rv$data <- list(genotype = rd(f$genotype), phenotype = rd(f$phenotype),
                       map = rd(f$map), direction = rd(f$direction),
-                      check_geno = rd(f$check_geno), check_pheno = rd(f$check_pheno))
+                      check_geno = rd(f$check_geno), check_pheno = rd(f$check_pheno),
+                      pheno_cov = rd(f$pheno_cov), gen_cov = rd(f$gen_cov))
       rv$edited <- FALSE
       rv$data_version <- rv$data_version + 1L   # input tables mutated -> qc..rank invalidate
     }
@@ -917,7 +965,9 @@ workbench_server <- function(cfg) {
         list(nm = "Marker map",      up = input$f_map,         df = rv$data$map),
         list(nm = "Trait direction", up = input$f_dir,         df = rv$data$direction),
         list(nm = "Check genotype",  up = input$f_check,       df = rv$data$check_geno),
-        list(nm = "Check phenotype", up = input$f_check_pheno, df = rv$data$check_pheno))
+        list(nm = "Check phenotype", up = input$f_check_pheno, df = rv$data$check_pheno),
+        list(nm = "Phenotypic covariance (P)", up = input$f_pcov, df = rv$data$pheno_cov),
+        list(nm = "Genetic covariance (G)",    up = input$f_gcov, df = rv$data$gen_cov))
       rows <- lapply(items, function(it) {
         if (is.null(it$up)) return(NULL)  # not uploaded yet
         fname <- it$up$name %||% ""
@@ -1102,6 +1152,8 @@ workbench_server <- function(cfg) {
         list(n = "4 Direction", a = "imp-dir",   up = input$f_dir,   df = rv$data$direction,
              show = identical(input$workflow %||% "standard", "standard")),
         list(n = "5 Check",     a = "imp-check", up = input$f_check, df = rv$data$check_geno,
+             show = identical(input$workflow %||% "standard", "standard")),
+        list(n = "6 Covariance", a = "imp-cov",  up = input$f_gcov,  df = rv$data$gen_cov,
              show = identical(input$workflow %||% "standard", "standard")))
       # each chip is a link that jumps to its file's card (revisitable)
       chips <- lapply(Filter(function(x) isTRUE(x$show), items), function(x) {
@@ -1225,6 +1277,119 @@ workbench_server <- function(cfg) {
         input$phenotype_id_col %||% ngcd_guess_col(names(rv$data$phenotype),
                                                    c("NAME", "parent", "id", "line")))
     })
+    # ---- user-supplied P and G covariance matrices ------------------------
+    # The trait set the backend will actually index over, derived the way
+    # ng_run_cp_trait_spec() derives it: the TRAIT-DIRECTION file's rows,
+    # filtered by traits_to_use. Deliberately NOT full_trait_set() (the
+    # phenotype file's columns): a direction file that lists fewer traits than
+    # the phenotype file is legal, and subsetting P/G to the phenotype's
+    # columns would then hand the backend labels it does not expect -- which,
+    # from 0.27.0, is a hard error naming them.
+    index_traits <- shiny::reactive({
+      sel <- if (identical(input$objective_mode %||% "single", "multi")) {
+        s <- input$traits_to_use; all_t <- full_trait_set()
+        if (is.null(s) || !length(s) || setequal(s, all_t)) NULL else s
+      } else NULL
+      ngcd_index_trait_set(rv$data$direction, input$direction_trait_col,
+                           input$direction_column_col, sel)
+    })
+    # The method that will actually solve the index: the explicit pick, or -- on
+    # Automatic -- whatever the direction file's desired_change / economic_weight
+    # column promotes it to inside the backend.
+    effective_index_method <- shiny::reactive(
+      ngcd_effective_index_method(rv$data$direction, input$objective_mode,
+                                  input$multi_trait_method))
+    # Read + validate each uploaded matrix ONCE, here, and hand out both the
+    # breeder-facing verdict (for the import card and the run gate) and the
+    # labelled payload build_params() serialises. One source of truth, so the
+    # card, the gate and the config can never disagree about what is usable.
+    cov_state <- shiny::reactive({
+      traits <- index_traits()
+      meth <- effective_index_method()
+      one <- function(df, name, invert) {
+        empty <- list(loaded = FALSE, matrix = NULL, payload = NULL,
+                      message = NULL, notes = character(0))
+        if (is.null(df) || !is.data.frame(df)) return(empty)
+        rd <- ngcd_cov_from_table(df, name)
+        if (!isTRUE(rd$ok))
+          return(list(loaded = TRUE, matrix = NULL, payload = NULL,
+                      message = rd$message, notes = character(0)))
+        # No direction file yet: the file itself is structurally fine, but there
+        # is no trait set to check its labels against. Say so instead of
+        # reporting a failure the breeder cannot act on.
+        if (!length(traits))
+          return(list(loaded = TRUE, matrix = NULL, payload = NULL, message = NULL,
+                      notes = paste0("Read as a ", nrow(rd$matrix), " x ", ncol(rd$matrix),
+                                     " matrix over: ", paste(rownames(rd$matrix), collapse = ", "),
+                                     ". Load a trait-direction file to check these labels ",
+                                     "against the traits this run will index.")))
+        v <- ngcd_validate_cov(rd$matrix, traits, name, require_invertible = invert)
+        if (!isTRUE(v$ok))
+          return(list(loaded = TRUE, matrix = NULL, payload = NULL,
+                      message = v$message, notes = character(0)))
+        list(loaded = TRUE, matrix = v$matrix,
+             payload = ngcd_cov_payload(v$matrix, name),
+             message = NULL, notes = v$notes)
+      }
+      # Which matrix has to be INVERTED depends on the index: Smith-Hazel solves
+      # b = P^-1 G a, Pesek-Baker solves b = G^-1 d. The backend ridges and
+      # pseudo-inverts rather than erroring, so a near-singular matrix there
+      # produces plausible-looking coefficients made of rounding error - the
+      # condition-number check has to happen on this side.
+      list(traits = traits, method = meth,
+           P = one(rv$data$pheno_cov, "Phenotypic covariance (P)",
+                   identical(meth, "economic_index")),
+           G = one(rv$data$gen_cov, "Genetic covariance (G)",
+                   identical(meth, "desired_gain")))
+    })
+
+    output$cov_step <- shiny::renderUI({
+      st <- cov_state()
+      block <- function(up, df, one, title, empty_msg) {
+        state <- ngcd_import_state(up, df)
+        if (!identical(state$state, "ok"))
+          return(shiny::tagList(shiny::tags$b(title), imp_note(state, empty_msg)))
+        shiny::tagList(shiny::tags$b(title), imp_chip(state), imp_preview(df),
+          if (!is.null(one$message)) ngcd_callout(kind = "error", one$message)
+          else ngcd_callout(kind = "info",
+            paste(c("Valid covariance matrix.", one$notes), collapse = " ")))
+      }
+      shiny::tagList(
+        block(input$f_pcov, rv$data$pheno_cov, st$P, "Phenotypic covariance (P)",
+              paste0("Optional: needed only by Economic index (Smith-Hazel), which solves ",
+                     "b = P^-1 G a. Desired gains does not use P for its coefficients.")),
+        block(input$f_gcov, rv$data$gen_cov, st$G, "Genetic covariance (G)",
+              paste0("Optional: needed by BOTH formal indices - Economic index (Smith-Hazel) ",
+                     "and Desired gains (Pesek-Baker, b = G^-1 d).")))
+    })
+
+    # Availability + validity of the two formal indices, shown right under the
+    # Multi-trait method dropdown. Both methods stay in the dropdown whatever is
+    # loaded: hiding one would answer a question the breeder did not ask. What
+    # changes is that this says which matrix is missing.
+    output$multitrait_index_note <- shiny::renderUI({
+      st <- cov_state()
+      bad <- Filter(Negate(is.null), list(st$P$message, st$G$message))
+      req <- ngcd_index_method_message(st$method, rv$data$direction,
+                                       has_phenotypic = !is.null(st$P$matrix),
+                                       has_genetic = !is.null(st$G$matrix))
+      ready <- is.null(req) && st$method %in% c("economic_index", "desired_gain")
+      shiny::tagList(
+        if (length(bad)) ngcd_callout(kind = "error",
+          lapply(bad, function(m) shiny::tags$p(m))),
+        if (!is.null(req)) ngcd_callout(kind = "warn", req),
+        if (ready && identical(st$method, "desired_gain") && is.null(st$P$matrix))
+          ngcd_callout(kind = "info",
+            "Desired gains is ready on G alone. The coefficients b = G^-1 d and the cross ",
+            "ranking will be complete; only the reported predicted response and index ",
+            "standard deviation will be blank, because those need P for the scale ",
+            "sqrt(b' P b). Upload P as well if you want them."),
+        if (ready && !(identical(st$method, "desired_gain") && is.null(st$P$matrix)))
+          ngcd_callout(kind = "info",
+            sprintf("Ready: the index will be solved over %s.",
+                    paste(st$traits, collapse = ", "))))
+    })
+
     # Single-trait picker (Selection objective: "single" mode) - choices track
     # full_trait_set() the same way traits_to_use_ui does; keep the current
     # selection if it is still valid, otherwise fall back to the first trait.
@@ -1346,15 +1511,38 @@ workbench_server <- function(cfg) {
       dom_msg <- if (is_poly())
         ngcd_experimental_dominance_message(input$poly_dominance,
                                             input$poly_allow_experimental_dominance)
-      # A desired_change / economic_weight column in the trait-direction file makes
-      # multi_trait_method = "auto" promote itself to a selection-index method that
-      # needs P and G, which this app cannot supply -- a hard error, and only after a
-      # full run. Refuse up front and say why. Scoped to the standard diploid workflow,
-      # the only one that builds a multi-trait index. See the helper in helpers.R.
-      promo_msg <- if (identical(wf, "standard"))
-        ngcd_auto_index_promotion_message(rv$data$direction, input$objective_mode,
-                                          input$multi_trait_method)
-      budget_msg %||% dom_msg %||% promo_msg
+      # The two formal selection indices need covariance matrices the app now
+      # collects (Data > Trait covariance matrices). Three ways a run can still be
+      # unable to solve one, all refused up front with the reason rather than deep
+      # inside the backend after a full prediction pass:
+      #   1. an uploaded matrix that is not usable at all (not square, not
+      #      symmetric, not PSD, missing a trait, too ill-conditioned to invert) --
+      #      cov_state() has the breeder-facing verdict;
+      #   2. an EXPLICITLY chosen index whose matrix (or whose economic_weight /
+      #      desired_change column) is missing;
+      #   3. multi_trait_method = "auto" self-promoting to an index, on the mere
+      #      presence of a positive desired_change / economic_weight column, without
+      #      the matrices that promotion implies. When the matrices ARE there, the
+      #      promotion is legitimate and the run proceeds.
+      # All scoped to the standard diploid workflow, the only one that builds a
+      # multi-trait index. See the pure helpers in helpers.R.
+      cov_msg <- promo_msg <- idx_msg <- NULL
+      if (identical(wf, "standard")) {
+        st <- cov_state()
+        cov_msg <- Filter(Negate(is.null), list(st$P$message, st$G$message))
+        cov_msg <- if (length(cov_msg)) paste(unlist(cov_msg), collapse = " ") else NULL
+        idx_msg <- ngcd_index_method_message(input$multi_trait_method, rv$data$direction,
+                                             has_phenotypic = !is.null(st$P$matrix),
+                                             has_genetic = !is.null(st$G$matrix))
+        promo_msg <- ngcd_auto_index_promotion_message(rv$data$direction, input$objective_mode,
+                                             input$multi_trait_method,
+                                             has_phenotypic = !is.null(st$P$matrix),
+                                             has_genetic = !is.null(st$G$matrix))
+        # A broken matrix only blocks a run that would actually use one.
+        if (!is.null(cov_msg) &&
+            !(st$method %in% c("economic_index", "desired_gain"))) cov_msg <- NULL
+      }
+      budget_msg %||% dom_msg %||% cov_msg %||% idx_msg %||% promo_msg
     }
     # Hard version gate, scoped to check-configured runs only. Below backend
     # 0.24.0 the <trait>_p_beat_check column still exists and still returns a
@@ -1474,6 +1662,23 @@ workbench_server <- function(cfg) {
         multi_trait_method = if (obj$multi_trait_method_applies) input$multi_trait_method else NULL,
         trait_weights = if (obj$multi_trait_method_applies &&
                             identical(input$multi_trait_method,"weighted")) parse_named_num(input$trait_weights) else NULL,
+        # User-supplied P and G for the two formal selection indices. Sent as the
+        # LONG-FORM LABELLED payload built by ngcd_cov_payload(), never as a bare
+        # matrix: jsonlite drops dimnames on a matrix round trip, and backend
+        # 0.27.0 then reads the matrix POSITIONALLY (its documented fallback for a
+        # genuinely unlabelled matrix) without being able to detect a reordering --
+        # measured cost on a 3-trait permutation: max |db| = 0.1708 on the
+        # Smith-Hazel coefficients and a Spearman 0.9168 re-ranking of the crosses,
+        # silently. cov_state() has already validated each matrix and SUBSET it to
+        # exactly index_traits(), because 0.27.0 errors on an extra label rather
+        # than silently narrowing a program-wide matrix. A matrix that failed
+        # validation has a NULL payload and is never sent: the run gate refuses
+        # first and says why. Both are omitted entirely unless traits are actually
+        # being combined ("weighted"/"auto" ignore them, but sending a matrix a
+        # method does not use would still put it through the backend's label
+        # check for no reason).
+        phenotypic_covariance = if (obj$multi_trait_method_applies) cov_state()$P$payload else NULL,
+        genetic_covariance    = if (obj$multi_trait_method_applies) cov_state()$G$payload else NULL,
         threshold_policy = input$threshold_policy, threshold_penalty_weight = input$threshold_penalty_weight,
         threshold_penalty_autoscale = input$threshold_penalty_autoscale,
         trait_value_metric = input$trait_value_metric, uc_variance_source = input$uc_variance_source,
@@ -2451,6 +2656,14 @@ workbench_server <- function(cfg) {
               paste(sprintf("%s=%s", names(sg$markers_per_subgenome), unlist(sg$markers_per_subgenome)), collapse = ", "),
               sg$mode %||% "ocs"))
         },
+        local({
+          # desired_gain solved on G alone: the index is complete, but the reported
+          # predicted response / index SD are NA because those need P. Blank cells
+          # with no explanation are worse than no cells.
+          dg <- ngcd_desired_gain_unavailable_message(r$plan_summary)
+          if (!is.null(dg)) ngcd_callout(kind = "warn",
+            shiny::tags$b("Desired gains: predicted response not reported. "), dg)
+        }),
         if (!is.null(r$multitrait_joint)) {
           mj <- r$multitrait_joint
           if (!is.null(mj$error))

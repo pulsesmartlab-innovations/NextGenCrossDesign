@@ -24,7 +24,7 @@ default:
   # "0.7.0" this template used to ship silently lowered both the "Version OK"
   # chip and the hard check-lines gate for anyone who let run_workbench() copy
   # it. Uncomment only to deliberately raise the floor for your own deployment.
-  # required_backend_version: "0.26.0"
+  # required_backend_version: "0.27.0"
 
   # Optional: path to an external AlphaMate executable, used only when a run
   # picks allocation_method = alphamate_executable. Leave blank if you don't

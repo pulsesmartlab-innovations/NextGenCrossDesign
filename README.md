@@ -158,18 +158,18 @@ backend in the same R library.
 
 ```r
 # 1. the backend (compiles native code — needs Rtools/Xcode/build-essential)
-#    Floor is nextgenCrossDesign >= 0.26.0 (inst/BACKEND_VERSION; a config.yml
+#    Floor is nextgenCrossDesign >= 0.27.0 (inst/BACKEND_VERSION; a config.yml
 #    required_backend_version: entry, if you set one, overrides it).
-remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.26.0")
+remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR@v0.27.0")
 
 #    …or from a local source tarball:
-R CMD INSTALL nextgenCrossDesign_0.26.0.tar.gz
+R CMD INSTALL nextgenCrossDesign_0.27.0.tar.gz
 
 # 2. this front-end — from CRAN once published:
 install.packages("nextgenCrossWorkbench", dependencies = TRUE)
 
 #    …or from a local source tarball:
-install.packages("nextgenCrossWorkbench_0.29.0.tar.gz",
+install.packages("nextgenCrossWorkbench_0.30.0.tar.gz",
                  repos = NULL, type = "source", dependencies = TRUE)
 ```
 
@@ -197,7 +197,7 @@ tagged release, refresh it with:
 
 ```r
 Rscript tools/update-backend.R          # installs the version this workbench requires
-Rscript tools/update-backend.R 0.26.0   # or a specific version
+Rscript tools/update-backend.R 0.27.0   # or a specific version
 ```
 
 The script reads the floor from `inst/BACKEND_VERSION`, installs
@@ -208,7 +208,7 @@ scope (`Sys.setenv(GITHUB_PAT = "ghp_…")`); to skip the token, install from a
 built tarball instead:
 
 ```r
-NGCD_BACKEND_TARBALL=/path/nextgenCrossDesign_0.26.0.tar.gz Rscript tools/update-backend.R
+NGCD_BACKEND_TARBALL=/path/nextgenCrossDesign_0.27.0.tar.gz Rscript tools/update-backend.R
 ```
 
 You rarely need to touch the app for a backend update: the workbench calls the
@@ -642,7 +642,7 @@ If you use this workbench in published work, please cite both components:
 > (R package). North Dakota State University.
 >
 > Atanda, S., and Morales, M. *nextgenCrossWorkbench: NextGenCrossDesign — a Shiny
-> front-end for nextgenCrossDesign* (R package, v0.29.0). North Dakota State
+> front-end for nextgenCrossDesign* (R package, v0.30.0). North Dakota State
 > University, PulseSmartLab — PI: Dr. Sikiru Atanda.
 
 ---

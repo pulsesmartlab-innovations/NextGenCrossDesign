@@ -59,33 +59,45 @@ test_that("the raw lambda_mating input is shown only while mate_relatedness is O
 })
 
 # ---------------------------------------------------------------------------
-# 2. Multi-trait methods that cannot succeed are not offered.
+# 2. Multi-trait methods: the two REAL selection indices are offered again; the
+#    one the backend rejects outright still is not.
 #
-# economic_index / desired_gain need explicit P and G covariance matrices the app
-# never collects; the registry-declared `threshold` is rejected outright by
-# ng_breeder_selection_objective(). All three were guaranteed hard errors.
+# economic_index (Smith-Hazel) and desired_gain (Pesek-Baker) were dropped from
+# the dropdown while the app had no way to collect the P and G covariance
+# matrices they solve from -- every run with either was a guaranteed hard error.
+# Backend 0.27.0 + the Data screen's covariance-matrix import card supply them,
+# so both are offered again, and stay offered whatever is loaded: what changes
+# when a matrix is missing is the note under the dropdown and the run gate, which
+# NAME the missing matrix rather than hiding a method the breeder asked for.
+#
+# `threshold` remains dropped: the backend capability registry declares it, but
+# ng_breeder_selection_objective() rejects it -- "method must be one of: auto,
+# weighted, economic_index, desired_gain".
 # ---------------------------------------------------------------------------
 
-test_that("the multi-trait dropdown offers neither economic_index nor desired_gain (nor threshold)", {
+test_that("the multi-trait dropdown offers both formal selection indices, but never `threshold`", {
   cfg <- gate_cfg()
   ch <- nextgenCrossWorkbench:::ngcd_control_choices(
     cfg$backend_registry, "multi_trait_method",
-    c("Automatic" = "auto", "Relative weights" = "weighted"),
-    drop = c("economic_index", "desired_gain", "threshold"))
-  expect_true(all(c("auto", "weighted") %in% unname(ch)))
-  expect_false(any(c("economic_index", "desired_gain", "threshold") %in% unname(ch)))
+    c("Automatic" = "auto", "Relative weights" = "weighted",
+      "Economic index (Smith-Hazel)" = "economic_index",
+      "Desired gains (Pesek-Baker)" = "desired_gain"),
+    drop = c("threshold"))
+  expect_true(all(c("auto", "weighted", "economic_index", "desired_gain") %in% unname(ch)))
+  expect_false("threshold" %in% unname(ch))
 
-  # ...and the rendered app really uses that drop list: no <option> carries them.
+  # ...and the rendered app really offers them: the <option>s carry both values.
   html <- paste(suppressWarnings(as.character(
     nextgenCrossWorkbench:::workbench_ui(cfg, dev = FALSE))), collapse = " ")
   block <- regmatches(html, regexpr("id=\"multi_trait_method\".*?</select>", html))
   expect_length(block, 1L)
   expect_match(block, "auto", fixed = TRUE)
   expect_match(block, "weighted", fixed = TRUE)
-  expect_false(grepl("economic_index", block, fixed = TRUE))
-  expect_false(grepl("desired_gain", block, fixed = TRUE))
-  # The help hint that claimed the values came from the trait-direction file was
-  # false (they need P and G too) and is gone.
+  expect_match(block, "economic_index", fixed = TRUE)
+  expect_match(block, "desired_gain", fixed = TRUE)
+  expect_false(grepl(">threshold<", block, fixed = TRUE))
+  # The help hint that claimed the values came from the trait-direction file alone
+  # was false (they need P and G too) and is still gone.
   expect_false(grepl("desired-gain VALUES are read from", html, fixed = TRUE))
 })
 

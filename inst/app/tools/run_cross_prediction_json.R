@@ -483,6 +483,80 @@ ngcd_robust_quantile <- function(raw) {
 }
 
 # ===========================================================================
+# ngcd_cov_from_payload(): rebuild a user-supplied covariance matrix (P or G)
+# from the long-form payload the frontend writes, WITH its trait labels.
+#
+# Why not just send the matrix: jsonlite drops dimnames on a matrix round trip
+# (jsonlite::fromJSON(jsonlite::toJSON(M)) is unlabelled), and backend 0.27.0
+# reads a genuinely unlabelled matrix POSITIONALLY -- its documented fallback,
+# which it cannot tell apart from a reordering. On a 3-trait permutation the
+# backend measured Smith-Hazel coefficients moving by max |db| = 0.1708 and the
+# emitted index re-ranking crosses at Spearman 0.9168, with no error and no
+# warning. So the frontend (ngcd_cov_payload() in R/helpers.R) serialises
+#   { schema, traits = [...], cells = [ {trait_row, trait_col, value}, ... ] }
+# and this rebuilds the matrix by a TILING ASSERT: every cell must name a row
+# label and a column label that are both in `traits`, no (row, col) may be
+# written twice, and no (row, col) may be left unwritten. p^2 cells must exactly
+# tile traits x traits or the run stops here -- which is a PROOF that the labels
+# survived the bridge, not an assumption that they did.
+#
+# An already-real matrix (an in-process caller, or a config replayed from an
+# older run) is accepted only when it carries dimnames on BOTH dimensions; an
+# unlabelled one is refused rather than passed on to be read positionally.
+# ===========================================================================
+ngcd_cov_from_payload <- function(x, name) {
+  if (is.null(x)) return(NULL)
+  if (is.matrix(x) || is.data.frame(x)) {
+    m <- as.matrix(x)
+    if (is.null(rownames(m)) || is.null(colnames(m))) {
+      stop(name, " arrived without trait labels on both dimensions. An unlabelled ",
+           "covariance matrix is read positionally and cannot be checked; send it as a ",
+           "{traits, cells} payload (see ngcd_cov_payload()) or label both dimensions.",
+           call. = FALSE)
+    }
+    return(m)
+  }
+  if (!is.list(x) || is.null(x$traits) || is.null(x$cells)) {
+    stop(name, " must be a labelled-matrix payload with `traits` and `cells` fields ",
+         "(schema ", "ngcd_labelled_matrix.v1", "). A bare matrix loses its trait names ",
+         "crossing the JSON bridge and would be read positionally.", call. = FALSE)
+  }
+  tn <- trimws(as.character(unlist(x$traits, use.names = FALSE)))
+  if (!length(tn)) stop(name, " payload carries an empty trait list.", call. = FALSE)
+  dup <- unique(tn[duplicated(tn)])
+  if (length(dup)) stop(name, " payload lists trait(s) twice: ", paste(dup, collapse = ", "),
+                        call. = FALSE)
+  p <- length(tn)
+  M <- matrix(NA_real_, p, p, dimnames = list(tn, tn))
+  cells <- x$cells
+  if (is.data.frame(cells)) cells <- split(cells, seq_len(nrow(cells)))
+  for (cell in cells) {
+    r <- as.character(cell$trait_row %||% NA_character_)[1]
+    cc <- as.character(cell$trait_col %||% NA_character_)[1]
+    if (is.na(r) || is.na(cc) || !(r %in% tn) || !(cc %in% tn)) {
+      stop(name, " payload has a cell labelled (", r, ", ", cc, ") that is not one of its ",
+           "traits: ", paste(tn, collapse = ", "), call. = FALSE)
+    }
+    if (!is.na(M[r, cc])) {
+      stop(name, " payload gives the cell (", r, ", ", cc, ") more than once.", call. = FALSE)
+    }
+    v <- suppressWarnings(as.numeric(cell$value %||% NA_real_)[1])
+    if (!is.finite(v)) {
+      stop(name, " payload has a non-finite value at (", r, ", ", cc, ").", call. = FALSE)
+    }
+    M[r, cc] <- v
+  }
+  if (anyNA(M)) {
+    hit <- which(is.na(M), arr.ind = TRUE)
+    shown <- utils::head(sprintf("(%s, %s)", tn[hit[, 1]], tn[hit[, 2]]), 5L)
+    stop(name, " payload is incomplete: no value for ", paste(shown, collapse = ", "),
+         if (nrow(hit) > 5L) paste0(" and ", nrow(hit) - 5L, " more") else "",
+         ". A ", p, " x ", p, " matrix needs all ", p * p, " labelled cells.", call. = FALSE)
+  }
+  M
+}
+
+# ===========================================================================
 # ngcd_coerce_backend_args(): the wrapper's config -> backend-arg translation.
 # Drops meta keys (fields the UI/dispatcher may include that are NOT
 # ng_run_cross_prediction() formals) and unknown formals (with a warning),
@@ -634,6 +708,16 @@ ngcd_coerce_backend_args <- function(raw) {
   # so this needs the same row-list -> data.frame reshaping check_geno gets.
   if (!is.null(args_in$check_pheno) && !is.data.frame(args_in$check_pheno))
     args_in$check_pheno <- as_rows_df(args_in$check_pheno, names(args_in$check_pheno[[1L]]))
+  # ---- user-supplied P and G ------------------------------------------------
+  # Decoded from the long-form labelled payload (see ngcd_cov_from_payload()
+  # above). Both are ng_run_cross_prediction() formals from backend 0.27.0, so
+  # they reach args_in through the generic formals filter; an older backend
+  # simply drops them with the "Dropping config keys" warning rather than
+  # erroring on an unused argument.
+  for (cov_nm in c("phenotypic_covariance", "genetic_covariance")) {
+    if (!is.null(args_in[[cov_nm]]))
+      args_in[[cov_nm]] <- ngcd_cov_from_payload(args_in[[cov_nm]], cov_nm)
+  }
   args_in$check_basis <- NULL
   args_in$exclude_threshold_violators <- NULL
   if (!is.null(args_in$parent_group) && is.list(args_in$parent_group))

@@ -92,11 +92,15 @@ ngcd_combo_list <- function(level = c("full", "smoke")) {
 
   metrics  <- c("mid_parent_mean", "family_variance", "reliable_family_variance", "usefulness", "parent_distance")
   optims   <- c("auto", "evolution", "greedy_local", "repair_local", "mip_linear", "mip_contribution")
-  # economic_index / desired_gain are deliberately absent: they need explicit
-  # phenotypic (P) and genetic (G) covariance matrices that neither this sweep nor
-  # the app can supply, so the backend hard-errors on every such row. The UI does
-  # not offer them either (see multi_trait_method in app.R) -- this sweep exists to
-  # exercise combinations a breeder can actually build.
+  # economic_index / desired_gain are deliberately absent HERE, though the app does
+  # offer both again (backend 0.27.0 + the Data screen's covariance-matrix card).
+  # They are absent because this sweep varies one control at a time over the demo
+  # inputs, and neither method is drivable that way: each also needs a covariance
+  # payload in the config AND an economic_weight / desired_change column in the
+  # trait-direction file, none of which the demo data carries. They get their own
+  # end-to-end coverage instead, against real P and G, in
+  # tests/testthat/test-covariance-index.R -- including the permuted-but-labelled
+  # matrix that is the whole point of the labelled payload.
   methods  <- c("auto", "weighted")
   # parent_distance is deliberately absent: it is a legitimate trait_value_metric (and is
   # swept as one, above) but NOT a usefulness variance source -- genomic distance is not a

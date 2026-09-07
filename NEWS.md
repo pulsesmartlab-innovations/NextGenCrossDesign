@@ -1,3 +1,59 @@
+# nextgenCrossWorkbench 0.30.0
+
+Requires backend nextgenCrossDesign >= 0.27.0 (`inst/BACKEND_VERSION`, enforced at run time).
+
+**The two real selection indices are back: Economic index (Smith-Hazel) and Desired gains
+(Pesek-Baker).** Until now the only multi-trait method the app offered was a rank sum -- it
+respects your ordering of the traits, but it knows nothing about their variances,
+heritabilities or genetic correlations. Both index methods were removed from the dropdown
+earlier because the app had no way to supply the phenotypic (P) and additive-genetic (G)
+covariance matrices they solve from, so every run with either was a guaranteed hard error.
+Backend 0.27.0 accepts those matrices, and the app now collects them.
+
+* **Import P and G.** A new optional card on the Data screen (`6 · Trait covariance matrices`)
+  takes one CSV each: a square traits x traits table with the trait names in the first column
+  AND as the column headers. Order does not matter -- the labels do. Both matrices are
+  optional; neither is used by Automatic or Relative weights.
+* **Validated before the run, never during it.** Each file is checked for: readable and
+  square; row labels and column headers naming the same traits; every entry finite; symmetric
+  within the backend's own 1e-8 tolerance (naming the two cells that disagree and by how
+  much); positive variances on the diagonal; positive semidefinite; and -- for the matrix the
+  chosen index actually has to invert -- non-singular and well enough conditioned to invert
+  meaningfully, reporting the condition number when it is not. That last check has no
+  equivalent in the backend, which ridges and pseudo-inverts: a near-singular P or G there
+  produces plausible-looking coefficients made of rounding error, with nothing to notice.
+* **Trait labels survive the JSON bridge -- provably.** `jsonlite` drops `dimnames` on a matrix
+  round trip, and the app drives the backend by writing config JSON. A bare matrix would
+  therefore arrive unlabelled and be read POSITIONALLY, which the backend cannot tell apart
+  from a reordering; on a 3-trait permutation the backend measured Smith-Hazel coefficients
+  moving by max |db| = 0.1708 and the emitted index re-ranking crosses at Spearman 0.9168,
+  silently. So P and G are serialised in long form -- `{traits, cells:[{trait_row, trait_col,
+  value}]}` -- with every value carrying its own row AND column label, and the runner rebuilds
+  each matrix by a tiling assert: the p^2 cells must exactly cover traits x traits, with no
+  unknown label, no duplicate and no gap, or the run stops. A permuted-but-labelled matrix
+  now gives a bit-identical index to the correctly-ordered one, asserted end to end against a
+  real backend run.
+* **A program-wide matrix is subset for you.** Backend 0.27.0 errors on a label the run does
+  not use, so a matrix covering more traits than the current index is narrowed here (to the
+  traits the TRAIT-DIRECTION file declares, filtered by your trait selection -- exactly the
+  set the backend builds the index over), and the card says which traits it ignored.
+* **Desired gains needs G alone.** Its coefficients `b = G^-1 d` never touch P; P only scales
+  the reported predicted response by the index SD `sqrt(b' P b)`. A G-only run is therefore
+  allowed and is fully valid -- and when the reported predicted response and index standard
+  deviation come back blank, the Results screen now says why and that the index and the cross
+  ranking are unaffected, instead of showing empty cells.
+* **Nothing is hidden when a matrix is missing.** Both methods stay in the dropdown whatever is
+  loaded. What changes is that the note under the dropdown, and the run gate, NAME the missing
+  matrix (P, G, or both) and point at the card -- and also name the `economic_weight` /
+  `desired_change` column the chosen index needs in your trait-direction file.
+* **The interim refusal of a self-promoting direction file is gone.** A positive
+  `economic_weight` / `desired_change` column makes `Automatic` promote itself to the matching
+  index inside the backend. That used to be refused outright, because the app could not supply
+  the matrices the promotion implies. It now runs when the matrices are there, and is refused
+  with the specific missing matrix named when they are not.
+* Swapping in a different P or G invalidates the compute-once **index** stage (and everything
+  downstream), so a changed matrix can never leave a stale index on screen.
+
 # nextgenCrossWorkbench 0.29.0
 
 Requires backend nextgenCrossDesign >= 0.26.0 (`inst/BACKEND_VERSION`, enforced at run time).

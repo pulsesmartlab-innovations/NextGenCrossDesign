@@ -174,7 +174,15 @@ ngcd_exec_summary_html <- function(res, figs = NULL) {
 
     "<p>Priority tiers: ", tier_txt, ". Data QC status: <b>", qc_status, "</b>",
     (if (!is.null(qc$counts)) sprintf(" (blockers %s, warnings %s)", qc$counts$blockers %||% 0, qc$counts$warnings %||% 0) else ""),
-    ".</p>", fig_caption)
+    ".</p>",
+    # A desired_gain run solved on G alone: the index is complete but the
+    # P-scaled reported response is NA. Reported here as well as on the Results
+    # screen, because the exported report is what leaves the building.
+    (local({
+      dg <- ngcd_desired_gain_unavailable_message(ps)
+      if (is.null(dg)) "" else paste0("<p><b>Desired gains: predicted response not reported.</b> ", dg, "</p>")
+    })),
+    fig_caption)
 }
 
 # ===========================================================================
