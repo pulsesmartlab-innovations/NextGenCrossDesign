@@ -226,7 +226,7 @@ test_that("the dominance gate does not block a standard diploid run", {
 test_that("the runner forwards allow_experimental_dominance only when the config sets it", {
   # poly_design_args() reads the polyploid genotype through the backend, so it
   # needs nextgenCrossDesign on the library path. CI checks the frontend alone.
-  skip_if(!backend_available(), "Backend not available.")
+  skip_if(!backend_available(), backend_skip_reason())
   e <- ngcd_runner_env()
   gf <- tempfile(fileext = ".csv")
   utils::write.csv(data.frame(NAME = c("A", "B", "C"), M1 = c(0, 2, 4), M2 = c(4, 2, 0)),

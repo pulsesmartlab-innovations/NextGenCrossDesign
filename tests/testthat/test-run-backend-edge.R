@@ -78,7 +78,7 @@ test_that("check args are forwarded and the removed parameters never are", {
   # CI checks the frontend alone -- the backend is spawned as an external
   # process and is not installed there -- so guard this the way every other
   # backend-touching test in this suite does.
-  skip_if(!backend_available(), "Backend not available.")
+  skip_if(!backend_available(), backend_skip_reason())
   ngcd_coerce_backend_args <- ngcd_runner_env()$ngcd_coerce_backend_args
   args <- list(trait_checks = list(list(trait = "yield", check = "CHK_A")),
                check_geno = list(list(id = "CHK_A", m1 = 0, m2 = 2)))
@@ -98,7 +98,7 @@ test_that("check_pheno JSON rows reshape into a proper data.frame, not a mangled
   # row) rather than erroring - so this needs the same as_rows_df() reshaping
   # check_geno gets, or the backend's ng_check_records_from_pheno() (which calls
   # as.data.frame() on whatever check_pheno arrives as) reads nonsense silently.
-  skip_if(!backend_available(), "Backend not available.")
+  skip_if(!backend_available(), backend_skip_reason())
   coerce <- ngcd_runner_env()$ngcd_coerce_backend_args
   args <- list(check_pheno = list(list(NAME = "CHK_A", yield = 5.2),
                                   list(NAME = "CHK_B", yield = 6.1)))
@@ -116,7 +116,7 @@ test_that("check_geno is keyed by the breeder's chosen check_id_col, not blindly
   # input$check_id_col. A breeder picking any column but the first got a matrix keyed
   # by the wrong column, and the backend then failed with "trait_checks names check
   # line(s) absent from check_geno" -- an error pointing nowhere near the cause.
-  skip_if(!backend_available(), "Backend not available.")
+  skip_if(!backend_available(), backend_skip_reason())
   coerce <- ngcd_runner_env()$ngcd_coerce_backend_args
 
   # ID column SECOND (a marker column leads the file): the user's pick must win.
