@@ -1,3 +1,43 @@
+# nextgenCrossWorkbench 0.28.0
+
+Requires backend nextgenCrossDesign >= 0.25.0 (`inst/BACKEND_VERSION`, enforced at run time).
+
+* **Robust posterior allocation actually produces a plan now -- at any quantile the slider can
+  set.** Turning on "Robust posterior allocation" asked the backend for a pessimistic quantile
+  of gain that the posterior had never cached: the draws only ever kept the two 95%
+  credible-interval tails (0.025 / 0.975), and the allocator correctly refuses to fabricate a
+  quantile it does not have. **No value of the 0.05-0.50 Robustness quantile slider -- including
+  its 0.25 default -- could yield a robust plan**, and the run reported the refusal quietly
+  enough that a breeder saw an ordinary plan and was told nothing. The run now sends the
+  breeder's quantile into the prediction itself, so the posterior caches that exact empirical
+  tail from the same draws and the allocation is served exactly, with no normal approximation.
+  The reported credible interval is untouched: the quantile and the interval are separate
+  controls, so a 25% robustness setting no longer implies (and never silently produces) a 50%
+  "95%" interval.
+* **The robust plan now takes the conservative tail on the correct side.** The ranked value is
+  not normalised to higher-is-better, so for a minimize trait (disease, lodging) scored on mean
+  or usefulness the *lower* tail is the optimistic one. The app sent no direction at all, so the
+  allocator would have taken the lower tail unconditionally -- ranking crosses by their BEST case
+  and labelling the result robust. The orientation is now read back from the prediction's own
+  posterior metadata, which is the orientation of the *ranked value*, not of the trait:
+  pure-variance metrics (`pmv`, `vpm`, parent distance) stay "maximize" even for a minimize
+  trait, because more within-family variance is more opportunity whichever way the trait points.
+  The orientation used is written into the run JSON (`robust_plan$direction`).
+* **Numbers change for minimize traits: `prob_top_tier` and `<trait>_post_topn`.** The backend's
+  posterior top-N probability counted the N *largest* ranked values regardless of direction, so
+  for a minimize trait scored on mean or usefulness it reported the fraction of draws in which a
+  cross was among the WORST N and presented that as stability. Fixed in nextgenCrossDesign
+  0.25.0 and surfaced here: a re-run of an existing minimize-trait project will show different
+  (correct) top-tier probabilities and may reshuffle the cross-priority tiers that depend on
+  them. Maximize traits and pure-variance-scored traits are unaffected.
+* Changing the Robustness quantile now invalidates the *predict* stage of the staged run, not
+  just *rank* -- it steers what the posterior caches, so the posterior has to be recomputed.
+* `config.template.yml` no longer pins `required_backend_version: "0.7.0"`. A literal there
+  overrides the floor bundled with the release, which silently lowered both the "Version OK"
+  chip and the hard check-lines version gate for anyone whose config was seeded from the
+  template. The entry ships commented out, so a fresh config inherits `inst/BACKEND_VERSION`.
+  `tools/update-backend.R` reads that same file instead of the template.
+
 # nextgenCrossWorkbench 0.27.0
 
 * **Check lines are references, not filters.** Requires backend nextgenCrossDesign >= 0.24.0

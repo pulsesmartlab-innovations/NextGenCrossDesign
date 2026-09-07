@@ -725,6 +725,19 @@ ngcd_stage_key_patterns <- list(
     "min_effect_reliability", "selection_prop", "seed",
     "run_posterior_prediction", "posterior_method", "n_iter", "burn_in",
     "ril_mode", "nselfing",
+    # robustness_quantile is a predict key, NOT a rank one, even though the
+    # robust plan it steers is assembled at rank. From backend 0.25.0 it is a
+    # formal of ng_run_cross_prediction() that makes the POSTERIOR stage cache
+    # that exact empirical tail of the ranked value; the post-run allocator can
+    # only be served a tail the draws actually cached. Changing the slider must
+    # therefore re-run predict (and everything downstream), or the allocator
+    # asks for a tail the cached posterior does not have and the breeder
+    # silently gets no robust plan again. Its siblings (robust_allocation,
+    # robust_objective, robust_top_n_target) stay in rank -- they only steer the
+    # post-run add-on. (Turning robust_allocation on/off makes this key appear
+    # or disappear from the config, which invalidates predict too; that is
+    # correct, since it also flips run_posterior_prediction.)
+    "robustness_quantile",
     # polyploid predict (fit + score) keys
     "dominance", "poly_dominance", "gain", "poly_gain", "double_reduction",
     "poly_double_reduction", "poly_trait_col", "poly_grm_method",
@@ -782,7 +795,10 @@ ngcd_stage_key_patterns <- list(
     "cross_sweep_k_min", "cross_sweep_k_max", "cross_sweep_k_step",
     "cross_sweep_criterion", "cross_sweep_relative_threshold",
     "cross_sweep_ne_min", "cross_sweep_coancestry_max",
-    "robust_allocation", "robust_objective", "robustness_quantile",
+    # robustness_quantile is deliberately NOT here -- it moved to `predict` when
+    # backend 0.25.0 made it a real ng_run_cross_prediction() formal that steers
+    # the posterior cache. See the note there.
+    "robust_allocation", "robust_objective",
     "robust_top_n_target",
     "family_size_total_progeny", "family_size_min", "family_size_max",
     "pareto_explore", "pareto_lambdas",

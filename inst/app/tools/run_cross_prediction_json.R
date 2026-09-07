@@ -468,9 +468,27 @@ run_subgenome_stage <- function(raw, stage, run_dir, result_path) {
 }
 
 # ===========================================================================
+# ngcd_robust_quantile(): the single resolution of the breeder's robustness
+# quantile, shared by the two places that must agree on it -- the backend run
+# (which caches that exact empirical tail from the posterior draws) and the
+# post-run ng_optimize_robust_mating_plan() call (which asks for it back).
+# Returns NULL when robust allocation is off, so the run caches nothing extra.
+# The value is NOT validated here: ng_run_cross_prediction() rejects a
+# non-probability with its own documented message, and a silent local coercion
+# would just recreate the "asked for robust, got ordinary, told nothing" bug.
+# ===========================================================================
+ngcd_robust_quantile <- function(raw) {
+  if (!isTRUE(as.logical(raw$robust_allocation %||% FALSE))) return(NULL)
+  as.numeric(raw$robustness_quantile %||% 0.25)
+}
+
+# ===========================================================================
 # ngcd_coerce_backend_args(): the wrapper's config -> backend-arg translation.
 # Drops meta keys (fields the UI/dispatcher may include that are NOT
 # ng_run_cross_prediction() formals) and unknown formals (with a warning),
+# re-injects the one meta key that must ALSO reach the backend, under a
+# condition the generic path cannot express (robustness_quantile -- see
+# ngcd_robust_quantile() above),
 # coerces "Inf"/"-Inf" strings, and reshapes the advanced object-params
 # (committed_crosses, marker_target_spec, lethal_spec, trait_checks,
 # parent_group, group_quota, trait_weights, cross_cost, group_permission)
@@ -488,6 +506,13 @@ ngcd_coerce_backend_args <- function(raw) {
                  "cross_sweep_k_step", "cross_sweep_criterion",
                  "cross_sweep_relative_threshold", "cross_sweep_ne_min",
                  "cross_sweep_coancestry_max",
+                 # robustness_quantile is the ONE meta key that also has a life as a
+                 # backend formal (nextgenCrossDesign >= 0.25.0). It stays listed here so
+                 # the generic "supplied & formals" path never forwards it blindly --
+                 # it must reach the backend ONLY when robust allocation is actually on,
+                 # and with exactly the value the post-run allocator will ask for. That
+                 # single resolution lives in ngcd_robust_quantile() and is injected
+                 # explicitly a few lines below. See the comment there.
                  "robust_allocation", "robustness_quantile", "robust_objective",
                  "robust_top_n_target",
                  "family_size_total_progeny", "family_size_min", "family_size_max",
@@ -516,6 +541,21 @@ ngcd_coerce_backend_args <- function(raw) {
   # function intentionally returns a *sparse* list. See
   # ngcd_full_backend_config() below for the staged-pipeline path, which
   # needs every formal filled in explicitly.
+
+  # ---- robustness quantile: cache the tail the allocator will actually ask for
+  # ng_optimize_robust_mating_plan() will only serve a quantile the posterior
+  # draws actually cached; it refuses to fabricate one (correctly). Before
+  # backend 0.25.0 the posterior cached only the CI tails (0.025 / 0.975), so
+  # EVERY quantile this app's 0.05-0.50 slider can produce was refused and the
+  # breeder silently got no robust plan. 0.25.0 lets the run cache an exact
+  # extra tail, so the run and the post-run allocation must be driven by ONE
+  # resolved value -- ngcd_robust_quantile(raw) -- or they can drift apart again.
+  # Guarded on the formal so an older backend just behaves as it did before
+  # instead of erroring with "unused argument".
+  if ("robustness_quantile" %in% formals_list) {
+    rq <- ngcd_robust_quantile(raw)
+    if (!is.null(rq)) args_in$robustness_quantile <- rq
+  }
 
   # Numeric infinities may arrive as the string "Inf".
   for (nm in names(args_in)) {
@@ -689,6 +729,29 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
         pm <- grep("_post_mean$", names(ps), value = TRUE)
         if (length(pm)) sub("_post_mean$", "", pm[1L]) else "usefulness_pmv_gebv"
       }
+      # ---- orientation of the RANKED value the *_post_* columns carry --------
+      # NOT the trait's breeding direction, and NOT derivable from it. The
+      # posterior's <gain_col>_post_* columns hold whatever ng_run_cp_trait_value()
+      # returned for the chosen trait_value_metric, which is not normalised to
+      # higher-is-better: "mean"/"usefulness" carry the trait's own units (so a
+      # minimize trait is LOWER-is-better there, and its conservative tail is the
+      # UPPER one), while the pure-variance and parent-distance metrics
+      # ("pmv", "vpm", "parent_distance", "le") are direction-agnostic and stay
+      # "maximize" even for a minimize trait -- more within-family variance is
+      # more opportunity whichever way the trait points. The backend resolves
+      # exactly this in ng_run_cp_value_orientation() and stamps the answer into
+      # the posterior table's "posterior" metadata attribute, so read it back
+      # rather than re-deriving it here (backend >= 0.25.0). Without a direction
+      # the allocator defaults to "maximize" and would pick a minimize trait's
+      # BEST case while calling the plan robust.
+      pmeta <- attr(ps, "posterior")
+      robust_direction <- if (is.list(pmeta) && is.character(pmeta$direction) &&
+                              length(pmeta$direction) == 1L && nzchar(pmeta$direction))
+        pmeta$direction else NULL
+      # Also keeps the posterior_topn_prob objective legal: the backend refuses a
+      # top-N objective whose plan direction disagrees with the direction the
+      # top-N column was built under, and this is that same direction by
+      # construction.
       nK  <- if (is.data.frame(result$selected_crosses)) nrow(result$selected_crosses)
              else as.integer(args_in$n_crosses %||% 10L)
       opt <- args_in$optimizer %||% "greedy_local"
@@ -696,10 +759,13 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
       tnt <- if (identical(objective, "posterior_topn_prob")) as.integer(raw$robust_top_n_target %||% nK) else NULL
       parent_kinship <- tryCatch(nextgenCrossDesign::ng_parent_kinship(result$cleaned_data$genotype),
                            error = function(e) NULL)
-      rob <- tryCatch(nextgenCrossDesign::ng_optimize_robust_mating_plan(
+      rob_args <- list(
         posterior_scores       = ps, n_crosses = nK, parent_kinship = parent_kinship,
         gain_col               = gain_col,
-        robustness_quantile    = as.numeric(raw$robustness_quantile %||% 0.25),
+        # The SAME resolution the run used to cache the tail (see
+        # ngcd_robust_quantile()), so the allocator can never ask for a quantile
+        # the draws were not asked to cache.
+        robustness_quantile    = ngcd_robust_quantile(raw),
         objective              = objective, top_n_target = tnt,
         max_crosses_per_parent = args_in$max_crosses_per_parent %||% 6L,  # match ng_run_cross_prediction's default; NULL breaks the allocator
         min_unique_parents     = args_in$min_unique_parents %||% NULL,
@@ -708,12 +774,23 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
         lambda_mating          = args_in$lambda_mating %||% 0.02,
         lambda_parent_use      = args_in$lambda_parent_use %||% 0,
         lambda_parent_use_mode = args_in$lambda_parent_use_mode %||% "absolute",
-        method = rmethod, local_iter = args_in$local_iter %||% 2000, ocs_iter = args_in$ocs_iter %||% 5),
+        method = rmethod, local_iter = args_in$local_iter %||% 2000, ocs_iter = args_in$ocs_iter %||% 5)
+      # Only send `direction` when the metadata actually carried one AND the
+      # installed backend understands it -- never guess an orientation.
+      if (!is.null(robust_direction) &&
+          "direction" %in% names(formals(nextgenCrossDesign::ng_optimize_robust_mating_plan)))
+        rob_args$direction <- robust_direction
+      rob <- tryCatch(do.call(nextgenCrossDesign::ng_optimize_robust_mating_plan, rob_args),
         error = function(e) { attr(e, "m") <- conditionMessage(e); e })
       if (inherits(rob, "data.frame")) {
         keep <- intersect(c("parent1", "parent2", gain_col,
                             paste0(gain_col, c("_post_mean", "_post_lower", "_post_upper")),
-                            "pair_kinship", "expected_progeny_inbreeding", ".robust_gain"), names(rob))
+                            "pair_kinship", "expected_progeny_inbreeding",
+                            # .robust_gain is the (possibly negated) objective the
+                            # allocator maximised; .robust_gain_value is the same
+                            # conservative tail on the trait's native scale, which is
+                            # the one a breeder should read.
+                            ".robust_gain", ".robust_gain_value"), names(rob))
         # which robust crosses are NOT in the point-estimate plan
         pkey <- function(df) paste(pmin(df$parent1, df$parent2), pmax(df$parent1, df$parent2))
         std_key <- if (is.data.frame(result$selected_crosses)) pkey(result$selected_crosses) else character(0)
@@ -722,6 +799,10 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
           crosses      = as.data.frame(rob)[, keep, drop = FALSE],
           summary      = attr(rob, "summary"),
           gain_col     = gain_col, n_crosses = nK,
+          # Orientation actually used, so a reader of the JSON can see whether the
+          # conservative tail was the lower or the upper one without re-deriving it.
+          direction    = robust_direction %||% "maximize",
+          direction_source = if (is.null(robust_direction)) "backend_default" else "posterior_metadata",
           n_shared_with_standard = sum(rk %in% std_key),
           n_changed    = sum(!(rk %in% std_key)))
       } else {

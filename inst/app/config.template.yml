@@ -17,7 +17,14 @@ default:
   # Library where nextgenCrossDesign is installed. Blank = R's default library.
   package_library: ""
 
-  required_backend_version: "0.7.0"
+  # Minimum backend version. Left COMMENTED OUT on purpose: with no value here
+  # the app uses the floor bundled with this release (inst/BACKEND_VERSION),
+  # which is the single source of truth and rises with every release that needs
+  # a newer backend. A literal pinned here OVERRIDES that floor -- the stale
+  # "0.7.0" this template used to ship silently lowered both the "Version OK"
+  # chip and the hard check-lines gate for anyone who let run_workbench() copy
+  # it. Uncomment only to deliberately raise the floor for your own deployment.
+  # required_backend_version: "0.25.0"
 
   # Optional: path to an external AlphaMate executable, used only when a run
   # picks allocation_method = alphamate_executable. Leave blank if you don't

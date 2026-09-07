@@ -25,19 +25,20 @@ BACKEND_PKG  <- "nextgenCrossDesign"
 BACKEND_REPO <- "pulsesmartlab-innovations/nextgenCrossDesignR"
 
 # --- resolve the target version -------------------------------------------------
-# Priority: CLI arg > NGCD_BACKEND_VERSION > config.template.yml > fallback.
+# Priority: CLI arg > NGCD_BACKEND_VERSION > inst/BACKEND_VERSION > fallback.
+# inst/BACKEND_VERSION, not config.template.yml: the template no longer pins a
+# literal (a pinned literal there silently OVERRIDES the packaged floor at run
+# time), and BACKEND_VERSION is the single source of truth ngcd_load_config()
+# itself reads.
 read_required_version <- function() {
   candidates <- c(
-    file.path("inst", "app", "config.template.yml"),               # git checkout
-    system.file("app", "config.template.yml", package = "nextgenCrossWorkbench")  # installed
+    file.path("inst", "BACKEND_VERSION"),                            # git checkout
+    system.file("BACKEND_VERSION", package = "nextgenCrossWorkbench")  # installed
   )
   for (p in candidates) {
     if (nzchar(p) && file.exists(p)) {
-      line <- grep("required_backend_version", readLines(p, warn = FALSE), value = TRUE)
-      if (length(line)) {
-        v <- sub('.*required_backend_version:\\s*"?([0-9][0-9.]*)"?.*', "\\1", line[[1]])
-        if (nzchar(v) && grepl("^[0-9]", v)) return(v)
-      }
+      v <- trimws(readLines(p, n = 1L, warn = FALSE))
+      if (length(v) && nzchar(v) && grepl("^[0-9]", v)) return(v)
     }
   }
   NA_character_

@@ -361,3 +361,33 @@ test_that("ngcd_pipeline_init: fresh pipeline has all stages stale with no cfg/j
     expect_null(s$ran_at)
   }
 })
+
+test_that("ngcd_stage_key_patterns: robustness_quantile invalidates predict (it steers the posterior cache), not rank alone", {
+  # From backend 0.25.0 robustness_quantile is a real ng_run_cross_prediction()
+  # formal: it makes the POSTERIOR stage cache that exact empirical tail, which is
+  # the only tail ng_optimize_robust_mating_plan() will then be served. If it stayed
+  # a rank-only key, moving the slider on a completed staged run would reuse a
+  # posterior that never cached the new tail and the breeder would silently get no
+  # robust plan -- exactly the defect this release fixes.
+  sub <- ng("ngcd_stage_cfg_subset")
+  full <- full_build_params()
+  expect_true("robustness_quantile" %in% names(sub(full, "predict")))
+  expect_false("robustness_quantile" %in% names(sub(full, "rank")))
+  # Its post-run-only siblings stay in rank.
+  expect_true(all(c("robust_allocation", "robust_objective", "robust_top_n_target") %in%
+                    names(sub(full, "rank"))))
+
+  # End to end through the invalidation machinery: changing only the quantile
+  # marks predict (and everything downstream) stale, while qc stays done.
+  init <- ng("ngcd_pipeline_init"); mark <- ng("ngcd_pipeline_mark")
+  p0 <- c(sample_params(), list(robust_allocation = TRUE, robustness_quantile = 0.25))
+  pipeline <- done_pipeline(init, mark, p0, data_version = 1L)
+  p1 <- c(sample_params(), list(robust_allocation = TRUE, robustness_quantile = 0.10))
+  pipeline2 <- mark(pipeline, p1, data_version = 1L)
+
+  expect_identical(pipeline2$stages$qc$status, "done")
+  expect_identical(pipeline2$stages$predict$status, "stale")
+  expect_identical(pipeline2$stages$index$status, "stale")
+  expect_identical(pipeline2$stages$allocate$status, "stale")
+  expect_identical(pipeline2$stages$rank$status, "stale")
+})

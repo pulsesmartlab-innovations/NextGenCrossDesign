@@ -134,3 +134,51 @@ test_that("check_geno is keyed by the breeder's chosen check_id_col, not blindly
                                     check_id_col = "not_a_column"))$check_geno),
                c("CHK_A", "CHK_B"))
 })
+
+# ---------------------------------------------------------------------------
+# Robustness-quantile routing (workbench 0.28.0). robustness_quantile is a
+# robust-allocation setting AND, from backend 0.25.0, a real
+# ng_run_cross_prediction() formal: the run has to cache the exact tail the
+# post-run allocator will ask for. These are the in-process unit tests of that
+# routing; the end-to-end proof that a plan comes out is in test-robust-plan.R.
+# ---------------------------------------------------------------------------
+
+test_that("ngcd_robust_quantile: NULL unless robust allocation is on, then the slider value (0.25 default)", {
+  e <- ngcd_runner_env()
+  f <- e$ngcd_robust_quantile
+  expect_null(f(list()))                                       # nothing requested
+  expect_null(f(list(robustness_quantile = 0.1)))              # quantile without the toggle
+  expect_null(f(list(robust_allocation = FALSE, robustness_quantile = 0.1)))
+  expect_equal(f(list(robust_allocation = TRUE)), 0.25)        # app default
+  expect_equal(f(list(robust_allocation = TRUE, robustness_quantile = 0.05)), 0.05)
+  expect_equal(f(list(robust_allocation = TRUE, robustness_quantile = 0.5)), 0.5)
+})
+
+test_that("robustness_quantile reaches the backend run only when robust allocation is on, and never as an unknown key", {
+  skip_if_not(requireNamespace("nextgenCrossDesign", quietly = TRUE), "Backend not installed.")
+  skip_if_not("robustness_quantile" %in%
+                names(formals(nextgenCrossDesign::ng_run_cross_prediction)),
+              "Backend predates robustness_quantile as a formal.")
+  e <- ngcd_runner_env()
+  coerce <- e$ngcd_coerce_backend_args
+  base <- list(schema = "ng_run_config.v1", genotype_file = "g.csv",
+               phenotype_file = "p.csv", n_crosses = 7)
+
+  # Off: nothing extra is sent, so a plain run caches no extra tail.
+  expect_false("robustness_quantile" %in% names(coerce(base)))
+  # A stray quantile with the toggle off is still not forwarded.
+  expect_false("robustness_quantile" %in%
+                 names(coerce(c(base, list(robustness_quantile = 0.1)))))
+  # On: forwarded, and with EXACTLY the value the post-run allocator will request.
+  on <- coerce(c(base, list(robust_allocation = TRUE, robustness_quantile = 0.1)))
+  expect_equal(on$robustness_quantile, 0.1)
+  expect_equal(on$robustness_quantile, e$ngcd_robust_quantile(
+    c(base, list(robust_allocation = TRUE, robustness_quantile = 0.1))))
+  # On with no explicit value: the app default is cached, not nothing.
+  expect_equal(coerce(c(base, list(robust_allocation = TRUE)))$robustness_quantile, 0.25)
+  # And it is never reported as an unrecognised config key (it stays a meta key
+  # for the generic path; the injection above is what forwards it).
+  expect_silent(coerce(c(base, list(robust_allocation = TRUE, robustness_quantile = 0.1,
+                                    robust_objective = "posterior_quantile",
+                                    robust_top_n_target = 10L))))
+})

@@ -1341,8 +1341,10 @@ workbench_server <- function(cfg) {
     # barley data where the truth was 0.678). A run with NO check configured is
     # entirely unaffected by this bug and must never be blocked here - only the
     # advisory "Version OK" chip (setup_status) changes for it. Reuses
-    # cfg$required_backend_version (bumped to 0.24.0 in inst/BACKEND_VERSION) as
-    # the floor so this hard gate and that advisory chip can never drift apart.
+    # cfg$required_backend_version (inst/BACKEND_VERSION, now 0.25.0) as the
+    # floor so this hard gate and that advisory chip can never drift apart. The
+    # floor deliberately rides the packaged BACKEND_VERSION rather than pinning
+    # 0.24.0 here: every release that needs a newer backend raises both at once.
     # Shared by every run entry point (do_run, run_stage_manual, do_run_pipeline).
     check_backend_version_message <- function(params) {
       if (is.null(params$trait_checks)) return(NULL)
@@ -2661,12 +2663,19 @@ workbench_server <- function(cfg) {
       obj_lab <- if (identical(sm$robust_objective, "posterior_topn_prob"))
         sprintf("top-%s inclusion probability", sm$robust_top_n_target %||% "N")
       else sprintf("pessimistic %s quantile of gain", sm$robustness_quantile %||% "?")
+      # For a ranked value where LOWER is better (a decrease trait scored on mean or
+      # usefulness), the pessimistic side is the UPPER tail, so the tail actually used is
+      # 1 - the slider setting. Say so rather than leaving "pessimistic 0.25 quantile"
+      # reading as if the lower tail had been taken.
+      tail_note <- if (identical(rp$direction, "minimize") && !is.null(sm$robust_tail_probability))
+        sprintf(" Lower is better for this ranked value, so the pessimistic side is the upper tail (%s).",
+                format(sm$robust_tail_probability)) else NULL
       shiny::tagList(
         ngcd_callout(kind = "info",
           shiny::tags$b(sprintf("Robust plan (%s).", obj_lab)),
           sprintf(" It keeps %s of your standard %s crosses and changes %s to more uncertainty-robust choices.",
                   rp$n_shared_with_standard %||% "?", rp$n_crosses %||% "?", rp$n_changed %||% "?"),
-          " Gain column: ", shiny::tags$code(rp$gain_col %||% "?"), "."),
+          " Gain column: ", shiny::tags$code(rp$gain_col %||% "?"), ".", tail_note),
         shiny::div(class = "help-hint",
           "Columns show the robust gain and the posterior mean / lower / upper for each cross."),
         DT::DTOutput("res_robust_tbl"))
