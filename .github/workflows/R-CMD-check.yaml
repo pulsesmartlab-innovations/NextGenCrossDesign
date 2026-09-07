@@ -117,13 +117,61 @@ jobs:
       - uses: r-lib/actions/setup-r-dependencies@v2
         if: env.RUN == 'true'
         with:
-          extra-packages: any::rcmdcheck
+          extra-packages: any::rcmdcheck, any::remotes
           needs: check
+
+      # THE BACKEND IS A TEST DEPENDENCY, EVEN THOUGH IT IS NOT A PACKAGE
+      # DEPENDENCY.
+      #
+      # The workbench drives nextgenCrossDesign as an external Rscript process,
+      # so it is deliberately absent from DESCRIPTION. But the test suite guards
+      # every backend-touching test with backend_available(), and without the
+      # backend on the library path those tests SKIP and the job still passes.
+      #
+      # That gap is not theoretical. Four of them exist specifically to guard the
+      # config -> JSON -> backend bridge: check_geno keyed by the breeder's
+      # chosen ID column, check_pheno reshaping instead of silently mangling into
+      # a 1-row frame, the removed parameters never being forwarded, and the
+      # polyploid experimental-dominance flag. That bridge is where a whole
+      # feature once shipped inert -- the runner emitted the pre-rename field
+      # name, so the frontend read NULL and rendered nothing, while the entire
+      # unit suite passed against hand-built fixtures carrying the correct name.
+      #
+      # Installing the backend from its main branch also makes this the real
+      # integration signal: the workbench is checked against the backend it will
+      # actually be paired with, not against a mock of it.
+      - name: Install the nextgenCrossDesign backend (so backend tests run, not skip)
+        if: env.RUN == 'true'
+        run: |
+          remotes::install_github("pulsesmartlab-innovations/nextgenCrossDesignR",
+                                  upgrade = "never", build_vignettes = FALSE)
+        shell: Rscript {0}
+
+      # A silent install failure would restore exactly the situation this step
+      # exists to remove: the tests skip, the job is green, and nothing guards
+      # the bridge. So assert the backend is present AND at least the floor the
+      # workbench itself declares, and fail loudly otherwise.
+      - name: Verify the backend is present and meets the declared floor
+        if: env.RUN == 'true'
+        run: |
+          need <- trimws(readLines("inst/BACKEND_VERSION", warn = FALSE)[[1L]])
+          have <- tryCatch(as.character(packageVersion("nextgenCrossDesign")),
+                           error = function(e) NA_character_)
+          cat("backend installed:", have, "| declared floor:", need, "\n")
+          if (is.na(have))
+            stop("nextgenCrossDesign is not installed: every backend-guarded test ",
+                 "would skip and this job would pass without checking the bridge.")
+          if (package_version(have) < package_version(need))
+            stop("backend ", have, " is below the floor ", need,
+                 " declared in inst/BACKEND_VERSION.")
+        shell: Rscript {0}
 
       - uses: r-lib/actions/check-r-package@v2
         if: env.RUN == 'true'
         with:
           upload-snapshots: true
-          # The frontend spawns the backend as an external process, so R CMD
-          # check runs against the UI/logic only; fail the build on errors.
+          # The workbench spawns the backend rather than linking it, so R CMD
+          # check still checks the UI/logic only -- but with the backend now on
+          # the library path the backend-guarded tests run instead of skipping.
+          # Fail the build on errors.
           error-on: '"error"'
