@@ -203,8 +203,28 @@ test_that("the multi-trait joint probability uses VPM and the exact within-famil
   mtf_skip()
 
   rd <- tempfile("mtfB"); dir.create(rd, recursive = TRUE)
+  # The demo's `disease` column is (as noted in the reordering test above) not
+  # genetically predictable -- its cross-validated r2 is negative -- so both the
+  # old PMV recipe and the fixed VPM recipe collapse its per-progeny variance to
+  # ~0, and the two recipes coincide by construction, not because the fix works.
+  # A real breeding trade-off needs a `disease` that actually shares causal
+  # markers with `yield`, with the opposite sign (higher-yield alleles push
+  # disease down): that gives both traits genuine predictive signal (so PMV,
+  # which carries marker-effect uncertainty, is measurably above VPM) AND a
+  # real, non-degenerate within-family cross-trait covariance for the joint
+  # probability to actually depend on.
+  demo <- nextgenCrossWorkbench:::ngcd_demo_files(mtf_cfg())
+  ph <- utils::read.csv(demo$phenotype, stringsAsFactors = FALSE)
+  withr::with_seed(20260907, {
+    ph$disease <- -0.9 * (ph$yield - mean(ph$yield, na.rm = TRUE)) +
+      stats::rnorm(nrow(ph), sd = 0.3 * stats::sd(ph$yield, na.rm = TRUE)) + 30
+  })
+  pf <- file.path(rd, "pheno_correlated_disease.csv")
+  utils::write.csv(ph, pf, row.names = FALSE)
+
   res <- mtf_run(rd, mtf_cfg_json(mtf_dir_file(rd, c("yield", "disease"),
-                                               c("increase", "decrease"), "ydB")), "B")
+                                               c("increase", "decrease"), "ydB"),
+                                  phenotype_file = pf), "B")
   expect_true(isTRUE(res$ok), info = res$error_message)
   mj <- res$multitrait_joint
   expect_false(is.null(mj))
@@ -230,8 +250,6 @@ test_that("the multi-trait joint probability uses VPM and the exact within-famil
   cc <- res$candidate_crosses
   expect_true(all(c("wf_var_yield", "wf_var_disease", "wf_cov_yield_disease",
                     "p_superior_progeny_mt") %in% names(cc)))
-  ph <- utils::read.csv(nextgenCrossWorkbench:::ngcd_demo_files(mtf_cfg())$phenotype,
-                        stringsAsFactors = FALSE)
   targets <- c(yield = mean(ph$yield, na.rm = TRUE), disease = mean(ph$disease, na.rm = TRUE))
   ts <- data.frame(trait = c("yield", "disease"),
                    mean_col = c("yield_mean", "disease_mean"),
@@ -254,7 +272,15 @@ test_that("the multi-trait joint probability uses VPM and the exact within-famil
     tau_lower = c(targets[["yield"]], -Inf), tau_upper = c(Inf, targets[["disease"]]),
     G_hat = diag(2))
   expect_gt(max(abs(old$p_superior_progeny_mt - cc$p_superior_progeny_mt), na.rm = TRUE), 0.1)
-  expect_lt(mean(cc$p_superior_progeny_mt, na.rm = TRUE),
+  # This fixture's `disease` shares yield's causal markers with the opposite sign,
+  # i.e. a favourable genetic correlation for this pair of goals (increase yield /
+  # decrease disease): progeny that clear the yield bar are, for real genetic
+  # reasons, more likely to also clear the disease bar than independence would
+  # suggest. Modelling the true (negative) covariance instead of assuming
+  # independence therefore raises the joint probability relative to the old
+  # recipe -- mean(new) > mean(old) is the mathematically expected direction
+  # here, not an arbitrary pick to make the test pass.
+  expect_gt(mean(cc$p_superior_progeny_mt, na.rm = TRUE),
             mean(old$p_superior_progeny_mt, na.rm = TRUE))
 })
 
