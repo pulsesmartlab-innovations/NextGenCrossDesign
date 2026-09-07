@@ -718,16 +718,54 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
     exists("ng_optimize_robust_mating_plan", where = asNamespace("nextgenCrossDesign")) &&
     exists("ng_parent_kinship", where = asNamespace("nextgenCrossDesign"))
   if (want_robust) {
-    ps <- tryCatch(result$posterior_predictions[[1L]], error = function(e) NULL)
-    if (is.data.frame(ps) && nrow(ps) > 0L) {
+    # ---- WHICH posterior is robustified: the index on a multi-trait run ------
+    # A multi-trait plan is ranked on `multi_trait_score`, the index over EVERY
+    # trait. Robustifying result$posterior_predictions[[1]] instead -- as this did
+    # before workbench 0.29.0 -- robustified ONE trait's per-trait posterior, and
+    # "trait 1" is nothing more principled than the first row of the breeder's
+    # direction CSV: reordering two spreadsheet rows changed which trait the
+    # "robust plan" was about, and its orientation with it (measured on the demo
+    # data: 2 of 6 crosses shared with the index plan in one row order, 3 of 6 and
+    # a flipped direction in the other). Backend 0.26.0 puts the index's own
+    # posterior on the result as `posterior_multitrait` -- multi_trait_score_post_*
+    # plus the exact cached robustness-quantile columns and a "posterior" metadata
+    # attribute in the shape ng_optimize_robust_mating_plan() reads -- so the
+    # multi-trait run now robust-allocates on the index itself.
+    #
+    # If that table is absent (posterior prediction off, or a backend older than
+    # 0.26.0) the robust allocation is REFUSED with the reason. Falling back to
+    # trait 1 is what produced the defect; a silent fallback is the failure mode
+    # being fixed here.
+    multi_trait_run <- is.data.frame(result$trait_direction) &&
+      nrow(result$trait_direction) > 1L
+    mt_post <- if (multi_trait_run) result$posterior_multitrait else NULL
+    mt_ready <- is.data.frame(mt_post) && nrow(mt_post) > 0L &&
+      "multi_trait_score_post_mean" %in% names(mt_post)
+    ps <- if (multi_trait_run) {
+      if (mt_ready) mt_post else NULL
+    } else tryCatch(result$posterior_predictions[[1L]], error = function(e) NULL)
+    if (multi_trait_run && !mt_ready) {
+      robust_out <- list(error = paste0(
+        "Robust allocation was refused for this multi-trait run: no posterior of the ",
+        "selection index (multi_trait_score) is available, so there is nothing to ",
+        "robustify that matches what the plan was ranked on. This needs backend ",
+        "nextgenCrossDesign >= 0.26.0 with posterior prediction on (installed: ",
+        as.character(utils::packageVersion("nextgenCrossDesign")), "). ",
+        "Earlier versions of this app fell back to a single trait's posterior -- the ",
+        "first row of your trait-direction file -- and labelled the result your robust ",
+        "plan; it no longer does that."))
+    } else if (is.data.frame(ps) && nrow(ps) > 0L) {
       objective <- raw$robust_objective %||% "posterior_quantile"
-      # gain column must carry posterior draws (has *_post_mean); prefer the
+      # gain column must carry posterior draws (has *_post_mean). On a multi-trait
+      # run that is the index the plan itself ranks on; otherwise prefer the
       # DH-GEBV usefulness, then fall back to any posterior column.
-      cand    <- c("usefulness_pmv_gebv", "usefulness_pmv", "pmv", "cross_mean")
-      hit     <- cand[paste0(cand, "_post_mean") %in% names(ps)]
-      gain_col <- if (length(hit)) hit[1L] else {
-        pm <- grep("_post_mean$", names(ps), value = TRUE)
-        if (length(pm)) sub("_post_mean$", "", pm[1L]) else "usefulness_pmv_gebv"
+      gain_col <- if (multi_trait_run) "multi_trait_score" else {
+        cand <- c("usefulness_pmv_gebv", "usefulness_pmv", "pmv", "cross_mean")
+        hit  <- cand[paste0(cand, "_post_mean") %in% names(ps)]
+        if (length(hit)) hit[1L] else {
+          pm <- grep("_post_mean$", names(ps), value = TRUE)
+          if (length(pm)) sub("_post_mean$", "", pm[1L]) else "usefulness_pmv_gebv"
+        }
       }
       # ---- orientation of the RANKED value the *_post_* columns carry --------
       # NOT the trait's breeding direction, and NOT derivable from it. The
@@ -744,6 +782,14 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
       # rather than re-deriving it here (backend >= 0.25.0). Without a direction
       # the allocator defaults to "maximize" and would pick a minimize trait's
       # BEST case while calling the plan robust.
+      # On the multi-trait (index) path the same attribute carries "maximize", and
+      # that is a stated backend design invariant rather than a per-run accident:
+      # multi_trait_score is direction-normalised higher = better for every index
+      # method (the trait direction is applied upstream of the combination), which
+      # backend 0.26.0 re-verified on live data -- cor(index, yield) = +0.988 with
+      # yield increasing, cor(index, disease) = -0.988 with disease decreasing. It
+      # is still READ from the metadata here rather than hard-coded, so this app
+      # never asserts an orientation the backend did not stamp.
       pmeta <- attr(ps, "posterior")
       robust_direction <- if (is.list(pmeta) && is.character(pmeta$direction) &&
                               length(pmeta$direction) == 1L && nzchar(pmeta$direction))
@@ -803,6 +849,19 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
           # conservative tail was the lower or the upper one without re-deriving it.
           direction    = robust_direction %||% "maximize",
           direction_source = if (is.null(robust_direction)) "backend_default" else "posterior_metadata",
+          # What was robustified, in one machine-readable token plus a breeder-facing
+          # label, so the Results screen can never again present a single-trait plan
+          # as "your robust plan" without saying so.
+          basis        = if (multi_trait_run) "selection_index" else "single_trait",
+          basis_label  = if (multi_trait_run)
+            paste0("the selection index over all ", nrow(result$trait_direction),
+                   " traits (the same merit your standard plan was ranked on)")
+          else paste0("the single trait '", result$trait_direction$trait[[1L]], "'"),
+          # The index posterior is re-standardised inside every draw, so its interval is
+          # on a per-draw RELATIVE index and must not be differenced against the
+          # point-estimate multi_trait_score. Carried through from the backend metadata
+          # (never invented here) so the UI can badge it. NULL on a single-trait run.
+          index_rescaling = if (multi_trait_run && is.list(pmeta)) pmeta$index_rescaling else NULL,
           n_shared_with_standard = sum(rk %in% std_key),
           n_changed    = sum(!(rk %in% std_key)))
       } else {
@@ -881,9 +940,36 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
       traits <- as.character(td$trait %||% td[[1]])
       dirs   <- as.character(td$direction %||% td$Selection_direction %||% td[[2]])
       cc <- result$candidate_crosses
-      mean_cols <- paste0(traits, "_mean"); var_cols <- paste0(traits, "_pmv")
-      if (!all(mean_cols %in% names(cc)) || !all(var_cols %in% names(cc)))
-        stop("candidate_crosses is missing per-trait mean/variance columns")
+      # Per-trait score columns are keyed by the CLEANED trait name (the backend's
+      # ng_run_cp_clean_trait_name()); the exact within-family covariance columns are
+      # keyed by the RAW trait name (ng_cross_trait_within_family_cov() names them from
+      # colnames(betas) = trait_spec$trait). Resolve each column by trying the cleaned
+      # name and then the raw one, so a trait like "Grain Yield" lands on a real column
+      # instead of producing a caught error.
+      clean_trait <- function(x) {
+        out <- make.names(as.character(x))
+        out <- gsub("[.]+", "_", out); out <- gsub("^_|_$", "", out)
+        ifelse(nzchar(out), out, "trait")
+      }
+      pick_col <- function(trait, suffix) {
+        cand <- unique(paste0(c(clean_trait(trait), trait), suffix))
+        hit <- cand[cand %in% names(cc)]
+        if (!length(hit)) stop("candidate_crosses has no '", suffix,
+                               "' column for trait '", trait, "'")
+        hit[[1L]]
+      }
+      mean_cols <- vapply(traits, pick_col, character(1L), suffix = "_mean",
+                          USE.NAMES = FALSE)
+      # DEFECT 2a fix: the per-progeny variance is VPM, not PMV. The joint probability
+      # is an order statistic over k progeny -- p = 1 - (1 - p_one)^k -- which requires a
+      # variance that is INDEPENDENT across progeny. PMV additionally carries the shared
+      # posterior marker-effect uncertainty, which is common to every progeny of the
+      # cross and cannot be exponentiated away; using it inflated the per-progeny SD
+      # (measured at ~5.4x for one trait in the audit's data) and with it every
+      # probability. This is the same defect the backend fixed for p_beat_all_checks,
+      # whose var_suffix is likewise "_vpm" (R/51 ng_attach_joint_check_probability()).
+      var_cols <- vapply(traits, pick_col, character(1L), suffix = "_vpm",
+                         USE.NAMES = FALSE)
       pheno <- result$cleaned_data$phenotype
       targets <- vapply(traits, function(t) mean(as.numeric(pheno[[t]]), na.rm = TRUE), 0)
       # optional "trait: value" overrides
@@ -894,18 +980,66 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
             targets[[trimws(kv[1])]] <- suppressWarnings(as.numeric(kv[2]))
         }
       }
-      inc <- dirs %in% c("increase", "maximize")
+      # DEFECT 2c fix: use the BACKEND's direction vocabulary, not an ad-hoc string set.
+      # ng_multitrait_direction() (reached here through the exported ng_multitrait_spec())
+      # accepts max / maximize / maximise / increase / higher / high / positive / + and
+      # the mirrored minimize tokens. The old `dirs %in% c("increase","maximize")` treated
+      # every other accepted synonym as a DECREASE trait, which silently swapped tau_lower
+      # for tau_upper and answered the opposite question. It also errors loudly on a token
+      # the backend would not accept, instead of quietly assuming "minimize".
+      dirs <- nextgenCrossDesign::ng_multitrait_spec(trait = traits,
+                                                    direction = dirs)$direction
+      inc <- dirs == "maximize"
       tau_lower <- ifelse(inc, targets, -Inf)
       tau_upper <- ifelse(inc, Inf, targets)
-      Y  <- as.matrix(pheno[, traits, drop = FALSE])
-      Gh <- tryCatch(nextgenCrossDesign::ng_estimate_genetic_covariance(
-                       geno = result$cleaned_data$genotype, Y = Y),
-                     error = function(e) diag(length(traits)))
       ts <- data.frame(trait = traits, mean_col = mean_cols, var_col = var_cols,
                        stringsAsFactors = FALSE)
+      # DEFECT 2b/2d fix: use the EXACT within-family cross-trait covariance the run has
+      # already computed, Cov(t, s | i x j) = a_t' R a_s, which rides candidate_crosses as
+      # wf_var_<trait> / wf_cov_<t>_<s>. The previous code asked
+      # ng_estimate_genetic_covariance() for a POPULATION genetic correlation and, on any
+      # error, fell back to diag() -- exact independence -- with no warning and no flag in
+      # the JSON. Within-family trait correlations of -0.91 .. +0.96 were measured in the
+      # audit's data, so independence is a different answer, not a mild approximation.
+      # Ladder, with the rung actually used recorded in the JSON:
+      #   exact_within_family -> population_genetic_correlation -> refuse.
+      # Independence is never assumed silently, and never assumed at all.
+      wf_cols <- c(paste0("wf_var_", traits),
+                   unlist(lapply(seq_along(traits), function(a)
+                     if (a < length(traits)) paste0("wf_cov_", traits[a], "_",
+                                                    traits[seq(a + 1L, length(traits))]))))
+      ctc <- NULL; Gh <- NULL; cov_model <- NA_character_; cov_note <- NULL
+      if (all(wf_cols %in% names(cc))) {
+        ctc <- cc[, c("parent1", "parent2", wf_cols), drop = FALSE]
+        cov_model <- "exact_within_family"
+        cov_note <- paste0("Cross-trait covariance is the exact recombination-aware ",
+                           "within-family covariance a_t' R a_s the run already computed ",
+                           "(wf_var_* / wf_cov_* on the cross table).")
+      } else {
+        Y  <- as.matrix(pheno[, traits, drop = FALSE])
+        Gh <- tryCatch(nextgenCrossDesign::ng_estimate_genetic_covariance(
+                         geno = result$cleaned_data$genotype, Y = Y),
+                       error = function(e) NULL)
+        if (is.null(Gh))
+          stop("no cross-trait covariance is available for this run: the exact ",
+               "within-family columns (wf_var_* / wf_cov_*) are absent and ",
+               "ng_estimate_genetic_covariance() failed, so a joint probability could ",
+               "only be computed by assuming the traits are independent. It is not ",
+               "computed rather than reported as if the traits were uncorrelated.")
+        cov_model <- "population_genetic_correlation"
+        cov_note <- paste0("APPROXIMATION: the exact within-family cross-trait covariance ",
+                           "was unavailable for this run, so a POPULATION genetic ",
+                           "correlation from ng_estimate_genetic_covariance() was ",
+                           "substituted for the within-family one.")
+      }
       out <- nextgenCrossDesign::ng_add_p_superior_progeny_multitrait(
-        scores = cc, trait_specs = ts, tau_lower = tau_lower, tau_upper = tau_upper, G_hat = Gh)
-      attr(out, "targets") <- targets; out
+        scores = cc, trait_specs = ts, tau_lower = tau_lower, tau_upper = tau_upper,
+        G_hat = Gh, cross_trait_cov = ctc)
+      attr(out, "targets") <- targets
+      attr(out, "cov_model") <- cov_model
+      attr(out, "cov_note") <- cov_note
+      attr(out, "var_cols") <- var_cols
+      out
     }, error = function(e) structure(NULL, err = conditionMessage(e)))
     if (is.data.frame(aug) && "p_superior_progeny_mt" %in% names(aug)) {
       result$candidate_crosses <- aug
@@ -915,7 +1049,18 @@ emit_run_result <- function(result, raw, result_path, args_in = ngcd_coerce_back
         result$selected_crosses$p_superior_progeny_mt <- aug$p_superior_progeny_mt[match(sk, k)]
       }
       mt_joint <- list(enabled = TRUE, traits = as.list(attr(aug, "targets")),
-                       mean_p = mean(aug$p_superior_progeny_mt, na.rm = TRUE))
+                       mean_p = mean(aug$p_superior_progeny_mt, na.rm = TRUE),
+                       # What the number is actually built from, so nothing about this
+                       # statistic is implicit any more.
+                       covariance_model = attr(aug, "cov_model"),
+                       covariance_note = attr(aug, "cov_note"),
+                       variance_columns = as.list(attr(aug, "var_cols")),
+                       effect_uncertainty = "point_estimate",
+                       effect_uncertainty_note = paste0(
+                         "Conditional on the point-estimated marker effects: the per-progeny ",
+                         "variance is VPM and no shared posterior effect uncertainty (PEV) is ",
+                         "integrated, so this is not directly comparable to a PEV-integrated ",
+                         "probability such as p_beat_all_checks."))
     } else {
       mt_joint <- list(enabled = TRUE, error = attr(aug, "err") %||% "could not compute joint probability")
     }

@@ -652,6 +652,57 @@ ngcd_experimental_dominance_message <- function(dominance, acknowledged) {
          "or untick Model dominance to score on additive effects only.")
 }
 
+# multi_trait_method = "auto" SELF-PROMOTES on the mere presence of a positive
+# value in the trait-direction file's desired_change or economic_weight column:
+# ng_breeder_selection_objective() (backend R/19) promotes to "desired_gain" or
+# "economic_index" respectively, ahead of the plain "weight" column. Both are
+# genuine selection indices and both need explicit phenotypic (P) and genetic (G)
+# covariance matrices, which this app does not collect --
+# ng_multitrait_index_covariance() refuses to substitute candidate-score
+# covariance for them, and with posterior prediction on the refusal now comes even
+# earlier, from ng_posterior_multitrait_cross_predict(). Either way the breeder
+# gets a hard error AFTER a full run, naming arguments the UI does not expose.
+#
+# ng_run_cp_trait_spec() carries EVERY column of the direction file through
+# untouched, so adding one column to a spreadsheet is all it takes -- and the
+# on-screen help used to invite exactly that.
+#
+# The columns are deliberately NOT stripped and the method is deliberately NOT
+# forced: the breeder put those numbers there on purpose and must be told why they
+# are not being honoured, not have them quietly deleted or quietly ignored.
+# Returns NULL when there is nothing to report. Pure (no shiny) so the run gate and
+# a unit test can both call it. `direction` is the loaded trait-direction table.
+ngcd_auto_index_promotion_message <- function(direction, objective_mode,
+                                              multi_trait_method) {
+  if (!identical(objective_mode %||% "single", "multi")) return(NULL)
+  # Only "auto" promotes; an explicitly chosen method is used as chosen.
+  if (!identical(multi_trait_method %||% "auto", "auto")) return(NULL)
+  if (!is.data.frame(direction) || !nrow(direction)) return(NULL)
+  # Same test the backend applies: any finite POSITIVE value in the column.
+  finite_positive <- function(x) {
+    x <- suppressWarnings(as.numeric(x))
+    isTRUE(any(is.finite(x) & x > 0))
+  }
+  hits <- c("desired_change", "economic_weight")
+  hits <- hits[hits %in% names(direction)]
+  hits <- hits[vapply(hits, function(nm) finite_positive(direction[[nm]]), logical(1))]
+  if (!length(hits)) return(NULL)
+  # desired_change wins over economic_weight, exactly as the backend orders them.
+  promoted <- if ("desired_change" %in% hits) "Desired gains (desired_gain)" else
+    "Economic weights (economic_index)"
+  paste0("Your trait-direction file has a ", paste(hits, collapse = " and a "),
+         " column with positive values, and the multi-trait method is set to Automatic. ",
+         "The backend reads that as a request for ", promoted,
+         " - a true selection index, which needs phenotypic (P) and genetic (G) covariance ",
+         "matrices. This version of the workbench cannot supply them, so the run would fail ",
+         "part-way through with an error naming two arguments the app does not expose. ",
+         "Remove the ", paste(hits, collapse = " / "),
+         " column from your trait-direction file, or set those values to 0, or pick ",
+         "Relative weights explicitly and give the weights in the Trait weights box. ",
+         "Your numbers are left exactly as you entered them - nothing has been dropped ",
+         "or silently rewritten.")
+}
+
 # Pure derivation from the breeder-facing 3-way "Selection objective" choice
 # (objective_mode: single/multi/index) to the backend's prediction_mode +
 # traits_to_use + whether the multi-trait combination method applies. Kept

@@ -293,7 +293,21 @@ workbench_ui <- function(cfg, dev = isTRUE(cfg$developer_mode)) {
                             shiny::tags$b("Multiple traits"), " (usual choice for more than one trait): the app scores each trait and combines them into a computed selection index. ",
                             shiny::tags$b("Use my selection-index column"), ": use only if your phenotype file already has one pre-built, trusted selection-index column - not the same as the index this app computes for you."),
             shiny::tags$li("For multiple traits, tick the traits to include (leave all ticked to use every trait)."),
-            shiny::tags$li(shiny::tags$b("Multi-trait method"), ": start with ", shiny::tags$code("Automatic"), ". Use ", shiny::tags$code("Relative weights"), " if you have relative trait weights; ", shiny::tags$code("Economic weights"), " / ", shiny::tags$code("Desired gains"), " if your direction file carries economic weights.")),
+            # This used to say "Economic weights / Desired gains if your direction file
+            # carries economic weights", which invited a configuration that cannot run:
+            # an economic_weight / desired_change column makes Automatic promote itself
+            # to a selection-index method needing P and G matrices this app does not
+            # collect, and the run then hard-errors. Neither method is offered in the
+            # dropdown, so the help must not advertise them either. The run gate
+            # (ngcd_auto_index_promotion_message()) refuses such a file up front.
+            shiny::tags$li(shiny::tags$b("Multi-trait method"), ": start with ", shiny::tags$code("Automatic"),
+                            " - it ranks each trait and combines the ranks with equal weight. Use ",
+                            shiny::tags$code("Relative weights"),
+                            " if some traits should count for more, and type the weights in the box."),
+            shiny::tags$li("Leave ", shiny::tags$code("economic_weight"), " and ", shiny::tags$code("desired_change"),
+                            " columns OUT of your trait-direction file. They select true selection-index methods ",
+                            "(economic index / desired gains) that need phenotypic and genetic covariance matrices ",
+                            "this version cannot supply, so a run carrying them is refused before it starts.")),
           shiny::tags$p(class = "help-hint", "Direction is set in your trait-direction file - e.g. yield increases, disease decreases.")),
           next_hint = "Prediction & scoring - how each cross is valued."),
         bslib::layout_columns(col_widths = c(6, 6),
@@ -1332,7 +1346,15 @@ workbench_server <- function(cfg) {
       dom_msg <- if (is_poly())
         ngcd_experimental_dominance_message(input$poly_dominance,
                                             input$poly_allow_experimental_dominance)
-      budget_msg %||% dom_msg
+      # A desired_change / economic_weight column in the trait-direction file makes
+      # multi_trait_method = "auto" promote itself to a selection-index method that
+      # needs P and G, which this app cannot supply -- a hard error, and only after a
+      # full run. Refuse up front and say why. Scoped to the standard diploid workflow,
+      # the only one that builds a multi-trait index. See the helper in helpers.R.
+      promo_msg <- if (identical(wf, "standard"))
+        ngcd_auto_index_promotion_message(rv$data$direction, input$objective_mode,
+                                          input$multi_trait_method)
+      budget_msg %||% dom_msg %||% promo_msg
     }
     # Hard version gate, scoped to check-configured runs only. Below backend
     # 0.24.0 the <trait>_p_beat_check column still exists and still returns a
@@ -1341,7 +1363,7 @@ workbench_server <- function(cfg) {
     # barley data where the truth was 0.678). A run with NO check configured is
     # entirely unaffected by this bug and must never be blocked here - only the
     # advisory "Version OK" chip (setup_status) changes for it. Reuses
-    # cfg$required_backend_version (inst/BACKEND_VERSION, now 0.25.0) as the
+    # cfg$required_backend_version (inst/BACKEND_VERSION, now 0.26.0) as the
     # floor so this hard gate and that advisory chip can never drift apart. The
     # floor deliberately rides the packaged BACKEND_VERSION rather than pinning
     # 0.24.0 here: every release that needs a newer backend raises both at once.
@@ -2675,9 +2697,20 @@ workbench_server <- function(cfg) {
           shiny::tags$b(sprintf("Robust plan (%s).", obj_lab)),
           sprintf(" It keeps %s of your standard %s crosses and changes %s to more uncertainty-robust choices.",
                   rp$n_shared_with_standard %||% "?", rp$n_crosses %||% "?", rp$n_changed %||% "?"),
+          # What was actually robustified. Before 0.29.0 a multi-trait run robustified
+          # ONE trait's posterior (whichever trait the direction file listed first)
+          # while this callout still said "your robust plan"; it now robustifies the
+          # selection index, and says which basis it used either way.
+          if (!is.null(rp$basis_label)) sprintf(" Computed on %s.", rp$basis_label),
           " Gain column: ", shiny::tags$code(rp$gain_col %||% "?"), ".", tail_note),
         shiny::div(class = "help-hint",
           "Columns show the robust gain and the posterior mean / lower / upper for each cross."),
+        if (identical(rp$index_rescaling, "per_draw_restandardized"))
+          shiny::div(class = "help-hint",
+            "The selection index is re-standardised inside every posterior draw, so the ",
+            "posterior lower / upper columns order crosses correctly on a conservative tail ",
+            "but are not on the same scale as the point-estimate index score - compare ",
+            "crosses with each other, not with the standard plan's score."),
         DT::DTOutput("res_robust_tbl"))
     })
     output$res_robust_tbl <- DT::renderDT({
