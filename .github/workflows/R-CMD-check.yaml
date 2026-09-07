@@ -147,11 +147,25 @@ jobs:
                                   upgrade = "never", build_vignettes = FALSE)
         shell: Rscript {0}
 
-      # A silent install failure would restore exactly the situation this step
-      # exists to remove: the tests skip, the job is green, and nothing guards
-      # the bridge. So assert the backend is present AND at least the floor the
-      # workbench itself declares, and fail loudly otherwise.
-      - name: Verify the backend is present and meets the declared floor
+      # Installing the backend is necessary but NOT sufficient, and the first
+      # attempt proved it: the install succeeded and the tests still skipped.
+      #
+      # backend_available() does not ask whether this R session can see the
+      # backend. It asks ngcd_check_backend(), which spawns a NESTED Rscript and
+      # probes for the package there. That child only searches the library paths
+      # it inherits, so the backend can be perfectly installed for the check
+      # process and invisible to the probe -- backend_available() returns FALSE,
+      # every backend test skips, and the job stays green.
+      #
+      # ngcd_load_config() maps any config key to NGCD_<KEY>, so pointing
+      # package_library at the library the backend actually landed in makes the
+      # probe prepend it to .libPaths() in the child. Resolve it with
+      # find.package() rather than assuming .libPaths()[1].
+      #
+      # The probe is also run here verbatim, so the log states plainly whether
+      # the child can see the backend -- rather than leaving a silent skip to be
+      # mistaken for a pass.
+      - name: Point the backend probe at the right library, and prove it works
         if: env.RUN == 'true'
         run: |
           need <- trimws(readLines("inst/BACKEND_VERSION", warn = FALSE)[[1L]])
@@ -164,6 +178,29 @@ jobs:
           if (package_version(have) < package_version(need))
             stop("backend ", have, " is below the floor ", need,
                  " declared in inst/BACKEND_VERSION.")
+
+          lib <- dirname(find.package("nextgenCrossDesign"))
+          cat("backend library:", lib, "\n")
+          cat("this session's .libPaths():\n"); print(.libPaths())
+
+          # Exactly what ngcd_check_backend() does, with the library exported.
+          Sys.setenv(NGCD_PACKAGE_LIBRARY = lib)
+          rs <- Sys.which("Rscript")
+          cat("Rscript resolved to:", rs, "\n")
+          probe <- sprintf(
+            'lib <- "%s"; if (nzchar(lib)) .libPaths(c(lib, .libPaths())); cat("BACKEND=", requireNamespace("nextgenCrossDesign", quietly=TRUE), "\\n", sep="")',
+            lib)
+          out <- system2(rs, c("-e", shQuote(probe)), stdout = TRUE, stderr = TRUE)
+          cat("probe says:", paste(out, collapse = " | "), "\n")
+          if (!any(grepl("BACKEND=TRUE", out, fixed = TRUE)))
+            stop("the nested Rscript probe cannot see the backend even with ",
+                 "package_library set, so backend_available() will stay FALSE ",
+                 "and every backend-guarded test will silently skip.")
+
+          # Export to the remaining steps, so R CMD check's test subprocess and
+          # the probe it spawns both resolve the backend.
+          cat(sprintf("NGCD_PACKAGE_LIBRARY=%s\n", lib),
+              file = Sys.getenv("GITHUB_ENV"), append = TRUE)
         shell: Rscript {0}
 
       - uses: r-lib/actions/check-r-package@v2
